@@ -1,4 +1,4 @@
-﻿# StudyMind AI Collaboration Rules
+# StudyMind AI Collaboration Rules
 
 StudyMind 是一个课堂学习辅助桌面应用，从 FrameQ 派生而来。它专注于本地音视频转写、文字稿校验和思维导图总结功能。
 
@@ -44,3 +44,13 @@ StudyMind/
 - `uv run pytest worker/tests` - 运行 Worker 测试
 - `npm --prefix app run build` - 前端构建
 - `cargo check --manifest-path app/src-tauri/Cargo.toml` - Rust 类型检查
+
+## Agent skills
+
+### Issue tracker
+
+Issues 与 specs 以 GitHub issues 形式追踪，使用 `gh` CLI。详见 `docs/agents/issue-tracker.md`。
+
+### Domain docs
+
+单上下文布局：repo 根目录的 `CONTEXT.md` 与 `docs/adr/`，由相关 skill 按需创建。详见 `docs/agents/domain.md`。

@@ -116,10 +116,7 @@ function createWorkflow(overrides: Partial<WorkflowState> = {}): WorkflowState {
     activeAiTarget: null,
     aiErrorTarget: null,
     aiTargetErrors: {},
-    composerSource: {
-      kind: "url",
-      urlDraft: "https://example.test/video",
-    },
+    composerSource: { kind: "none" },
     taskSource: {
       kind: "url",
       url: "https://example.test/video",

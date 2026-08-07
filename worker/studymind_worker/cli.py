@@ -51,11 +51,6 @@ def read_stdin_request(stream: TextIOBase) -> str:
 
 
 def stdin_failure_result(mode: str) -> dict[str, object]:
-    if mode == "resolve_source_identity":
-        return {
-            "status": "failed",
-            "error": {"code": "WORKER_STDIN_INVALID"},
-        }
     stage = "insights_generating" if mode == "retry_insights" else "waiting_input"
     return {
         "status": "failed",
@@ -105,11 +100,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run one StudyMind worker request.")
     request_group = parser.add_mutually_exclusive_group(required=True)
     request_group.add_argument(
-        "--request-stdin",
-        action="store_true",
-        help="Read one ProcessRequest JSON object from stdin.",
-    )
-    request_group.add_argument(
         "--retry-insights-stdin",
         action="store_true",
         help="Read one RetryInsightsRequest JSON object from stdin.",
@@ -128,11 +118,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--asr-model",
         help="Allowlisted ASR model ID required with --download-asr-model.",
     )
-    request_group.add_argument(
-        "--resolve-source-stdin",
-        action="store_true",
-        help="Read one source-identity request JSON object from stdin.",
-    )
     args = parser.parse_args(argv)
 
     if args.asr_model is not None and not args.download_asr_model:
@@ -145,10 +130,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         (
             mode
             for enabled, mode in [
-                (args.request_stdin, "process_video"),
                 (args.process_local_media_stdin, "process_local_media"),
                 (args.retry_insights_stdin, "retry_insights"),
-                (args.resolve_source_stdin, "resolve_source_identity"),
             ]
             if enabled
         ),
@@ -185,19 +168,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 progress_callback=print_progress_event,
             )
         )
-    elif args.resolve_source_stdin:
-        result = run_worker_business(
-            lambda: worker_service_module.resolve_source_identity_once(
-                request_json or "{}"
-            )
-        )
     else:
-        result = run_worker_business(
-            lambda: worker_service_module.run_worker_once(
-                request_json or "{}",
-                project_root=Path.cwd(),
-                progress_callback=print_progress_event,
-            )
-        )
+        result = {}
     print(render_result_json(result))
     return 1 if is_model_download and result.get("status") == "failed" else 0

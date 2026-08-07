@@ -1,5 +1,5 @@
 {
-  "contractVersion": 7,
+  "contractVersion": 8,
   "events": {
     "workerProgress": "worker-progress",
     "workerProgressPrefix": "STUDYMIND_PROGRESS ",
@@ -86,12 +86,6 @@
         "message_args"
       ],
       "messageCodes": {
-        "video.download.preparing": {
-          "allowedArgs": []
-        },
-        "video.stream.validating": {
-          "allowedArgs": []
-        },
         "local.media.validating": {
           "allowedArgs": []
         },
@@ -131,48 +125,6 @@
             "attempt",
             "total"
           ]
-        },
-        "douyin.page.resolving": {
-          "allowedArgs": []
-        },
-        "douyin.stream.probing": {
-          "allowedArgs": []
-        },
-        "douyin.video.saving": {
-          "allowedArgs": []
-        },
-        "douyin.stream.retrying": {
-          "allowedArgs": [
-            "attempt",
-            "total"
-          ]
-        },
-        "xiaohongshu.page.resolving": {
-          "allowedArgs": []
-        },
-        "xiaohongshu.video.saving": {
-          "allowedArgs": []
-        },
-        "xiaohongshu.stream.retrying": {
-          "allowedArgs": [
-            "attempt",
-            "total"
-          ]
-        },
-        "bilibili.metadata.resolving": {
-          "allowedArgs": []
-        },
-        "bilibili.stream.probing": {
-          "allowedArgs": []
-        },
-        "bilibili.video.downloading": {
-          "allowedArgs": []
-        },
-        "bilibili.audio.downloading": {
-          "allowedArgs": []
-        },
-        "bilibili.media.merging": {
-          "allowedArgs": []
         }
       }
     },
@@ -281,10 +233,8 @@
       "invalidPayloadPolicy": "reject_without_echo"
     },
     "operations": {
-      "process_video": "task",
       "process_local_media": "task",
       "retry_insights": "task",
-      "resolve_source_identity": "sourceIdentity",
       "download_asr_model": "modelDownload"
     },
     "safeErrorCode": {
@@ -637,7 +587,7 @@
             ]
           },
           "dissection_source_status": {
-            "description": "Optional. Omitted by worker stdout (treated as null); populated by the Rust URL cache path so the frontend can mark a stale dissection report without re-reading the transcript.",
+            "description": "Optional. Omitted by worker stdout (treated as null); populated by the Rust manifest path so the frontend can mark a stale dissection report without re-reading the transcript.",
             "oneOf": [
               { "type": "null" },
               { "type": "string", "enum": ["current", "stale"] }
@@ -688,103 +638,6 @@
           "completedRequiresNullError": true,
           "nonCompletedRequiresStructuredError": true
         }
-      },
-      "sourceIdentity": {
-        "oneOf": [
-          {
-            "type": "object",
-            "required": [
-              "status",
-              "source_url",
-              "source_identity"
-            ],
-            "properties": {
-              "status": {
-                "const": "completed"
-              },
-              "source_url": {
-                "type": "string",
-                "minLength": 1
-              },
-              "source_identity": {
-                "type": "object",
-                "required": [
-                  "version",
-                  "platform",
-                  "stable_id",
-                  "effective_part",
-                  "canonical_url"
-                ],
-                "properties": {
-                  "version": {
-                    "const": 1
-                  },
-                  "platform": {
-                    "type": "string",
-                    "enum": [
-                      "douyin",
-                      "xiaohongshu",
-                      "bilibili",
-                      "youtube"
-                    ]
-                  },
-                  "stable_id": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 80,
-                    "pattern": "^[A-Za-z0-9_-]+$"
-                  },
-                  "effective_part": {
-                    "oneOf": [
-                      {
-                        "type": "integer",
-                        "minimum": 1,
-                        "maximum": 100000
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "canonical_url": {
-                    "type": "string",
-                    "minLength": 1
-                  }
-                },
-                "additionalProperties": false
-              }
-            },
-            "additionalProperties": false
-          },
-          {
-            "type": "object",
-            "required": [
-              "status",
-              "error"
-            ],
-            "properties": {
-              "status": {
-                "const": "failed"
-              },
-              "error": {
-                "type": "object",
-                "required": [
-                  "code"
-                ],
-                "properties": {
-                  "code": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 64,
-                    "pattern": "^[A-Z][A-Z0-9_]{0,63}$"
-                  }
-                },
-                "additionalProperties": false
-              }
-            },
-            "additionalProperties": false
-          }
-        ]
       },
       "modelDownload": {
         "oneOf": [
@@ -841,56 +694,6 @@
   },
   "asr": {
     "defaultModel": "iic/SenseVoiceSmall"
-  },
-  "processVideo": {
-    "serverManagedLlmCheckout": false,
-    "configurationOwner": "desktop_rust",
-    "ipcRequest": {
-      "type": "object",
-      "required": [
-        "url",
-        "asrModel"
-      ],
-      "properties": {
-        "url": {
-          "type": "string",
-          "minLength": 1
-        },
-        "asrModel": {
-          "type": "string",
-          "enum": [
-            "iic/SenseVoiceSmall",
-            "iic/SenseVoiceSmall-onnx"
-          ]
-        }
-      },
-      "additionalProperties": false
-    },
-    "workerRequest": {
-      "type": "object",
-      "required": [
-        "contract_version",
-        "url",
-        "asr_model"
-      ],
-      "properties": {
-        "contract_version": {
-          "const": 3
-        },
-        "url": {
-          "type": "string",
-          "minLength": 1
-        },
-        "asr_model": {
-          "type": "string",
-          "enum": [
-            "iic/SenseVoiceSmall",
-            "iic/SenseVoiceSmall-onnx"
-          ]
-        }
-      },
-      "additionalProperties": false
-    }
   },
   "localMedia": {
     "workerMode": "--process-local-media-stdin",
@@ -1499,16 +1302,6 @@
         }
       ]
     }
-  },
-  "sourceIdentity": {
-    "preflightCommand": "resolve_source_json",
-    "preflightScope": "cache_lookup_only",
-    "processRequestAcceptsPreflightIdentity": false,
-    "manifestSchemaVersion": 3,
-    "manifestSourceUrl": "canonical_url_only",
-    "downloadUrlTransport": "transient_request_json_only",
-    "rawSourcePreflightTransport": "transient_cache_preflight_json_only",
-    "aiTranscriptArtifact": "transcript/transcript.txt"
   },
   "env": {
     "outputDir": "STUDYMIND_OUTPUT_DIR",

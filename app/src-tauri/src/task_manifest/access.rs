@@ -5,7 +5,6 @@ use super::{
         parse_insights_payload, validate_relative_artifact_path, InsightView, SafeTaskError,
         TaskArtifact, TaskManifest, TaskSourceSummary, TranscriptMetadata,
     },
-    source_identity::SourceIdentity,
     storage::{
         artifact_path, encode_task_manifest, ensure_artifact_parent, list_task_manifest_paths,
         load_task_manifest, path_to_frontend_string, read_task_manifest_path,
@@ -120,14 +119,6 @@ impl SupportedTask {
 
     pub(crate) fn model(&self) -> &str {
         &self.manifest.model
-    }
-
-    pub(crate) fn safe_source_url(&self) -> &str {
-        self.manifest.safe_source_url()
-    }
-
-    pub(crate) fn source_identity(&self) -> Option<&SourceIdentity> {
-        self.manifest.safe_source_identity()
     }
 
     pub(crate) fn source(&self) -> TaskSourceSummary {

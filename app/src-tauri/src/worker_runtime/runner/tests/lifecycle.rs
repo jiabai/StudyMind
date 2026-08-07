@@ -15,7 +15,7 @@ fn spawn_failure_is_typed_and_never_activates_the_lane() {
     let lane = WorkerLane::default();
     let paths = test_paths("spawn-failure");
     let request = WorkerRunRequest {
-        operation: WorkerOperation::ResolveSourceIdentity,
+        operation: WorkerOperation::ProcessLocalMedia,
         command: WorkerCommandSpec {
             program: paths.user_data_dir.join("missing-worker-executable"),
             args: Vec::new(),

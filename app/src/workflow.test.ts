@@ -1,7 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
   cancelProcessing,
-  canSubmitUrl,
   confirmProcessingCancellation,
   finishInsightRetry,
   createInitialWorkflow,
@@ -12,7 +11,6 @@ import {
   getVisibleWorkflowError,
   isProcessingStage,
   mergeProgressEvent,
-  normalizeSubmitUrl,
   requestProcessingCancellation,
   restoreProcessingAfterCancellationFailure,
   startProcessing,
@@ -36,7 +34,6 @@ const LOCAL_COMPOSER_SOURCE = {
     extension: "wmv",
     sizeBytes: 1024,
   },
-  retainedUrlDraft: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
 } as const;
 const DEFAULT_ARTIFACTS = {
   video: "media/video.mp4",
@@ -178,86 +175,14 @@ describe("workflow state model", () => {
     expect(next.dissection).toEqual(DEFAULT_DISSECTION);
     expect(next.dissectionStale).toBe(true);
   });
-  test("starts with one URL composer branch and no task source", () => {
+  test("starts with no composer selection and no task source", () => {
     const state = createInitialWorkflow();
 
-    expect(state.composerSource).toEqual({ kind: "url", urlDraft: "" });
+    expect(state.composerSource).toEqual({ kind: "none" });
     expect(state.taskSource).toBeNull();
     expect(state).not.toHaveProperty("url");
     expect(state).not.toHaveProperty("submittedUrl");
     expect(state).not.toHaveProperty("showUrlInput");
-  });
-
-  test("allows supported Douyin and Xiaohongshu video urls to be submitted", () => {
-    expect(canSubmitUrl("")).toBe(false);
-    expect(canSubmitUrl("https://example.com/video/1")).toBe(false);
-    expect(canSubmitUrl("https://notdouyin.com/video/7524373044106677544")).toBe(false);
-    expect(canSubmitUrl("https://evil-douyin.com/video/7524373044106677544")).toBe(false);
-    expect(canSubmitUrl("https://www.douyin.com/video/7524373044106677544")).toBe(true);
-    expect(canSubmitUrl("https://www.douyin.com/note/7653372612151692594")).toBe(true);
-    expect(canSubmitUrl("https://www.douyin.com/share/slides/7653372612151692594")).toBe(true);
-    expect(
-      canSubmitUrl("https://www.douyin.com/note/123?modal_id=7653372612151692594"),
-    ).toBe(true);
-    expect(canSubmitUrl("https://www.douyin.com/?aweme_id=7653372612151692594")).toBe(true);
-    expect(
-      canSubmitUrl(
-        "copy https://www.douyin.com/share/slides/7653372612151692594 more text",
-      ),
-    ).toBe(true);
-    expect(canSubmitUrl("https://v.douyin.com/LllWTdm3-Dg/")).toBe(true);
-    expect(canSubmitUrl("https://v.douyin.com/")).toBe(false);
-    expect(canSubmitUrl("http://xhslink.com/o/jQzXcxNapU")).toBe(true);
-    expect(canSubmitUrl("https://xhslink.com/o/jQzXcxNapU")).toBe(true);
-    expect(canSubmitUrl("https://www.xhslink.com/demo")).toBe(true);
-    expect(
-      canSubmitUrl(
-        "复制小红书笔记 https://www.xiaohongshu.com/explore/0123456789abcdef01234568?xsec_token=tok",
-      ),
-    ).toBe(true);
-    expect(canSubmitUrl("0123456789abcdef01234568")).toBe(true);
-    expect(canSubmitUrl("https://www.bilibili.com/video/BV1Aa411c7mD?p=2")).toBe(true);
-    expect(canSubmitUrl("https://www.bilibili.com/video/av170001")).toBe(true);
-    expect(canSubmitUrl("copy https://b23.tv/demo more text")).toBe(true);
-    expect(canSubmitUrl("https://www.youtube.com/watch?v=dQw4w9WgXcQ")).toBe(true);
-    expect(canSubmitUrl("https://youtu.be/dQw4w9WgXcQ")).toBe(true);
-    expect(canSubmitUrl("https://www.youtube.com/shorts/abcDEF_123-")).toBe(true);
-    expect(
-      canSubmitUrl(
-        "copy https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL123 more text",
-      ),
-    ).toBe(true);
-    expect(canSubmitUrl("http://xhslink.com/o/")).toBe(false);
-    expect(canSubmitUrl("https://evil-xhslink.com/o/jQzXcxNapU")).toBe(false);
-    expect(canSubmitUrl("https://xhslink.com.evil/o/jQzXcxNapU")).toBe(false);
-    expect(
-      canSubmitUrl("https://xiaohongshu.com.evil/explore/0123456789abcdef01234568"),
-    ).toBe(false);
-    expect(canSubmitUrl("https://www.bilibili.com/bangumi/play/ep123456")).toBe(false);
-    expect(canSubmitUrl("https://b23.tv/")).toBe(false);
-    expect(canSubmitUrl("https://b23.tv.evil/demo")).toBe(false);
-    expect(canSubmitUrl("https://www.youtube.com/playlist?list=PL123")).toBe(false);
-    expect(canSubmitUrl("https://www.youtube.com/channel/UC123")).toBe(false);
-    expect(canSubmitUrl("https://www.youtube.com/@StudyMind")).toBe(false);
-    expect(canSubmitUrl("https://youtu.be/")).toBe(false);
-    expect(canSubmitUrl("https://youtube.com.evil/watch?v=dQw4w9WgXcQ")).toBe(false);
-    expect(canSubmitUrl("https://music.youtube.com/watch?v=dQw4w9WgXcQ")).toBe(false);
-    expect(canSubmitUrl("ftp://www.youtube.com/watch?v=dQw4w9WgXcQ")).toBe(false);
-  });
-
-  test("normalizes submitted share text to the supported url", () => {
-    expect(
-      normalizeSubmitUrl(
-        "copy https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL123 more text",
-      ),
-    ).toBe("https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL123");
-    expect(normalizeSubmitUrl("https://youtu.be/dQw4w9WgXcQ")).toBe(
-      "https://youtu.be/dQw4w9WgXcQ",
-    );
-    expect(normalizeSubmitUrl("0123456789abcdef01234568")).toBe(
-      "0123456789abcdef01234568",
-    );
-    expect(normalizeSubmitUrl("https://www.youtube.com/playlist?list=PL123")).toBeNull();
   });
 
   test("starts processing by freezing the closed task source", () => {
@@ -265,7 +190,7 @@ describe("workflow state model", () => {
 
     expect(state.stage).toBe("video_extracting");
     expect(state.taskSource).toEqual(URL_SOURCE);
-    expect(state.composerSource).toEqual({ kind: "url", urlDraft: "" });
+    expect(state.composerSource).toEqual({ kind: "none" });
     expect(state.statusMessage).toBeNull();
     expect(state.progressMessage).toEqual({
       messageCode: "video.download.preparing",
@@ -513,14 +438,11 @@ describe("workflow state model", () => {
     expect(retrying.error).toBeNull();
   });
 
-  test("cancels active URL processing and returns to one URL composer branch", () => {
+  test("cancels active processing and preserves the existing composer selection", () => {
     const state = startProcessing(
       {
         ...createInitialWorkflow(),
-        composerSource: {
-          kind: "url",
-          urlDraft: URL_SOURCE.url,
-        },
+        composerSource: LOCAL_COMPOSER_SOURCE,
       },
       URL_SOURCE,
     );
@@ -528,10 +450,7 @@ describe("workflow state model", () => {
     const cancelled = cancelProcessing(state);
 
     expect(cancelled.stage).toBe("waiting_input");
-    expect(cancelled.composerSource).toEqual({
-      kind: "url",
-      urlDraft: URL_SOURCE.url,
-    });
+    expect(cancelled.composerSource).toEqual(LOCAL_COMPOSER_SOURCE);
     expect(cancelled.taskSource).toBeNull();
     expect(cancelled.statusMessage).toBeNull();
     expect(cancelled.error).toBeNull();
@@ -570,7 +489,7 @@ describe("workflow state model", () => {
 
     const cancelled = confirmProcessingCancellation(cancelling);
     expect(cancelled.stage).toBe("waiting_input");
-    expect(cancelled.composerSource).toEqual({ kind: "url", urlDraft: "" });
+    expect(cancelled.composerSource).toEqual({ kind: "none" });
     expect(cancelled.taskSource).toBeNull();
   });
 

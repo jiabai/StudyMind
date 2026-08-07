@@ -17,7 +17,6 @@ from studymind_worker.atomic_files import (
     platform_text_bytes,
 )
 from studymind_worker.models import TranscriptMetadata
-from studymind_worker.source_identity import SourceIdentity, canonical_url_for_persistence
 from studymind_worker.task_transaction import (
     TaskArtifactCommitError,
     TaskArtifactRecoveryError,
@@ -32,7 +31,6 @@ def transcribe_and_write(
     transcriber: Transcriber,
     language: str = "Chinese",
     model: str = DEFAULT_ASR_MODEL,
-    source_identity: SourceIdentity | None = None,
 ) -> TranscriptArtifacts:
     transcript = transcriber.transcribe(audio_path, language=language)
     return write_transcript_files(
@@ -44,7 +42,6 @@ def transcribe_and_write(
             source="asr",
             language=None,
             engine=model,
-            source_identity=source_identity,
         ),
         segments=transcript.segments,
     )
@@ -67,9 +64,6 @@ def write_transcript_files(
         language=None,
         engine=model,
     )
-    canonical_source_url = canonical_url_for_persistence(
-        transcript_metadata.source_identity
-    )
 
     if output_stem:
         txt_path = output_dir / f"{output_stem}_transcript.txt"
@@ -85,7 +79,6 @@ def write_transcript_files(
         _format_transcript_markdown(
             text=cleaned_text,
             metadata=transcript_metadata,
-            canonical_source_url=canonical_source_url,
         )
     )
     segments_bytes = (
@@ -133,7 +126,6 @@ def write_transcript_files(
 def _format_transcript_markdown(
     text: str,
     metadata: TranscriptMetadata,
-    canonical_source_url: str | None,
 ) -> str:
     if metadata.source == "subtitle":
         source_lines = ["- Transcript Source: Platform subtitle"]
@@ -144,8 +136,6 @@ def _format_transcript_markdown(
         if metadata.engine:
             source_lines.append(f"- ASR Engine: {metadata.engine}")
             source_lines.append(f"- Model: {metadata.engine}")
-    if canonical_source_url:
-        source_lines.append(f"- Source URL: {canonical_source_url}")
     metadata_text = "\n".join(source_lines)
     return f"""# 视频文字稿
 

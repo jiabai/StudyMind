@@ -40,11 +40,6 @@ export type ProgressDiagnosticRecorder = (safeCode: string) => void;
 
 export type RetryInsightTarget = "summary" | "insights";
 
-export type ProcessVideoIpcRequest = {
-  url: string;
-  asrModel: "iic/SenseVoiceSmall" | "iic/SenseVoiceSmall-onnx";
-};
-
 export type RetryInsightsRequest = RetryInsightsWireRequest;
 
 const defaultWorkerRunner: WorkerCommandRunner = (command, args) => invoke(command, args);
@@ -52,56 +47,6 @@ const defaultCancelRunner: CancelCommandRunner = (command, args) => invoke(comma
 const defaultProgressDiagnosticRecorder: ProgressDiagnosticRecorder = (safeCode) => {
   console.warn(`Dropped invalid worker progress event: ${safeCode}`);
 };
-
-export function processVideo(
-  url: string,
-  runner?: WorkerCommandRunner,
-  onProgress?: WorkerProgressHandler,
-  progressListener?: WorkerProgressListener,
-  recordInvalidProgress?: ProgressDiagnosticRecorder,
-): Promise<WorkerResult>;
-export function processVideo(
-  url: string,
-  asrModel: ProcessVideoIpcRequest["asrModel"],
-  runner?: WorkerCommandRunner,
-  onProgress?: WorkerProgressHandler,
-  progressListener?: WorkerProgressListener,
-  recordInvalidProgress?: ProgressDiagnosticRecorder,
-): Promise<WorkerResult>;
-export async function processVideo(
-  url: string,
-  asrModelOrRunner:
-    | ProcessVideoIpcRequest["asrModel"]
-    | WorkerCommandRunner = "iic/SenseVoiceSmall",
-  runnerOrOnProgress?: WorkerCommandRunner | WorkerProgressHandler,
-  onProgressOrListener?: WorkerProgressHandler | WorkerProgressListener,
-  progressListenerOrRecorder?: WorkerProgressListener | ProgressDiagnosticRecorder,
-  recordInvalidProgress?: ProgressDiagnosticRecorder,
-): Promise<WorkerResult> {
-  const legacyInvocation = typeof asrModelOrRunner === "function";
-  const asrModel = legacyInvocation ? "iic/SenseVoiceSmall" : asrModelOrRunner;
-  const resolvedRunner = legacyInvocation
-    ? asrModelOrRunner
-    : (runnerOrOnProgress as WorkerCommandRunner | undefined) ?? defaultWorkerRunner;
-  const resolvedOnProgress = legacyInvocation
-    ? (runnerOrOnProgress as WorkerProgressHandler | undefined)
-    : (onProgressOrListener as WorkerProgressHandler | undefined);
-  const resolvedProgressListener = legacyInvocation
-    ? (onProgressOrListener as WorkerProgressListener | undefined) ?? listen
-    : (progressListenerOrRecorder as WorkerProgressListener | undefined) ?? listen;
-  const resolvedDiagnosticRecorder = legacyInvocation
-    ? (progressListenerOrRecorder as ProgressDiagnosticRecorder | undefined) ??
-      defaultProgressDiagnosticRecorder
-    : recordInvalidProgress ?? defaultProgressDiagnosticRecorder;
-  return runTaskCommand(
-    "process_video",
-    { url, asrModel } satisfies ProcessVideoIpcRequest,
-    resolvedRunner,
-    resolvedOnProgress,
-    resolvedProgressListener,
-    resolvedDiagnosticRecorder,
-  );
-}
 
 export async function processLocalMedia(
   input: ProcessLocalMediaRequest,
@@ -129,8 +74,8 @@ export async function processLocalMedia(
 }
 
 async function runTaskCommand(
-  command: "process_video" | "process_local_media",
-  request: ProcessVideoIpcRequest | ProcessLocalMediaRequest,
+  command: "process_local_media",
+  request: ProcessLocalMediaRequest,
   runner: WorkerCommandRunner,
   onProgress: WorkerProgressHandler | undefined,
   progressListener: WorkerProgressListener,

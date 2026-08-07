@@ -55,20 +55,16 @@ pub(crate) const TASK_TERMINAL_STATUSES: &[&str] = &["completed", "partial_compl
 #[derive(Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) struct TerminalOperationFamilies {
-    process_video: &'static str,
     process_local_media: &'static str,
     retry_insights: &'static str,
-    resolve_source_identity: &'static str,
     download_asr_model: &'static str,
 }
 
 #[cfg(test)]
 pub(crate) const TERMINAL_OPERATION_FAMILIES: TerminalOperationFamilies =
     TerminalOperationFamilies {
-        process_video: "task",
         process_local_media: "task",
         retry_insights: "task",
-        resolve_source_identity: "sourceIdentity",
         download_asr_model: "modelDownload",
     };
 
@@ -244,22 +240,6 @@ impl TaskTerminalResult {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct SourceIdentityFailure {
-    pub(crate) code: String,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum SourceIdentityTerminalResult {
-    Completed {
-        source_url: String,
-        source_identity: task_manifest::SourceIdentity,
-    },
-    Failed {
-        error: SourceIdentityFailure,
-    },
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum ModelDownloadTerminalResult {
     Completed { model: String },
     Failed { code: String, message: String },
@@ -268,7 +248,6 @@ pub(crate) enum ModelDownloadTerminalResult {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum ValidatedWorkerResult {
     Task(TaskTerminalResult),
-    SourceIdentity(SourceIdentityTerminalResult),
     ModelDownload(ModelDownloadTerminalResult),
 }
 
@@ -290,14 +269,9 @@ pub(crate) fn parse_terminal_result(
     }
 
     match operation {
-        WorkerOperation::ProcessVideo
-        | WorkerOperation::ProcessLocalMedia
-        | WorkerOperation::RetryInsights => {
+        WorkerOperation::ProcessLocalMedia | WorkerOperation::RetryInsights => {
             let result = serde_json::from_str(line).map_err(|_| TerminalResultError::Invalid)?;
             validate_task_result(result).map(ValidatedWorkerResult::Task)
-        }
-        WorkerOperation::ResolveSourceIdentity => {
-            parse_source_identity_result(line).map(ValidatedWorkerResult::SourceIdentity)
         }
         WorkerOperation::DownloadAsrModel => {
             parse_model_download_result(line).map(ValidatedWorkerResult::ModelDownload)
@@ -440,103 +414,6 @@ fn all_non_blank(values: &[String]) -> bool {
 
 #[derive(Deserialize)]
 #[serde(untagged)]
-enum RawSourceIdentityTerminalResult {
-    Completed(RawSourceIdentityCompleted),
-    Failed(RawSourceIdentityFailed),
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawSourceIdentityCompleted {
-    status: String,
-    source_url: String,
-    source_identity: RawSourceIdentity,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawSourceIdentityFailed {
-    status: String,
-    error: RawSourceIdentityFailure,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawSourceIdentityFailure {
-    code: String,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawSourceIdentity {
-    version: u64,
-    platform: SourcePlatform,
-    stable_id: String,
-    #[serde(deserialize_with = "deserialize_required_nullable")]
-    effective_part: Option<u64>,
-    canonical_url: String,
-}
-
-#[derive(Clone, Copy, Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum SourcePlatform {
-    Douyin,
-    Xiaohongshu,
-    Bilibili,
-    Youtube,
-}
-
-impl SourcePlatform {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Douyin => "douyin",
-            Self::Xiaohongshu => "xiaohongshu",
-            Self::Bilibili => "bilibili",
-            Self::Youtube => "youtube",
-        }
-    }
-}
-
-fn parse_source_identity_result(
-    line: &str,
-) -> Result<SourceIdentityTerminalResult, TerminalResultError> {
-    let raw: RawSourceIdentityTerminalResult =
-        serde_json::from_str(line).map_err(|_| TerminalResultError::Invalid)?;
-    match raw {
-        RawSourceIdentityTerminalResult::Completed(completed) => {
-            if completed.status != "completed" || completed.source_identity.version != 1 {
-                return Err(TerminalResultError::Invalid);
-            }
-            let identity = task_manifest::SourceIdentity {
-                version: completed.source_identity.version,
-                platform: completed.source_identity.platform.as_str().to_string(),
-                stable_id: completed.source_identity.stable_id,
-                effective_part: completed.source_identity.effective_part,
-                canonical_url: completed.source_identity.canonical_url,
-            };
-            if completed.source_url != identity.canonical_url || !identity.is_safe() {
-                return Err(TerminalResultError::Invalid);
-            }
-            Ok(SourceIdentityTerminalResult::Completed {
-                source_url: completed.source_url,
-                source_identity: identity,
-            })
-        }
-        RawSourceIdentityTerminalResult::Failed(failed) => {
-            if failed.status != "failed" || !is_safe_error_code(&failed.error.code) {
-                return Err(TerminalResultError::Invalid);
-            }
-            Ok(SourceIdentityTerminalResult::Failed {
-                error: SourceIdentityFailure {
-                    code: failed.error.code,
-                },
-            })
-        }
-    }
-}
-
-#[derive(Deserialize)]
-#[serde(untagged)]
 enum RawModelDownloadTerminalResult {
     Completed(RawModelDownloadCompleted),
     Failed(RawModelDownloadFailed),
@@ -609,9 +486,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_terminal_result, ModelDownloadTerminalResult, SourceIdentityTerminalResult,
-        TerminalResultError, ValidatedWorkerResult, TASK_ARTIFACT_KEYS, TASK_INSIGHT_FIELDS,
-        TASK_RESULT_FIELDS, TASK_TERMINAL_STATUSES, TERMINAL_OPERATION_FAMILIES,
+        parse_terminal_result, ModelDownloadTerminalResult, TerminalResultError,
+        ValidatedWorkerResult, TASK_ARTIFACT_KEYS, TASK_INSIGHT_FIELDS, TASK_RESULT_FIELDS,
+        TASK_TERMINAL_STATUSES, TERMINAL_OPERATION_FAMILIES,
     };
     use crate::task_manifest;
     use crate::worker_runtime::runner::WorkerOperation;
@@ -621,7 +498,6 @@ mod tests {
     #[test]
     fn task_operations_accept_only_complete_closed_task_results() {
         for operation in [
-            WorkerOperation::ProcessVideo,
             WorkerOperation::ProcessLocalMedia,
             WorkerOperation::RetryInsights,
         ] {
@@ -685,7 +561,7 @@ mod tests {
         for value in invalid_values {
             assert_eq!(
                 parse_terminal_result(
-                    WorkerOperation::ProcessVideo,
+                    WorkerOperation::ProcessLocalMedia,
                     &serde_json::to_vec(&value).expect("serialize invalid task"),
                 ),
                 Err(TerminalResultError::Invalid),
@@ -728,7 +604,7 @@ mod tests {
         for value in invalid_values {
             assert_eq!(
                 parse_terminal_result(
-                    WorkerOperation::ProcessVideo,
+                    WorkerOperation::ProcessLocalMedia,
                     &serde_json::to_vec(&value).expect("serialize incoherent task"),
                 ),
                 Err(TerminalResultError::Invalid),
@@ -739,70 +615,23 @@ mod tests {
     #[test]
     fn stdout_framing_requires_one_nonempty_utf8_json_line() {
         assert_eq!(
-            parse_terminal_result(WorkerOperation::ProcessVideo, b" \r\n\t"),
+            parse_terminal_result(WorkerOperation::ProcessLocalMedia, b" \r\n\t"),
             Err(TerminalResultError::Missing),
         );
         assert_eq!(
-            parse_terminal_result(WorkerOperation::ProcessVideo, &[0xff, 0xfe]),
+            parse_terminal_result(WorkerOperation::ProcessLocalMedia, &[0xff, 0xfe]),
             Err(TerminalResultError::Invalid),
         );
         assert_eq!(
-            parse_terminal_result(WorkerOperation::ProcessVideo, b"not-json"),
+            parse_terminal_result(WorkerOperation::ProcessLocalMedia, b"not-json"),
             Err(TerminalResultError::Invalid),
         );
         let line = serde_json::to_string(&valid_task_value()).expect("serialize task line");
         let multiple = format!("{line}\n{line}\n");
         assert_eq!(
-            parse_terminal_result(WorkerOperation::ProcessVideo, multiple.as_bytes()),
+            parse_terminal_result(WorkerOperation::ProcessLocalMedia, multiple.as_bytes()),
             Err(TerminalResultError::Invalid),
         );
-    }
-
-    #[test]
-    fn source_identity_results_are_closed_and_semantically_safe() {
-        let completed = valid_source_identity_value();
-        let parsed = parse_terminal_result(
-            WorkerOperation::ResolveSourceIdentity,
-            &serde_json::to_vec(&completed).expect("serialize source identity"),
-        )
-        .expect("valid source identity result");
-        assert!(matches!(
-            parsed,
-            ValidatedWorkerResult::SourceIdentity(SourceIdentityTerminalResult::Completed { .. })
-        ));
-
-        let failed = json!({
-            "status": "failed",
-            "error": {"code": "SOURCE_IDENTITY_UNAVAILABLE"}
-        });
-        assert!(matches!(
-            parse_terminal_result(
-                WorkerOperation::ResolveSourceIdentity,
-                &serde_json::to_vec(&failed).expect("serialize source failure"),
-            ),
-            Ok(ValidatedWorkerResult::SourceIdentity(
-                SourceIdentityTerminalResult::Failed { .. }
-            ))
-        ));
-
-        let invalid_values = [
-            mutate_source(|value| value["extra"] = json!(true)),
-            mutate_source(|value| value["source_identity"]["extra"] = json!(true)),
-            mutate_source(|value| {
-                value["source_url"] = json!("https://www.youtube.com/watch?v=aaaaaaaaaaa")
-            }),
-            mutate_source(|value| value["source_identity"]["platform"] = json!("unknown")),
-            json!({"status": "failed", "error": {"code": "unsafe.code"}}),
-        ];
-        for value in invalid_values {
-            assert_eq!(
-                parse_terminal_result(
-                    WorkerOperation::ResolveSourceIdentity,
-                    &serde_json::to_vec(&value).expect("serialize invalid source"),
-                ),
-                Err(TerminalResultError::Invalid),
-            );
-        }
     }
 
     #[test]
@@ -865,21 +694,6 @@ mod tests {
                 Err(TerminalResultError::Invalid),
             );
         }
-    }
-
-    #[test]
-    fn operation_mismatch_is_rejected_instead_of_reinterpreted() {
-        let task = serde_json::to_vec(&valid_task_value()).expect("serialize task");
-        let source = serde_json::to_vec(&valid_source_identity_value()).expect("serialize source");
-
-        assert_eq!(
-            parse_terminal_result(WorkerOperation::ResolveSourceIdentity, &task),
-            Err(TerminalResultError::Invalid),
-        );
-        assert_eq!(
-            parse_terminal_result(WorkerOperation::ProcessVideo, &source),
-            Err(TerminalResultError::Invalid),
-        );
     }
 
     #[test]
@@ -1001,20 +815,6 @@ mod tests {
         value
     }
 
-    fn valid_source_identity_value() -> Value {
-        json!({
-            "status": "completed",
-            "source_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-            "source_identity": {
-                "version": 1,
-                "platform": "youtube",
-                "stable_id": "dQw4w9WgXcQ",
-                "effective_part": null,
-                "canonical_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-            }
-        })
-    }
-
     fn mutate_task(mutate: impl FnOnce(&mut Value)) -> Value {
         let mut value = valid_task_value();
         mutate(&mut value);
@@ -1032,7 +832,7 @@ mod tests {
     fn task_result_accepts_optional_dissection_source_status() {
         // Worker stdout omits the field: parses as None (cache path not taken).
         let stdout = serde_json::to_vec(&valid_task_value()).expect("serialize worker stdout");
-        let parsed = parse_terminal_result(WorkerOperation::ProcessVideo, &stdout)
+        let parsed = parse_terminal_result(WorkerOperation::ProcessLocalMedia, &stdout)
             .expect("worker stdout without dissection_source_status is valid");
         match parsed {
             ValidatedWorkerResult::Task(result) => {
@@ -1044,7 +844,7 @@ mod tests {
         // Cache path propagates "stale".
         let stale = serde_json::to_vec(&task_with_dissection_source_status("stale"))
             .expect("serialize stale cache result");
-        match parse_terminal_result(WorkerOperation::ProcessVideo, &stale)
+        match parse_terminal_result(WorkerOperation::ProcessLocalMedia, &stale)
             .expect("stale dissection_source_status is valid")
         {
             ValidatedWorkerResult::Task(result) => {
@@ -1059,7 +859,7 @@ mod tests {
         // Cache path propagates "current".
         let current = serde_json::to_vec(&task_with_dissection_source_status("current"))
             .expect("serialize current cache result");
-        match parse_terminal_result(WorkerOperation::ProcessVideo, &current)
+        match parse_terminal_result(WorkerOperation::ProcessLocalMedia, &current)
             .expect("current dissection_source_status is valid")
         {
             ValidatedWorkerResult::Task(result) => {
@@ -1077,16 +877,10 @@ mod tests {
         let invalid = task_with_dissection_source_status("unknown");
         assert_eq!(
             parse_terminal_result(
-                WorkerOperation::ProcessVideo,
+                WorkerOperation::ProcessLocalMedia,
                 &serde_json::to_vec(&invalid).expect("serialize invalid status"),
             ),
             Err(TerminalResultError::Invalid),
         );
-    }
-
-    fn mutate_source(mutate: impl FnOnce(&mut Value)) -> Value {
-        let mut value = valid_source_identity_value();
-        mutate(&mut value);
-        value
     }
 }

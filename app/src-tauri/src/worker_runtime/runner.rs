@@ -28,10 +28,8 @@ use std::time::Duration;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum WorkerOperation {
-    ProcessVideo,
     ProcessLocalMedia,
     RetryInsights,
-    ResolveSourceIdentity,
     DownloadAsrModel,
 }
 
@@ -53,10 +51,8 @@ impl WorkerTimeoutKind {
 impl WorkerOperation {
     fn as_str(self) -> &'static str {
         match self {
-            Self::ProcessVideo => "process_video",
             Self::ProcessLocalMedia => "process_local_media",
             Self::RetryInsights => "retry_insights",
-            Self::ResolveSourceIdentity => "resolve_source_identity",
             Self::DownloadAsrModel => "download_asr_model",
         }
     }

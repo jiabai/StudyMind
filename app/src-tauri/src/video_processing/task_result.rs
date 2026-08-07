@@ -5,7 +5,6 @@ use crate::worker_runtime::{
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum TaskCommandContext {
-    ProcessVideo,
     ProcessLocalMedia,
     RetryInsights,
 }
@@ -19,11 +18,6 @@ struct TaskFailurePolicy {
 impl TaskCommandContext {
     fn failure_policy(self) -> TaskFailurePolicy {
         match self {
-            Self::ProcessVideo => TaskFailurePolicy {
-                status: "failed",
-                stage: "video_extracting",
-                unstructured_message: "Worker process failed before returning a structured result.",
-            },
             Self::ProcessLocalMedia => TaskFailurePolicy {
                 status: "failed",
                 stage: "video_extracting",
@@ -158,7 +152,7 @@ mod tests {
             Ok(WorkerRunOutcome::Structured(ValidatedWorkerResult::Task(
                 expected.clone(),
             ))),
-            TaskCommandContext::ProcessVideo,
+            TaskCommandContext::ProcessLocalMedia,
         )
         .expect("map task result");
 
@@ -168,12 +162,6 @@ mod tests {
     #[test]
     fn process_and_retry_contexts_keep_fixed_cancellation_and_unstructured_shapes() {
         for (context, status, stage, message) in [
-            (
-                TaskCommandContext::ProcessVideo,
-                "failed",
-                "video_extracting",
-                "Worker process failed before returning a structured result.",
-            ),
             (
                 TaskCommandContext::ProcessLocalMedia,
                 "failed",
@@ -215,11 +203,6 @@ mod tests {
     #[test]
     fn process_and_retry_timeouts_keep_context_shape_and_closed_safe_codes() {
         for (context, status, stage) in [
-            (
-                TaskCommandContext::ProcessVideo,
-                "failed",
-                "video_extracting",
-            ),
             (
                 TaskCommandContext::ProcessLocalMedia,
                 "failed",
@@ -264,7 +247,7 @@ mod tests {
                     model: "iic/SenseVoiceSmall".to_string(),
                 }),
             )),
-            TaskCommandContext::ProcessVideo,
+            TaskCommandContext::ProcessLocalMedia,
         )
         .expect("map mismatched family");
         let mismatched = task_value(&mismatched);
@@ -295,7 +278,7 @@ mod tests {
                     kind,
                     detail: "review-secret https://secret.example",
                 }),
-                TaskCommandContext::ProcessVideo,
+                TaskCommandContext::ProcessLocalMedia,
             )
             .expect("map runtime error");
             let result = task_value(&result);

@@ -54,16 +54,9 @@ impl AsrModelDownloadJob {
 }
 
 pub(crate) enum WorkerJob {
-    ProcessVideo {
-        payload: String,
-        progress: ProgressRoute,
-    },
     ProcessLocalMedia {
         payload: String,
         progress: ProgressRoute,
-    },
-    ResolveSourceIdentity {
-        payload: String,
     },
     RetryInsights {
         payload: String,
@@ -72,22 +65,6 @@ pub(crate) enum WorkerJob {
 }
 
 impl WorkerJob {
-    #[cfg(not(test))]
-    pub(crate) fn process_video(payload: String, window: Window) -> Self {
-        Self::ProcessVideo {
-            payload,
-            progress: ProgressRoute::worker(window),
-        }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn process_video<T>(payload: String, window: T) -> Self {
-        Self::ProcessVideo {
-            payload,
-            progress: ProgressRoute::worker(window),
-        }
-    }
-
     #[cfg(not(test))]
     pub(crate) fn process_local_media(payload: String, window: Window) -> Self {
         Self::ProcessLocalMedia {
@@ -102,10 +79,6 @@ impl WorkerJob {
             payload,
             progress: ProgressRoute::worker(window),
         }
-    }
-
-    pub(crate) fn resolve_source_identity(payload: String) -> Self {
-        Self::ResolveSourceIdentity { payload }
     }
 
     #[cfg(not(test))]
@@ -148,22 +121,10 @@ impl<'a> TaskWorkerFacade<'a> {
         F: FnOnce(&RuntimePaths) -> Result<Option<ServerManagedLlmInvocation>, String>,
     {
         let (invocation, operation, progress, needs_llm) = match job {
-            WorkerJob::ProcessVideo { payload, progress } => (
-                WorkerInvocation::ProcessVideo(payload),
-                WorkerOperation::ProcessVideo,
-                progress,
-                false,
-            ),
             WorkerJob::ProcessLocalMedia { payload, progress } => (
                 WorkerInvocation::ProcessLocalMedia(payload),
                 WorkerOperation::ProcessLocalMedia,
                 progress,
-                false,
-            ),
-            WorkerJob::ResolveSourceIdentity { payload } => (
-                WorkerInvocation::ResolveSourceIdentity(payload),
-                WorkerOperation::ResolveSourceIdentity,
-                ProgressRoute::None,
                 false,
             ),
             WorkerJob::RetryInsights { payload, progress } => (
@@ -236,41 +197,6 @@ mod typed_job_policy_tests {
     }
 
     #[test]
-    fn process_video_job_derives_worker_progress_and_never_resolves_llm() {
-        let paths = runtime_paths();
-        let supervisors = ProcessSupervisors::default();
-        let resolver_calls = Cell::new(0);
-        let payload = r#"{"contract_version":3,"url":"https://example.test/video","asr_model":"iic/SenseVoiceSmall"}"#;
-
-        let request = supervisors
-            .task_worker(&paths)
-            .prepare_for_test(WorkerJob::process_video(payload.to_string(), ()), |_| {
-                resolver_calls.set(resolver_calls.get() + 1);
-                Ok(Some(server_llm()))
-            })
-            .expect("prepare process-video job");
-
-        assert_eq!(request.operation, WorkerOperation::ProcessVideo);
-        assert_watchdog_policy(
-            request.operation,
-            Some(Duration::from_secs(45 * 60)),
-            Duration::from_secs(8 * 60 * 60),
-        );
-        assert!(matches!(request.progress, ProgressRoute::Worker));
-        assert_eq!(
-            request.command.args,
-            vec!["-m", "studymind_worker", "--request-stdin"]
-        );
-        assert_eq!(request.command.stdin_payload.as_deref(), Some(payload));
-        assert_eq!(resolver_calls.get(), 0);
-        assert!(!request
-            .command
-            .env
-            .iter()
-            .any(|(key, _)| key.starts_with("STUDYMIND_LLM_")));
-    }
-
-    #[test]
     fn process_local_media_job_uses_task_lane_stdin_progress_watchdog_and_no_llm() {
         let paths = runtime_paths();
         let supervisors = ProcessSupervisors::default();
@@ -319,35 +245,6 @@ mod typed_job_policy_tests {
     }
 
     #[test]
-    fn source_identity_job_derives_silent_progress_and_never_resolves_llm() {
-        let paths = runtime_paths();
-        let supervisors = ProcessSupervisors::default();
-        let resolver_calls = Cell::new(0);
-        let payload = r#"{"url":"https://example.test/video"}"#;
-
-        let request = supervisors
-            .task_worker(&paths)
-            .prepare_for_test(
-                WorkerJob::resolve_source_identity(payload.to_string()),
-                |_| {
-                    resolver_calls.set(resolver_calls.get() + 1);
-                    Ok(Some(server_llm()))
-                },
-            )
-            .expect("prepare source-identity job");
-
-        assert_eq!(request.operation, WorkerOperation::ResolveSourceIdentity);
-        assert_watchdog_policy(request.operation, None, Duration::from_secs(3 * 60));
-        assert!(matches!(request.progress, ProgressRoute::None));
-        assert_eq!(
-            request.command.args,
-            vec!["-m", "studymind_worker", "--resolve-source-stdin"]
-        );
-        assert_eq!(request.command.stdin_payload.as_deref(), Some(payload));
-        assert_eq!(resolver_calls.get(), 0);
-    }
-
-    #[test]
     fn retry_insights_job_derives_worker_progress_and_resolves_llm_once() {
         let paths = runtime_paths();
         let supervisors = ProcessSupervisors::default();
@@ -387,15 +284,15 @@ mod typed_job_policy_tests {
     fn caller_payload_cannot_override_operation_owned_watchdog_policy() {
         let paths = runtime_paths();
         let supervisors = ProcessSupervisors::default();
-        let spoofed_payload = r#"{"contract_version":3,"url":"https://example.test/video","asr_model":"iic/SenseVoiceSmall","timeout":0,"idle_timeout":0,"deadline":0,"watchdog":{"disabled":true}}"#;
+        let spoofed_payload = r#"{"contract_version":4,"source_path":"C:\\Users\\demo\\Interview.wmv","media_kind":"video","safe_display_name":"Interview.wmv","source_extension":"wmv","asr_model":"iic/SenseVoiceSmall","timeout":0,"idle_timeout":0,"deadline":0,"watchdog":{"disabled":true}}"#;
 
         let request = supervisors
             .task_worker(&paths)
             .prepare_for_test(
-                WorkerJob::process_video(spoofed_payload.to_string(), ()),
-                |_| panic!("process video must not resolve LLM configuration"),
+                WorkerJob::process_local_media(spoofed_payload.to_string(), ()),
+                |_| panic!("local media must not resolve LLM configuration"),
             )
-            .expect("prepare process-video job with spoofed timeout fields");
+            .expect("prepare local-media job with spoofed timeout fields");
 
         assert_eq!(
             request.command.stdin_payload.as_deref(),

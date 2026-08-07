@@ -22,7 +22,7 @@ use std::time::{Duration, Instant};
 fn worker_operations_own_exact_closed_production_watchdog_policies() {
     let cases = [
         (
-            WorkerOperation::ProcessVideo,
+            WorkerOperation::ProcessLocalMedia,
             WatchdogPolicy {
                 idle_timeout: Some(Duration::from_secs(45 * 60)),
                 absolute_timeout: Duration::from_secs(8 * 60 * 60),
@@ -33,13 +33,6 @@ fn worker_operations_own_exact_closed_production_watchdog_policies() {
             WatchdogPolicy {
                 idle_timeout: Some(Duration::from_secs(30 * 60)),
                 absolute_timeout: Duration::from_secs(90 * 60),
-            },
-        ),
-        (
-            WorkerOperation::ResolveSourceIdentity,
-            WatchdogPolicy {
-                idle_timeout: None,
-                absolute_timeout: Duration::from_secs(3 * 60),
             },
         ),
         (
@@ -95,7 +88,7 @@ fn failed_timeout_signal_rolls_back_logs_safely_and_retries_with_backoff() {
     let watchdog = std::thread::spawn(move || {
         run_watchdog_with_terminator(
             &thread_paths,
-            WorkerOperation::ProcessVideo,
+            WorkerOperation::ProcessLocalMedia,
             &thread_supervisor,
             instance,
             WatchdogPolicy {
@@ -141,7 +134,7 @@ fn silent_fixture_hits_the_idle_deadline_and_clears_the_lane() {
         .run_with_hooks(
             &paths,
             watchdog_fixture_request(
-                WorkerOperation::ProcessVideo,
+                WorkerOperation::ProcessLocalMedia,
                 ProgressRoute::Worker,
                 silent_fixture_script(),
                 None,
@@ -170,7 +163,7 @@ fn validated_progress_resets_idle_activity_until_normal_completion() {
         .run_with_hooks(
             &paths,
             watchdog_fixture_request(
-                WorkerOperation::ProcessVideo,
+                WorkerOperation::ProcessLocalMedia,
                 ProgressRoute::Worker,
                 progress_then_result_fixture_script(),
                 None,
@@ -196,7 +189,7 @@ fn endless_validated_progress_cannot_extend_the_absolute_deadline() {
         .run_with_hooks(
             &paths,
             watchdog_fixture_request(
-                WorkerOperation::ProcessVideo,
+                WorkerOperation::ProcessLocalMedia,
                 ProgressRoute::Worker,
                 endless_progress_fixture_script(),
                 None,
@@ -221,7 +214,7 @@ fn malformed_diagnostic_empty_and_stdout_spam_do_not_reset_idle_activity() {
         .run_with_hooks(
             &paths,
             watchdog_fixture_request(
-                WorkerOperation::ProcessVideo,
+                WorkerOperation::ProcessLocalMedia,
                 ProgressRoute::Worker,
                 untrusted_spam_fixture_script(),
                 None,
@@ -235,31 +228,6 @@ fn malformed_diagnostic_empty_and_stdout_spam_do_not_reset_idle_activity() {
 }
 
 #[test]
-fn source_identity_is_absolute_only_even_when_stderr_looks_like_progress() {
-    let lane = WorkerLane::default();
-    let paths = test_paths("watchdog-source-identity");
-
-    let outcome = lane
-        .run_with_hooks(
-            &paths,
-            watchdog_fixture_request(
-                WorkerOperation::ResolveSourceIdentity,
-                ProgressRoute::None,
-                endless_progress_fixture_script(),
-                None,
-            ),
-            watchdog_hooks(None, 2_000),
-        )
-        .expect("source identity uses an absolute-only timeout");
-
-    assert_eq!(
-        outcome,
-        WorkerRunOutcome::TimedOut(WorkerTimeoutKind::Absolute)
-    );
-    assert!(!lane.is_active());
-}
-
-#[test]
 fn watchdog_times_out_while_stdin_delivery_is_blocked() {
     let lane = WorkerLane::default();
     let paths = test_paths("watchdog-blocked-stdin");
@@ -268,7 +236,7 @@ fn watchdog_times_out_while_stdin_delivery_is_blocked() {
         .run_with_hooks(
             &paths,
             watchdog_fixture_request(
-                WorkerOperation::ProcessVideo,
+                WorkerOperation::ProcessLocalMedia,
                 ProgressRoute::Worker,
                 silent_fixture_script(),
                 Some("x".repeat(4 * 1024 * 1024)),
@@ -335,7 +303,7 @@ fn structured_result_written_before_timeout_remains_authoritative() {
         .run_with_hooks(
             &paths,
             watchdog_fixture_request(
-                WorkerOperation::ProcessVideo,
+                WorkerOperation::ProcessLocalMedia,
                 ProgressRoute::Worker,
                 result_then_stall_fixture_script(),
                 None,
@@ -360,7 +328,7 @@ fn watchdog_start_failure_reaps_clears_and_admits_a_second_task() {
         .run_with_hooks(
             &paths,
             watchdog_fixture_request(
-                WorkerOperation::ProcessVideo,
+                WorkerOperation::ProcessLocalMedia,
                 ProgressRoute::Worker,
                 silent_fixture_script(),
                 None,

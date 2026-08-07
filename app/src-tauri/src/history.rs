@@ -201,7 +201,7 @@ mod tests {
     #[test]
     fn load_history_from_output_root_reads_task_manifests() {
         let output_root = temp_dir("history_from_manifests");
-        let task_id = "20260705-153012-douyin-7645505408425004329";
+        let task_id = "20260705-153012-local-abcdef123456";
         let task_dir = output_root.join("tasks").join(task_id);
         fs::create_dir_all(task_dir.join("transcript")).expect("create transcript dir");
         fs::create_dir_all(task_dir.join("ai")).expect("create ai dir");
@@ -224,19 +224,15 @@ mod tests {
             task_dir.join("StudyMind-task.json"),
             format!(
                 r#"{{
-  "schema_version": 3,
-  "source_privacy_migration_version": 2,
+  "schema_version": 4,
   "task_id": "{task_id}",
   "created_at": "2026-07-05T15:30:12Z",
-  "source_url": "https://www.douyin.com/video/7645505408425004329",
-  "source_identity": {{
-    "version": 1,
-    "platform": "douyin",
-    "stable_id": "7645505408425004329",
-    "effective_part": null,
-    "canonical_url": "https://www.douyin.com/video/7645505408425004329"
+  "local_source": {{
+    "display_name": "Lecture.wmv",
+    "media_kind": "video",
+    "extension": "wmv"
   }},
-  "platform": "douyin",
+  "platform": "local",
   "status": "completed",
   "artifacts": {{
     "transcript_txt": "transcript/transcript.txt",
@@ -271,8 +267,9 @@ mod tests {
         assert_eq!(history[0].task_id, task_id);
         assert_eq!(
             history[0].source,
-            TaskSourceSummary::Url {
-                url: "https://www.douyin.com/video/7645505408425004329".to_string(),
+            TaskSourceSummary::LocalFile {
+                display_name: "Lecture.wmv".to_string(),
+                media_kind: LocalMediaKind::Video,
             }
         );
         let detail_started = Instant::now();
@@ -418,7 +415,7 @@ mod tests {
         fs::write(corrupt_dir.join("StudyMind-task.json"), b"{not-json")
             .expect("write corrupt manifest");
 
-        let valid_task_id = "20260710-120000-douyin-7645505408425004329";
+        let valid_task_id = "20260710-120000-local-abcdef123456";
         let valid_task_dir = output_root.join("tasks").join(valid_task_id);
         fs::create_dir_all(valid_task_dir.join("transcript")).expect("create valid task");
         fs::write(
@@ -430,20 +427,15 @@ mod tests {
             valid_task_dir.join("StudyMind-task.json"),
             format!(
                 r#"{{
-  "schema_version": 3,
-  "source_privacy_migration_version": 2,
-  "source_privacy_quarantined": false,
+  "schema_version": 4,
   "task_id": "{valid_task_id}",
   "created_at": "2026-07-10T12:00:00Z",
-  "source_url": "https://www.douyin.com/video/7645505408425004329",
-  "source_identity": {{
-    "version": 1,
-    "platform": "douyin",
-    "stable_id": "7645505408425004329",
-    "effective_part": null,
-    "canonical_url": "https://www.douyin.com/video/7645505408425004329"
+  "local_source": {{
+    "display_name": "Interview.wmv",
+    "media_kind": "video",
+    "extension": "wmv"
   }},
-  "platform": "douyin",
+  "platform": "local",
   "status": "completed",
   "artifacts": {{"transcript_txt": "transcript/transcript.txt"}},
   "error": null,
@@ -462,118 +454,36 @@ mod tests {
     }
 
     #[test]
-    fn load_history_hides_ai_artifacts_until_source_privacy_is_ready() {
-        let output_root = temp_dir("history_hides_ai_until_source_privacy_ready");
-        let task_id = "20260710-120000-xiaohongshu-incomplete";
-        let task_dir = output_root.join("tasks").join(task_id);
-        fs::create_dir_all(task_dir.join("ai")).expect("create ai dir");
-        fs::write(
-            task_dir.join("ai").join("summary.md"),
-            "secret summary review-secret",
-        )
-        .expect("write summary");
-        fs::write(
-            task_dir.join("ai").join("insights.json"),
-            r#"{"schemaVersion":1,"insights":[{"id":1,"topic":"review-secret","matchReason":"matched","followUpQuestions":["next"],"suitableUse":"planning","sourceChunkId":1}]}"#,
-        )
-        .expect("write insights");
-        fs::write(
-            task_dir.join("StudyMind-task.json"),
-            format!(
-                r#"{{
-  "schema_version": 3,
-  "source_privacy_migration_version": 0,
-  "task_id": "{task_id}",
-  "created_at": "2026-07-10T12:00:00Z",
-  "source_url": "https://www.xiaohongshu.com/explore/64a1b2c3d4e5f67890123456?xsec_token=review-secret",
-  "platform": "xiaohongshu",
-  "status": "completed",
-  "artifacts": {{
-    "summary": "ai/summary.md",
-    "insights": "ai/insights.json"
-  }},
-  "error": null,
-  "text_preview": "",
-  "insights_count": 1
-}}"#
-            ),
-        )
-        .expect("write manifest");
-
-        let (history, ignored) = load_history_with_stats(&output_root).expect("load history");
-
-        assert!(history.is_empty());
-        assert_eq!(ignored, 1);
-        let serialized = serde_json::to_string(&history).expect("serialize history");
-        assert!(!serialized.contains("review-secret"));
-        assert!(!serialized.contains("xsec_token"));
-    }
-
-    #[test]
-    fn load_history_skips_quarantined_tasks() {
-        let output_root = temp_dir("history_skips_quarantined_tasks");
-        let task_id = "20260710-120000-xiaohongshu-review-secret";
-        let task_dir = output_root.join("tasks").join(task_id);
-        fs::create_dir_all(&task_dir).expect("create task dir");
-        fs::write(
-            task_dir.join("StudyMind-task.json"),
-            format!(
-                r#"{{
-  "schema_version": 3,
-  "source_privacy_migration_version": 2,
-  "source_privacy_quarantined": true,
-  "task_id": "{task_id}",
-  "created_at": "2026-07-10T12:00:00Z",
-  "source_url": "",
-  "platform": "xiaohongshu",
-  "status": "completed",
-  "artifacts": {{}},
-  "error": null,
-  "text_preview": "",
-  "insights_count": 0
-}}"#
-            ),
-        )
-        .expect("write manifest");
-
-        let history = load_history_from_output_root(&output_root).expect("load history");
-
-        assert!(history.is_empty());
-    }
-
-    #[test]
-    fn load_history_accepts_only_exact_current_schema_with_source_identity() {
+    fn load_history_accepts_only_current_schema_with_local_source() {
         let output_root = temp_dir("history_strict_current_schema");
-        for (task_id, schema_version, source_url, source_identity) in [
+        for (task_id, manifest) in [
             (
                 "legacy-v1",
-                1,
-                "https://example.test/?xsec_token=review-secret",
-                "",
+                r#"{"schema_version":1,"task_id":"legacy-v1","created_at":"2026-07-11T00:00:00Z","source_url":"https://example.test/?xsec_token=review-secret","status":"completed","artifacts":{},"error":null,"text_preview":"safe preview","insights_count":0}"#,
             ),
-            ("missing-identity", 3, "", ""),
             (
-                "future-schema",
-                4,
-                "https://www.youtube.com/watch?v=abcdefghijk",
-                r#", "source_identity": {"version":1,"platform":"youtube","stable_id":"abcdefghijk","effective_part":null,"canonical_url":"https://www.youtube.com/watch?v=abcdefghijk"}"#,
+                "legacy-v2",
+                r#"{"schema_version":2,"task_id":"legacy-v2","created_at":"2026-07-11T00:00:00Z","source_url":"https://example.test/?xsec_token=review-secret","status":"completed","artifacts":{},"error":null,"text_preview":"safe preview","insights_count":0}"#,
+            ),
+            (
+                "legacy-v3",
+                r#"{"schema_version":3,"source_privacy_migration_version":2,"task_id":"legacy-v3","created_at":"2026-07-11T00:00:00Z","source_url":"https://www.youtube.com/watch?v=abcdefghijk","source_identity":{"version":1,"platform":"youtube","stable_id":"abcdefghijk","effective_part":null,"canonical_url":"https://www.youtube.com/watch?v=abcdefghijk"},"platform":"youtube","status":"completed","artifacts":{},"error":null,"text_preview":"safe preview","insights_count":0}"#,
+            ),
+            (
+                "missing-local-source",
+                r#"{"schema_version":4,"task_id":"missing-local-source","created_at":"2026-07-11T00:00:00Z","platform":"local","status":"completed","artifacts":{},"error":null,"text_preview":"safe preview","insights_count":0}"#,
             ),
         ] {
             let task_dir = output_root.join("tasks").join(task_id);
             fs::create_dir_all(&task_dir).expect("create task dir");
-            fs::write(
-                task_dir.join("StudyMind-task.json"),
-                format!(
-                    r#"{{"schema_version":{schema_version},"source_privacy_migration_version":2,"source_privacy_quarantined":false,"task_id":"{task_id}","created_at":"2026-07-11T00:00:00Z","source_url":"{source_url}"{source_identity},"status":"completed","artifacts":{{}},"error":null,"text_preview":"safe preview","insights_count":0}}"#,
-                ),
-            )
-            .expect("write manifest");
+            fs::write(task_dir.join("StudyMind-task.json"), manifest)
+                .expect("write manifest");
         }
 
         let (history, ignored) = load_history_with_stats(&output_root).expect("load history");
 
         assert!(history.is_empty());
-        assert_eq!(ignored, 3);
+        assert_eq!(ignored, 4);
         let error = load_history_detail_from_output_root(
             &output_root,
             HistoryDetailRequest {
@@ -588,25 +498,22 @@ mod tests {
     #[test]
     fn load_history_list_does_not_read_or_validate_artifact_files() {
         let output_root = temp_dir("history_rejects_traversal");
-        let task_id = "20260705-153012-source-demo";
+        let task_id = "20260705-153012-local-abcdef123456";
         let task_dir = output_root.join("tasks").join(task_id);
         fs::create_dir_all(&task_dir).expect("create task dir");
         fs::write(
             task_dir.join("StudyMind-task.json"),
             format!(
                 r#"{{
-  "schema_version": 3,
-  "source_privacy_migration_version": 2,
+  "schema_version": 4,
   "task_id": "{task_id}",
   "created_at": "2026-07-05T15:30:12Z",
-  "source_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-  "source_identity": {{
-    "version": 1,
-    "platform": "youtube",
-    "stable_id": "dQw4w9WgXcQ",
-    "effective_part": null,
-    "canonical_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+  "local_source": {{
+    "display_name": "Interview.wmv",
+    "media_kind": "video",
+    "extension": "wmv"
   }},
+  "platform": "local",
   "status": "completed",
   "artifacts": {{"transcript_txt": "../outside.txt"}},
   "error": null,
@@ -671,7 +578,7 @@ mod tests {
     #[test]
     fn history_detail_restores_dissection_and_marks_changed_transcript_stale() {
         let output_root = temp_dir("history-dissection-integrity");
-        let task_id = "20260731-120000-youtube-abcdefghijk";
+        let task_id = "20260731-120000-local-abcdef123456";
         let task_dir = output_root.join("tasks").join(task_id);
         fs::create_dir_all(task_dir.join("transcript")).expect("create transcript dir");
         fs::create_dir_all(task_dir.join("ai")).expect("create ai dir");
@@ -684,7 +591,7 @@ mod tests {
         fs::write(
             task_dir.join("StudyMind-task.json"),
             format!(
-                r#"{{"schema_version":3,"source_privacy_migration_version":2,"source_privacy_quarantined":false,"task_id":"{task_id}","created_at":"2026-07-31T12:00:00Z","source_url":"https://www.youtube.com/watch?v=abcdefghijk","source_identity":{{"version":1,"platform":"youtube","stable_id":"abcdefghijk","effective_part":null,"canonical_url":"https://www.youtube.com/watch?v=abcdefghijk"}},"platform":"youtube","status":"completed","artifacts":{{"transcript_txt":"transcript/transcript.txt","dissection":"ai/dissection.json","dissection_md":"ai/dissection.md"}},"error":null,"text_preview":"abc","insights_count":0}}"#
+                r#"{{"schema_version":4,"task_id":"{task_id}","created_at":"2026-07-31T12:00:00Z","local_source":{{"display_name":"Lecture.wmv","media_kind":"video","extension":"wmv"}},"platform":"local","status":"completed","artifacts":{{"transcript_txt":"transcript/transcript.txt","dissection":"ai/dissection.json","dissection_md":"ai/dissection.md"}},"error":null,"text_preview":"abc","insights_count":0}}"#
             ),
         )
         .expect("write manifest");
@@ -748,19 +655,15 @@ mod tests {
             task_dir.join("StudyMind-task.json"),
             format!(
                 r#"{{
-  "schema_version": 3,
-  "source_privacy_migration_version": 2,
+  "schema_version": 4,
   "task_id": "{task_id}",
   "created_at": "2026-07-05T15:30:12Z",
-  "source_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-  "source_identity": {{
-    "version": 1,
-    "platform": "youtube",
-    "stable_id": "dQw4w9WgXcQ",
-    "effective_part": null,
-    "canonical_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+  "local_source": {{
+    "display_name": "Interview.wmv",
+    "media_kind": "video",
+    "extension": "wmv"
   }},
-  "platform": "youtube",
+  "platform": "local",
   "status": "completed",
   "artifacts": {{"insights": "ai/insights.json"}},
   "error": null,
@@ -790,14 +693,9 @@ mod tests {
             task_dir.join("StudyMind-task.json"),
             format!(
                 r#"{{
-  "schema_version": 3,
-  "source_privacy_migration_version": 2,
-  "source_privacy_quarantined": false,
+  "schema_version": 4,
   "task_id": "{task_id}",
   "created_at": "2026-07-23T12:00:00Z",
-  "source_kind": "local_file",
-  "source_url": "",
-  "source_identity": null,
   "local_source": {{
     "display_name": "{display_name}",
     "media_kind": "{media_kind}",

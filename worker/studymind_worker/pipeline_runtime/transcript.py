@@ -21,7 +21,6 @@ from studymind_worker.model_download import (
 from studymind_worker.models import (
     JobStage,
     ProcessLocalMediaRequest,
-    ProcessRequest,
     ProcessResult,
     TranscriptMetadata,
     WorkerError,
@@ -32,7 +31,6 @@ from studymind_worker.pipeline_runtime.shared import (
     failed_result,
 )
 from studymind_worker.progress_events import normalize_language_tag, normalize_model_arg
-from studymind_worker.source_identity import SourceIdentity
 from studymind_worker.subtitles import SubtitleTranscript
 from studymind_worker.task_store import TaskContext
 
@@ -43,7 +41,6 @@ def run_asr_transcript_step(
     output_stem: str,
     transcriber: Transcriber | None = None,
     model: str = DEFAULT_ASR_MODEL,
-    source_identity: SourceIdentity | None = None,
 ) -> ProcessResult:
     asr = transcriber or QwenAsrTranscriber(model_name=model)
 
@@ -54,7 +51,6 @@ def run_asr_transcript_step(
             output_stem=output_stem,
             transcriber=asr,
             model=model,
-            source_identity=source_identity,
         )
     except ASRError as exc:
         return ProcessResult(
@@ -84,7 +80,6 @@ def run_asr_transcript_step(
             source="asr",
             language=None,
             engine=model,
-            source_identity=source_identity,
         ),
     )
 
@@ -93,13 +88,11 @@ def run_prepared_subtitle_transcript_step(
     subtitle: SubtitleTranscript,
     output_dir: Path,
     output_stem: str,
-    source_identity: SourceIdentity,
 ) -> ProcessResult | None:
     metadata = TranscriptMetadata(
         source="subtitle",
         language=subtitle.language,
         engine=None,
-        source_identity=source_identity,
     )
     try:
         artifacts = write_transcript_files(
@@ -141,7 +134,6 @@ def write_prepared_subtitle_stage(
         subtitle=subtitle_candidate,
         output_dir=task_context.paths.transcript_dir,
         output_stem="",
-        source_identity=task_context.source_identity,
     )
     if subtitle_result is not None and subtitle_result.status != JobStage.FAILED:
         emit_progress(
@@ -155,7 +147,7 @@ def write_prepared_subtitle_stage(
 
 
 def prepare_asr_transcriber_stage(
-    request: ProcessRequest | ProcessLocalMediaRequest,
+    request: ProcessLocalMediaRequest,
     project_root: Path,
     transcriber: Transcriber | None,
     allow_real_asr: bool,
@@ -205,7 +197,7 @@ def prepare_asr_transcriber_stage(
 
 
 def run_asr_transcript_stage(
-    request: ProcessRequest | ProcessLocalMediaRequest,
+    request: ProcessLocalMediaRequest,
     project_root: Path,
     audio_path: Path,
     transcriber: Transcriber | None,
@@ -245,7 +237,6 @@ def run_asr_transcript_stage(
         output_stem="",
         transcriber=prepared_transcriber,
         model=request.asr_model,
-        source_identity=task_context.source_identity,
     )
 
 

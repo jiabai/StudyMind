@@ -3,7 +3,6 @@ import {
   WORKER_PROGRESS_EVENT,
   cancelProcess,
   processLocalMedia,
-  processVideo,
   retryInsights,
   type CancelCommandRunner,
   type WorkerCommandRunner,
@@ -126,109 +125,6 @@ describe("worker client", () => {
     expect(JSON.stringify(result)).not.toContain("review-secret");
   });
 
-  test("invokes the Tauri process_video command with the submitted url", async () => {
-    const calls: Array<{ command: string; args: unknown }> = [];
-    const runner: WorkerCommandRunner = async (command, args) => {
-      calls.push({ command, args });
-      return completedResult();
-    };
-
-    const result = await processVideo(
-      "https://www.douyin.com/video/7524373044106677544",
-      runner,
-    );
-
-    expect(calls).toEqual([
-      {
-        command: "process_video",
-        args: {
-          request: {
-            url: "https://www.douyin.com/video/7524373044106677544",
-            asrModel: "iic/SenseVoiceSmall",
-          },
-        },
-      },
-    ]);
-    expect(calls[0]?.args).not.toHaveProperty("request.generate_insights");
-    expect(calls[0]?.args).not.toHaveProperty("request.preference_snapshot");
-    expect(result.status).toBe("completed");
-  });
-
-  test("maps thrown Tauri errors to structured failed worker result", async () => {
-    const runner: WorkerCommandRunner = async () => {
-      throw new Error("worker process could not start");
-    };
-
-    const result = await processVideo(
-      "https://www.douyin.com/video/7524373044106677544",
-      runner,
-    );
-
-    expect(result).toEqual({
-      status: "failed",
-      task_id: null,
-      task_dir: null,
-      artifacts: {},
-      text: "",
-      summary: "",
-      insights: [],
-      transcript: null,
-      dissection: null,
-      dissection_source_status: null,
-      error: {
-        code: "TAURI_COMMAND_FAILED",
-        message: "worker process could not start",
-        stage: "video_extracting",
-      },
-    });
-  });
-
-  test("subscribes to worker progress and unregisters after completion", async () => {
-    const progressEvents: unknown[] = [];
-    const unlistenCalls: string[] = [];
-    const listener: WorkerProgressListener = async (eventName, handler) => {
-      handler({
-        event: eventName,
-        id: 1,
-        payload: {
-          stage: "video_transcribing",
-          progress: 68,
-          message_code: "asr.transcribe.running",
-        },
-      });
-      return async () => {
-        unlistenCalls.push(eventName);
-      };
-    };
-    const runner: WorkerCommandRunner = async () => completedResult({
-      text: "完整文字稿",
-      summary: "",
-      insights: [],
-      artifacts: {
-        video: "media/video.mp4",
-        audio: "media/audio.wav",
-        transcript_txt: "transcript/transcript.txt",
-        transcript_md: "transcript/transcript.md",
-      },
-    });
-
-    await processVideo(
-      "https://www.douyin.com/video/7524373044106677544",
-      runner,
-      (event) => progressEvents.push(event),
-      listener,
-    );
-
-    expect(progressEvents).toEqual([
-      {
-        stage: "video_transcribing",
-        progress: 68,
-        message: { messageCode: "asr.transcribe.running", args: {} },
-      },
-    ]);
-    expect(unlistenCalls).toEqual([WORKER_PROGRESS_EVENT]);
-  });
-
   test("subscribes to retry progress and unregisters after completion", async () => {
     const progressEvents: unknown[] = [];
     const unlistenCalls: string[] = [];
@@ -266,75 +162,6 @@ describe("worker client", () => {
       },
     ]);
     expect(unlistenCalls).toEqual([WORKER_PROGRESS_EVENT]);
-  });
-
-  test("drops invalid progress without exposing payload prose and records only a safe code", async () => {
-    const progressEvents: unknown[] = [];
-    const diagnostics: string[] = [];
-    const listener: WorkerProgressListener = async (eventName, handler) => {
-      for (const payload of [
-        {
-          stage: "video_extracting",
-          progress: 20,
-          message_code: "video.download.preparing",
-          message: "raw https://secret.example/private",
-        },
-        {
-          stage: "video_extracting",
-          progress: 20,
-          message_code: "https://secret.example/private",
-        },
-      ]) {
-        handler({ event: eventName, id: 1, payload });
-      }
-      return () => undefined;
-    };
-
-    await processVideo(
-      "https://www.douyin.com/video/7524373044106677544",
-      async () => completedResult(),
-      (event) => progressEvents.push(event),
-      listener,
-      (code) => diagnostics.push(code),
-    );
-
-    expect(progressEvents).toEqual([]);
-    expect(diagnostics).toEqual(["video.download.preparing", "invalid"]);
-    expect(JSON.stringify(diagnostics)).not.toContain("secret.example");
-  });
-
-  test("applies a structurally safe unknown progress code with generic rendering data and records the code", async () => {
-    const progressEvents: unknown[] = [];
-    const diagnostics: string[] = [];
-    const listener: WorkerProgressListener = async (eventName, handler) => {
-      handler({
-        event: eventName,
-        id: 1,
-        payload: {
-          stage: "video_transcribing",
-          progress: 72,
-          message_code: "future.action.running",
-        },
-      });
-      return () => undefined;
-    };
-
-    await processVideo(
-      "https://www.douyin.com/video/7524373044106677544",
-      async () => completedResult(),
-      (event) => progressEvents.push(event),
-      listener,
-      (code) => diagnostics.push(code),
-    );
-
-    expect(progressEvents).toEqual([
-      {
-        stage: "video_transcribing",
-        progress: 72,
-        message: { messageCode: "future.action.running", args: {} },
-      },
-    ]);
-    expect(diagnostics).toEqual(["future.action.running"]);
   });
 
   test("invokes the Tauri retry_insights command for summary generation", async () => {
@@ -576,32 +403,6 @@ describe("worker client", () => {
       status: "failed",
       error: "worker process could not be terminated",
     });
-  });
-
-  test("fails closed when process_video returns an open IPC result", async () => {
-    const result = await processVideo(
-      "https://www.douyin.com/video/7524373044106677544",
-      async () => ({ ...completedResult(), secret: "process-result-secret" }),
-    );
-
-    expect(result).toEqual({
-      status: "failed",
-      task_id: null,
-      task_dir: null,
-      artifacts: {},
-      text: "",
-      summary: "",
-      insights: [],
-      transcript: null,
-      dissection: null,
-      dissection_source_status: null,
-      error: {
-        code: "WORKER_PROTOCOL_VIOLATION",
-        message: "",
-        stage: "video_extracting",
-      },
-    });
-    expect(JSON.stringify(result)).not.toContain("process-result-secret");
   });
 
   test("fails closed with retry context when retry_insights returns an open IPC result", async () => {

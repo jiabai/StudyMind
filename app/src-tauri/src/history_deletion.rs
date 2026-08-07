@@ -227,10 +227,10 @@ mod tests {
         let root = temp_dir("history-delete-safe-task");
         let output_root = root.join("outputs");
         let cache_root = root.join("cache");
-        let task_id = "20260712-120000-youtube-dQw4w9WgXcQ";
-        let other_task_id = "20260712-120001-youtube-abcdefghijk";
-        let task_dir = write_supported_task(&output_root, task_id, "dQw4w9WgXcQ");
-        let other_task_dir = write_supported_task(&output_root, other_task_id, "abcdefghijk");
+        let task_id = "20260712-120000-local-abcdef123456";
+        let other_task_id = "20260712-120001-local-fedcba654321";
+        let task_dir = write_supported_task(&output_root, task_id, "abcdef123456");
+        let other_task_dir = write_supported_task(&output_root, other_task_id, "fedcba654321");
         fs::create_dir_all(task_dir.join("ai")).expect("create task ai dir");
         fs::write(task_dir.join("ai/dissection.json"), b"{}").expect("write dissection json");
         fs::write(task_dir.join("ai/dissection.md"), b"# report")
@@ -268,13 +268,13 @@ mod tests {
         let root = temp_dir("history-delete-rejects-unsupported");
         let output_root = root.join("outputs");
         let cache_root = root.join("cache");
-        let task_id = "20260712-120000-youtube-dQw4w9WgXcQ";
-        let task_dir = write_supported_task(&output_root, task_id, "dQw4w9WgXcQ");
+        let task_id = "20260712-120000-local-abcdef123456";
+        let task_dir = write_supported_task(&output_root, task_id, "abcdef123456");
         let manifest_path = task_dir.join("StudyMind-task.json");
         let manifest = fs::read_to_string(&manifest_path).expect("read manifest");
         fs::write(
             &manifest_path,
-            manifest.replace("\"schema_version\": 3", "\"schema_version\": 2"),
+            manifest.replace("\"schema_version\": 4", "\"schema_version\": 2"),
         )
         .expect("downgrade manifest");
         let remover = RecordingRemover::default();
@@ -298,8 +298,8 @@ mod tests {
         let root = temp_dir("history-delete-rejects-linked-descendant");
         let output_root = root.join("outputs");
         let cache_root = root.join("cache");
-        let task_id = "20260712-120000-youtube-dQw4w9WgXcQ";
-        let task_dir = write_supported_task(&output_root, task_id, "dQw4w9WgXcQ");
+        let task_id = "20260712-120000-local-abcdef123456";
+        let task_dir = write_supported_task(&output_root, task_id, "abcdef123456");
         let outside = root.join("outside.txt");
         fs::write(&outside, b"must remain").expect("write outside file");
         let linked = task_dir.join("media").join("outside-link");
@@ -327,8 +327,8 @@ mod tests {
         let output_root = root.join("outputs");
         let external_output = root.join("external-output");
         let cache_root = root.join("cache");
-        let task_id = "20260712-120000-youtube-dQw4w9WgXcQ";
-        let external_task = write_supported_task(&external_output, task_id, "dQw4w9WgXcQ");
+        let task_id = "20260712-120000-local-abcdef123456";
+        let external_task = write_supported_task(&external_output, task_id, "abcdef123456");
         fs::create_dir_all(&output_root).expect("create configured output root");
         create_dir_link(&external_output.join("tasks"), &output_root.join("tasks"))
             .expect("create linked tasks root fixture");
@@ -349,8 +349,8 @@ mod tests {
         let output_root = root.join("outputs");
         let cache_root = root.join("cache");
         let external_playback_root = root.join("external-playback");
-        let task_id = "20260712-120000-youtube-dQw4w9WgXcQ";
-        let task_dir = write_supported_task(&output_root, task_id, "dQw4w9WgXcQ");
+        let task_id = "20260712-120000-local-abcdef123456";
+        let task_dir = write_supported_task(&output_root, task_id, "abcdef123456");
         let external_task_cache = external_playback_root.join(task_id);
         fs::create_dir_all(&external_task_cache).expect("create external playback cache");
         fs::write(external_task_cache.join("audio.wav"), b"must remain")
@@ -382,8 +382,8 @@ mod tests {
         let root = temp_dir("history-delete-rejects-dangling-cache-link");
         let output_root = root.join("outputs");
         let cache_root = root.join("cache");
-        let task_id = "20260712-120000-youtube-dQw4w9WgXcQ";
-        let task_dir = write_supported_task(&output_root, task_id, "dQw4w9WgXcQ");
+        let task_id = "20260712-120000-local-abcdef123456";
+        let task_dir = write_supported_task(&output_root, task_id, "abcdef123456");
         let playback_root = cache_root.join(".StudyMind-audio-review");
         fs::create_dir_all(&playback_root).expect("create playback root");
         std::os::unix::fs::symlink(root.join("missing-target"), playback_root.join(task_id))
@@ -407,8 +407,8 @@ mod tests {
         let root = temp_dir("history-delete-rejects-junction");
         let output_root = root.join("outputs");
         let cache_root = root.join("cache");
-        let task_id = "20260712-120000-youtube-dQw4w9WgXcQ";
-        let task_dir = write_supported_task(&output_root, task_id, "dQw4w9WgXcQ");
+        let task_id = "20260712-120000-local-abcdef123456";
+        let task_dir = write_supported_task(&output_root, task_id, "abcdef123456");
         let outside = root.join("outside-dir");
         fs::create_dir_all(&outside).expect("create outside directory");
         fs::write(outside.join("must-remain.txt"), b"must remain").expect("write outside file");
@@ -441,8 +441,8 @@ mod tests {
         let root = temp_dir("history-delete-cache-failure");
         let output_root = root.join("outputs");
         let cache_root = root.join("cache");
-        let task_id = "20260712-120000-youtube-dQw4w9WgXcQ";
-        let task_dir = write_supported_task(&output_root, task_id, "dQw4w9WgXcQ");
+        let task_id = "20260712-120000-local-abcdef123456";
+        let task_dir = write_supported_task(&output_root, task_id, "abcdef123456");
         let task_cache = cache_root.join(".StudyMind-audio-review").join(task_id);
         fs::create_dir_all(&task_cache).expect("create cache");
         fs::write(task_cache.join("audio.wav"), b"cache").expect("write cache");
@@ -463,8 +463,8 @@ mod tests {
         let root = temp_dir("history-delete-primary-failure");
         let output_root = root.join("outputs");
         let cache_root = root.join("cache");
-        let task_id = "20260712-120000-youtube-dQw4w9WgXcQ";
-        let task_dir = write_supported_task(&output_root, task_id, "dQw4w9WgXcQ");
+        let task_id = "20260712-120000-local-abcdef123456";
+        let task_dir = write_supported_task(&output_root, task_id, "abcdef123456");
         let task_cache = cache_root.join(".StudyMind-audio-review").join(task_id);
         fs::create_dir_all(&task_cache).expect("create cache");
         fs::write(task_cache.join("audio.wav"), b"cache").expect("write cache");
@@ -489,8 +489,8 @@ mod tests {
         let root = temp_dir("history-delete-locked-artifact");
         let output_root = root.join("outputs");
         let cache_root = root.join("cache");
-        let task_id = "20260712-120000-youtube-dQw4w9WgXcQ";
-        let task_dir = write_supported_task(&output_root, task_id, "dQw4w9WgXcQ");
+        let task_id = "20260712-120000-local-abcdef123456";
+        let task_dir = write_supported_task(&output_root, task_id, "abcdef123456");
         let locked = OpenOptions::new()
             .read(true)
             .share_mode(0)
@@ -560,8 +560,8 @@ mod tests {
         let root = temp_dir("history-delete-busy");
         let output_root = root.join("outputs");
         let cache_root = root.join("cache");
-        let task_id = "20260712-120000-youtube-dQw4w9WgXcQ";
-        let task_dir = write_supported_task(&output_root, task_id, "dQw4w9WgXcQ");
+        let task_id = "20260712-120000-local-abcdef123456";
+        let task_dir = write_supported_task(&output_root, task_id, "abcdef123456");
         let remover = RecordingRemover::default();
         let supervisors = ProcessSupervisors::default();
         let deletion_state = HistoryDeletionState::default();
@@ -669,20 +669,15 @@ mod tests {
             task_dir.join("StudyMind-task.json"),
             format!(
                 r#"{{
-  "schema_version": 3,
-  "source_privacy_migration_version": 2,
-  "source_privacy_quarantined": false,
+  "schema_version": 4,
   "task_id": "{task_id}",
   "created_at": "2026-07-12T12:00:00Z",
-  "source_url": "https://www.youtube.com/watch?v={video_id}",
-  "source_identity": {{
-    "version": 1,
-    "platform": "youtube",
-    "stable_id": "{video_id}",
-    "effective_part": null,
-    "canonical_url": "https://www.youtube.com/watch?v={video_id}"
+  "local_source": {{
+    "display_name": "Lecture-{video_id}.wmv",
+    "media_kind": "video",
+    "extension": "wmv"
   }},
-  "platform": "youtube",
+  "platform": "local",
   "status": "completed",
   "artifacts": {{
     "video": "media/video.mp4",

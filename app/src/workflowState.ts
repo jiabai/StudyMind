@@ -90,7 +90,6 @@ export type TranscriptDissection = {
 };
 
 export type TaskSubmission =
-  | { kind: "url"; url: string }
   | { kind: "local_media"; selectionToken: string };
 
 export type TaskSourceSummary =
@@ -102,11 +101,10 @@ export type TaskSourceSummary =
     };
 
 export type TaskComposerSource =
-  | { kind: "url"; urlDraft: string }
+  | { kind: "none" }
   | {
       kind: "local_media";
       selection: LocalMediaSelectionView;
-      retainedUrlDraft: string;
     };
 
 const UNSAFE_SOURCE_NAME_PATTERN =
@@ -224,7 +222,7 @@ export function createInitialWorkflow(): WorkflowState {
     activeAiTarget: null,
     aiErrorTarget: null,
     aiTargetErrors: {},
-    composerSource: { kind: "url", urlDraft: "" },
+    composerSource: { kind: "none" },
     taskSource: null,
     statusMessage: null,
     progressMessage: null,

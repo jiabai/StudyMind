@@ -10,10 +10,9 @@ function renderComposer(
   overrides: Partial<ComponentProps<typeof TaskComposer>> = {},
 ): string {
   const props: ComponentProps<typeof TaskComposer> = {
-    source: { kind: "url", urlDraft: "https://example.test/video" },
-    canSubmit: true,
+    source: { kind: "none" },
+    canSubmit: false,
     statusBody: "Ready",
-    onUrlDraftChange: vi.fn(),
     onLocalMediaSelected: vi.fn(),
     onRemoveLocalMedia: vi.fn(async () => true),
     onSubmit: vi.fn(),
@@ -39,22 +38,21 @@ beforeAll(async () => {
 });
 
 describe("TaskComposer", () => {
-  test("renders one accessible attachment menu beside the retained URL composer", () => {
+  test("renders one accessible attachment menu beside a placeholder when no media is selected", () => {
     const markup = renderComposer();
 
     expect(markup).toContain('class="attachment-trigger"');
     expect(markup).toContain('aria-haspopup="menu"');
     expect(markup).toContain('aria-expanded="false"');
-    expect(markup).toContain('id="video-url"');
-    expect(markup).toContain('value="https://example.test/video"');
+    expect(markup).toContain('class="local-media-placeholder"');
     expect(markup).not.toContain('role="menu"');
+    expect(markup).not.toContain('id="video-url"');
   });
 
   test("renders an audio selection as a removable safe chip with localized size", () => {
     const markup = renderComposer({
       source: {
         kind: "local_media",
-        retainedUrlDraft: "https://example.test/retained",
         selection: {
           selectionToken: "01234567-89ab-4def-8abc-0123456789ab",
           displayName: "Interview.mp3",
@@ -72,7 +70,6 @@ describe("TaskComposer", () => {
     expect(markup).toContain("1.5 MB");
     expect(markup).toContain('class="local-media-remove"');
     expect(markup).not.toContain('id="video-url"');
-    expect(markup).not.toContain("https://example.test/retained");
     expect(markup).not.toContain("selectionToken");
   });
 });

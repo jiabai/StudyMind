@@ -29,17 +29,13 @@ impl WorkerOperation {
     #[allow(dead_code)]
     pub(in crate::worker_runtime) fn watchdog_policy(self) -> WatchdogPolicy {
         match self {
-            Self::ProcessVideo | Self::ProcessLocalMedia => WatchdogPolicy {
+            Self::ProcessLocalMedia => WatchdogPolicy {
                 idle_timeout: Some(Duration::from_secs(45 * 60)),
                 absolute_timeout: Duration::from_secs(8 * 60 * 60),
             },
             Self::RetryInsights => WatchdogPolicy {
                 idle_timeout: Some(Duration::from_secs(30 * 60)),
                 absolute_timeout: Duration::from_secs(90 * 60),
-            },
-            Self::ResolveSourceIdentity => WatchdogPolicy {
-                idle_timeout: None,
-                absolute_timeout: Duration::from_secs(3 * 60),
             },
             Self::DownloadAsrModel => WatchdogPolicy {
                 idle_timeout: Some(Duration::from_secs(10 * 60)),

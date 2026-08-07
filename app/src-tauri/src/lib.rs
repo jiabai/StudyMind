@@ -49,7 +49,7 @@ pub(crate) use history_deletion::HistoryDeletionState;
 pub(crate) const PROGRESS_EVENT_NAME: &str = "worker-progress";
 pub(crate) const PROGRESS_EVENT_PREFIX: &str = "STUDYMIND_PROGRESS ";
 #[cfg(test)]
-pub(crate) const DESKTOP_WORKER_CONTRACT_VERSION: u32 = 7;
+pub(crate) const DESKTOP_WORKER_CONTRACT_VERSION: u32 = 8;
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -328,12 +328,6 @@ mod tests {
             contract["contractVersion"]
                 .as_u64()
                 .expect("numeric desktop contract version") as u32
-        );
-        assert_eq!(
-            super::video_processing::PROCESS_VIDEO_CONTRACT_VERSION,
-            contract["processVideo"]["workerRequest"]["properties"]["contract_version"]["const"]
-                .as_u64()
-                .expect("numeric process-video worker contract version") as u32
         );
         assert_eq!(
             super::local_media_contract::LOCAL_MEDIA_CONTRACT_VERSION,

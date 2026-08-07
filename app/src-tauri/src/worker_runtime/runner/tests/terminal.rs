@@ -17,7 +17,7 @@ fn structured_result_wins_a_concurrent_cancellation_claim() {
     };
 
     let outcome = classify_terminal(
-        WorkerOperation::ProcessVideo,
+        WorkerOperation::ProcessLocalMedia,
         &output,
         Some(ProcessPhase::Cancelling),
         StderrSummary::default(),
@@ -40,7 +40,7 @@ fn structured_result_wins_a_concurrent_timeout_claim() {
     };
 
     let outcome = classify_terminal(
-        WorkerOperation::ProcessVideo,
+        WorkerOperation::ProcessLocalMedia,
         &output,
         Some(ProcessPhase::TimingOut(WorkerTimeoutKind::Idle)),
         StderrSummary::default(),
@@ -64,7 +64,7 @@ fn timeout_phase_is_classified_only_when_no_structured_result_exists() {
 
     assert_eq!(
         classify_terminal(
-            WorkerOperation::ProcessVideo,
+            WorkerOperation::ProcessLocalMedia,
             &output,
             Some(ProcessPhase::TimingOut(WorkerTimeoutKind::Absolute)),
             StderrSummary::default(),
@@ -93,7 +93,7 @@ fn terminal_matrix_is_closed_and_deterministic() {
 
     assert!(matches!(
         classify_terminal(
-            WorkerOperation::ProcessVideo,
+            WorkerOperation::ProcessLocalMedia,
             &malformed_failure,
             Some(ProcessPhase::Cancelling),
             StderrSummary::default(),
@@ -102,7 +102,7 @@ fn terminal_matrix_is_closed_and_deterministic() {
     ));
     assert!(matches!(
         classify_terminal(
-            WorkerOperation::ProcessVideo,
+            WorkerOperation::ProcessLocalMedia,
             &malformed_success,
             Some(ProcessPhase::Running),
             StderrSummary::default(),
@@ -111,7 +111,7 @@ fn terminal_matrix_is_closed_and_deterministic() {
     ));
     assert!(matches!(
         classify_terminal(
-            WorkerOperation::ProcessVideo,
+            WorkerOperation::ProcessLocalMedia,
             &missing_failure,
             Some(ProcessPhase::Running),
             StderrSummary {
@@ -124,7 +124,7 @@ fn terminal_matrix_is_closed_and_deterministic() {
     ));
     assert!(matches!(
         classify_terminal(
-            WorkerOperation::ProcessVideo,
+            WorkerOperation::ProcessLocalMedia,
             &malformed_failure,
             Some(ProcessPhase::Running),
             StderrSummary::default(),
@@ -152,9 +152,9 @@ fn lifecycle_log_details_exclude_command_request_paths_and_worker_content() {
         stderr: secret.as_bytes().to_vec(),
     };
 
-    let start = safe_start_log_detail(WorkerOperation::ProcessVideo, &spec);
+    let start = safe_start_log_detail(WorkerOperation::ProcessLocalMedia, &spec);
     let exit = safe_exit_log_detail(
-        WorkerOperation::ProcessVideo,
+        WorkerOperation::ProcessLocalMedia,
         404,
         &output,
         StderrSummary {
@@ -169,6 +169,6 @@ fn lifecycle_log_details_exclude_command_request_paths_and_worker_content() {
     assert!(!exit.contains(secret));
     assert_eq!(
         exit,
-        "operation=process_video pid=404 exit=1 stderr=present"
+        "operation=process_local_media pid=404 exit=1 stderr=present"
     );
 }

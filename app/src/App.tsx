@@ -157,7 +157,6 @@ function App() {
     toolbarNewTaskButtonState,
     cancelCurrentProcessing,
     resetWorkflow,
-    updateUrlDraft,
     setLocalMediaSelection,
     removeLocalMediaSelection,
     applyTranscriptSave,
@@ -524,7 +523,6 @@ function App() {
                 source={workflow.composerSource}
                 canSubmit={canSubmit}
                 statusBody={activeStageBody}
-                onUrlDraftChange={updateUrlDraft}
                 onLocalMediaSelected={setLocalMediaSelection}
                 onRemoveLocalMedia={removeLocalMediaSelection}
                 onSubmit={(submission) => {

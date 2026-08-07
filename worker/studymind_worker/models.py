@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Literal
 
 from studymind_worker.output_language import OutputLanguage
-from studymind_worker.source_identity import SourceIdentity
 
 RetryInsightTarget = Literal["summary", "insights", "dissection"]
 InsightGenerationTarget = Literal["all", "summary", "insights", "dissection"]
@@ -21,12 +20,6 @@ class JobStage(StrEnum):
     COMPLETED = "completed"
     PARTIAL_COMPLETED = "partial_completed"
     FAILED = "failed"
-
-
-@dataclass(frozen=True)
-class ProcessRequest:
-    url: str = field(repr=False)
-    asr_model: str
 
 
 @dataclass(frozen=True)
@@ -181,11 +174,6 @@ class TranscriptMetadata:
     source: Literal["asr", "subtitle"]
     language: str | None = None
     engine: str | None = None
-    source_identity: SourceIdentity | None = field(default=None, repr=False)
-
-    @property
-    def source_url(self) -> str | None:
-        return self.source_identity.canonical_url if self.source_identity else None
 
     def to_dict(self) -> dict[str, str | None]:
         return {

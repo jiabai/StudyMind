@@ -13,7 +13,7 @@ pub(super) fn fixture_request(
     stdin_payload: Option<String>,
 ) -> WorkerRunRequest {
     WorkerRunRequest {
-        operation: WorkerOperation::ProcessVideo,
+        operation: WorkerOperation::ProcessLocalMedia,
         command: WorkerCommandSpec {
             program: std::env::current_exe().expect("resolve test executable"),
             args: vec![
@@ -68,7 +68,7 @@ pub(super) fn watchdog_fixture_request(
 pub(super) fn watchdog_tree_fixture_request(pid_file: &Path) -> WorkerRunRequest {
     let (program, args) = shell_fixture_command(watchdog_tree_fixture_script());
     WorkerRunRequest {
-        operation: WorkerOperation::ProcessVideo,
+        operation: WorkerOperation::ProcessLocalMedia,
         command: WorkerCommandSpec {
             program,
             args,
@@ -190,7 +190,7 @@ pub(super) fn terminal_fixture_request(
 ) -> WorkerRunRequest {
     let (program, args) = terminal_fixture_command(require_stdin);
     WorkerRunRequest {
-        operation: WorkerOperation::ProcessVideo,
+        operation: WorkerOperation::ProcessLocalMedia,
         command: WorkerCommandSpec {
             program,
             args,

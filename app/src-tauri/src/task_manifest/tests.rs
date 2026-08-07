@@ -5,7 +5,7 @@ use super::{
     transaction::{
         recover_task_artifacts, validate_journal_value_for_test, RecoveryOutcome, JOURNAL_FILE_NAME,
     },
-    SourceIdentity, SupportedTask, TaskArtifact, TaskSourceSummary,
+    SupportedTask, TaskArtifact, TaskSourceSummary,
 };
 use crate::local_media_contract::LocalMediaKind;
 use serde_json::json;
@@ -232,53 +232,6 @@ fn task_error_code_and_message_never_echo_source_credentials() {
 }
 
 #[test]
-fn safe_source_identity_requires_current_schema_marker_and_matching_source_url() {
-    let base = json!({
-        "schema_version": 3,
-        "source_privacy_migration_version": 2,
-        "task_id": "task",
-        "created_at": "2026-07-10T12:00:00Z",
-        "source_url": "https://www.youtube.com/watch?v=abcDEF_123-",
-        "source_identity": {
-            "version": 1,
-            "platform": "youtube",
-            "stable_id": "abcDEF_123-",
-            "effective_part": null,
-            "canonical_url": "https://www.youtube.com/watch?v=abcDEF_123-"
-        },
-        "status": "completed"
-    });
-    let ready: TaskManifest = serde_json::from_value(base.clone()).expect("ready manifest");
-    assert!(ready.safe_source_identity().is_some());
-
-    let mut null_local_source = base.clone();
-    null_local_source["local_source"] = serde_json::Value::Null;
-    assert!(
-        serde_json::from_value::<TaskManifest>(null_local_source).is_err(),
-        "URL manifests must reject even a null local_source field"
-    );
-
-    let mut missing_marker = base.clone();
-    missing_marker["source_privacy_migration_version"] = json!(0);
-    let missing_marker: TaskManifest =
-        serde_json::from_value(missing_marker).expect("manifest without marker");
-    assert!(missing_marker.safe_source_identity().is_none());
-
-    let mut legacy_schema = base.clone();
-    legacy_schema["schema_version"] = json!(2);
-    let legacy_schema: TaskManifest =
-        serde_json::from_value(legacy_schema).expect("legacy manifest");
-    assert!(legacy_schema.safe_source_identity().is_none());
-    assert!(!legacy_schema.source_privacy_ready());
-
-    let mut mismatched = base;
-    mismatched["source_url"] =
-        json!("https://www.youtube.com/watch?v=abcDEF_123-&signature=review-secret");
-    let mismatched: TaskManifest = serde_json::from_value(mismatched).expect("mismatched manifest");
-    assert!(mismatched.safe_source_identity().is_none());
-}
-
-#[test]
 fn local_task_source_projects_only_valid_video_and_audio_metadata() {
     for (display_name, media_kind, extension) in [
         ("Interview.wmv", LocalMediaKind::Video, "wmv"),
@@ -296,28 +249,14 @@ fn local_task_source_projects_only_valid_video_and_audio_metadata() {
                 media_kind,
             })
         );
-        assert!(manifest.safe_source_identity().is_none());
     }
 }
 
 #[test]
 fn local_task_source_fails_closed_for_incomplete_or_conflicting_boundaries() {
     let base = local_manifest_value("Interview.wmv", LocalMediaKind::Video, "wmv");
-    let unsafe_identity = json!({
-        "version": 1,
-        "platform": "youtube",
-        "stable_id": "abcDEF_123-",
-        "effective_part": null,
-        "canonical_url": "https://www.youtube.com/watch?v=abcDEF_123-"
-    });
     let mut invalid_values = Vec::new();
     for (label, pointer, replacement) in [
-        (
-            "nonempty URL",
-            "/source_url",
-            json!("https://example.test/review-secret"),
-        ),
-        ("non-null identity", "/source_identity", unsafe_identity),
         ("non-local platform", "/platform", json!("youtube")),
         (
             "Windows path",
@@ -353,14 +292,6 @@ fn local_task_source_fails_closed_for_incomplete_or_conflicting_boundaries() {
         .expect("manifest object")
         .remove("local_source");
     invalid_values.push(("missing local_source", missing_local_source));
-    for required_field in ["source_url", "source_identity"] {
-        let mut value = base.clone();
-        value
-            .as_object_mut()
-            .expect("manifest object")
-            .remove(required_field);
-        invalid_values.push((required_field, value));
-    }
 
     for (label, value) in invalid_values {
         if let Ok(manifest) = serde_json::from_value::<TaskManifest>(value) {
@@ -378,11 +309,7 @@ fn local_task_source_fails_closed_for_incomplete_or_conflicting_boundaries() {
 }
 
 #[test]
-fn local_task_source_rejects_unknown_kinds_and_extra_local_metadata() {
-    let mut unknown_kind = local_manifest_value("Interview.wmv", LocalMediaKind::Video, "wmv");
-    unknown_kind["source_kind"] = json!("filesystem");
-    assert!(serde_json::from_value::<TaskManifest>(unknown_kind).is_err());
-
+fn local_task_source_rejects_extra_local_metadata() {
     let mut extra_metadata = local_manifest_value("Interview.wmv", LocalMediaKind::Video, "wmv");
     extra_metadata["local_source"]["path"] = json!("C:\\private\\Interview.wmv");
     let error = serde_json::from_value::<TaskManifest>(extra_metadata)
@@ -392,124 +319,22 @@ fn local_task_source_rejects_unknown_kinds_and_extra_local_metadata() {
 }
 
 #[test]
-fn source_identity_accepts_only_canonical_query_contract() {
-    let identity = SourceIdentity {
-        version: 1,
-        platform: "youtube".to_string(),
-        stable_id: "abcDEF_123-".to_string(),
-        effective_part: None,
-        canonical_url: "https://www.youtube.com/watch?v=abcDEF_123-".to_string(),
-    };
-    assert!(identity.is_safe());
-
-    let noncanonical_path = SourceIdentity {
-        canonical_url: "https://www.youtube.com/shorts/abcDEF_123-".to_string(),
-        ..identity.clone()
-    };
-    assert!(!noncanonical_path.is_safe());
-
-    let extra_query = SourceIdentity {
-        canonical_url: "https://www.youtube.com/watch?v=abcDEF_123-&feature=share".to_string(),
-        ..identity.clone()
-    };
-    assert!(!extra_query.is_safe());
-
-    let youtube_with_part = SourceIdentity {
-        effective_part: Some(2),
-        ..identity.clone()
-    };
-    assert!(!youtube_with_part.is_safe());
-
-    let sensitive = SourceIdentity {
-        canonical_url: "https://www.youtube.com/watch?v=abcDEF_123-&signature=review-secret"
-            .to_string(),
-        ..identity.clone()
-    };
-    assert!(!sensitive.is_safe());
-
-    let abbreviated_signature = SourceIdentity {
-        canonical_url: "https://www.youtube.com/shorts/abcDEF_123-?s=review-secret".to_string(),
-        ..identity.clone()
-    };
-    assert!(!abbreviated_signature.is_safe());
-
-    let suspicious_value = SourceIdentity {
-        canonical_url: "https://www.youtube.com/shorts/abcDEF_123-?source=review-secret"
-            .to_string(),
-        ..identity.clone()
-    };
-    assert!(!suspicious_value.is_safe());
-
-    let wrong_host = SourceIdentity {
-        canonical_url: "https://youtube.example/shorts/abcDEF_123-".to_string(),
-        ..identity
-    };
-    assert!(!wrong_host.is_safe());
-
-    let forged_xhs = SourceIdentity {
-        version: 1,
-        platform: "xiaohongshu".to_string(),
-        stable_id: "xsec_token-review-secret".to_string(),
-        effective_part: None,
-        canonical_url: ("https://www.xiaohongshu.com/explore/xsec_token-review-secret").to_string(),
-    };
-    assert!(!forged_xhs.is_safe());
-
-    let bilibili_part = SourceIdentity {
-        version: 1,
-        platform: "bilibili".to_string(),
-        stable_id: "BV1Aa411c7mD".to_string(),
-        effective_part: Some(2),
-        canonical_url: "https://www.bilibili.com/video/BV1Aa411c7mD?p=2".to_string(),
-    };
-    assert!(bilibili_part.is_safe());
-
-    let mismatched_part = SourceIdentity {
-        effective_part: Some(3),
-        ..bilibili_part.clone()
-    };
-    assert!(!mismatched_part.is_safe());
-
-    let part_one_query = SourceIdentity {
-        effective_part: Some(1),
-        canonical_url: "https://www.bilibili.com/video/BV1Aa411c7mD?p=1".to_string(),
-        ..bilibili_part.clone()
-    };
-    assert!(!part_one_query.is_safe());
-
-    let xiaohongshu_query = SourceIdentity {
-        version: 1,
-        platform: "xiaohongshu".to_string(),
-        stable_id: "64a1b2c3d4e5f67890123456".to_string(),
-        effective_part: None,
-        canonical_url: "https://www.xiaohongshu.com/explore/64a1b2c3d4e5f67890123456?foo=bar"
-            .to_string(),
-    };
-    assert!(!xiaohongshu_query.is_safe());
-}
-
-#[test]
 fn manifest_round_trip_preserves_unknown_fields() {
-    let value = json!({
-        "schema_version": 3,
-        "source_privacy_migration_version": 2,
-        "task_id": "task",
-        "created_at": "2026-07-10T12:00:00Z",
-        "source_url": "",
-        "source_identity": null,
-        "status": "completed",
-        "future_worker_field": {"enabled": true}
-    });
+    let value = local_manifest_value("Interview.wmv", LocalMediaKind::Video, "wmv");
     let manifest: TaskManifest = serde_json::from_value(value).expect("manifest");
-    let encoded = serde_json::to_value(manifest).expect("encoded manifest");
-    assert_eq!(encoded["future_worker_field"]["enabled"], true);
+    let mut encoded = serde_json::to_value(manifest).expect("encoded manifest");
+    encoded["future_worker_field"] = json!({"enabled": true});
+    let round_tripped: TaskManifest =
+        serde_json::from_value(encoded).expect("round-trip manifest");
+    let re_encoded = serde_json::to_value(round_tripped).expect("re-encoded manifest");
+    assert_eq!(re_encoded["future_worker_field"]["enabled"], true);
 }
 
 #[test]
 fn edit_session_preserves_unknown_fields_and_rejects_unsafe_paths_without_echo() {
     let output_root = temp_dir("task-edit-session-characterization");
-    let task_id = "20260721-120000-youtube-dQw4w9WgXcQ";
-    let task_dir = write_supported_task(&output_root, task_id, "dQw4w9WgXcQ");
+    let task_id = "20260721-120000-local-abcdef123456";
+    let task_dir = write_supported_task(&output_root, task_id, "abcdef123456");
     let manifest_path = task_dir.join(super::TASK_MANIFEST_FILE_NAME);
     let mut payload: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&manifest_path).expect("read manifest"))
@@ -561,15 +386,18 @@ fn artifact_resolution_errors_never_echo_untrusted_field_or_path_material() {
 #[test]
 fn supported_task_opens_only_current_tasks_and_reads_validated_artifacts() {
     let output_root = temp_dir("supported-task-facade");
-    let task_id = "20260718-120000-youtube-dQw4w9WgXcQ";
-    write_supported_task(&output_root, task_id, "dQw4w9WgXcQ");
+    let task_id = "20260718-120000-local-abcdef123456";
+    write_supported_task(&output_root, task_id, "abcdef123456");
 
     let task = SupportedTask::open(&output_root, task_id).expect("open supported task");
 
     assert_eq!(task.task_id(), task_id);
     assert_eq!(
-        task.safe_source_url(),
-        "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+        task.source(),
+        TaskSourceSummary::LocalFile {
+            display_name: "Interview-abcdef123456.wmv".to_string(),
+            media_kind: LocalMediaKind::Video,
+        }
     );
     assert_eq!(
         task.read_text_artifact(TaskArtifact::TranscriptTxt)
@@ -586,8 +414,8 @@ fn supported_task_opens_only_current_tasks_and_reads_validated_artifacts() {
 #[test]
 fn supported_task_open_recovers_prepared_transaction_before_reading_artifacts() {
     let output_root = temp_dir("supported-task-recovers-transaction");
-    let task_id = "20260722-120000-youtube-dQw4w9WgXcQ";
-    let task_dir = write_supported_task(&output_root, task_id, "dQw4w9WgXcQ");
+    let task_id = "20260722-120000-local-abcdef123456";
+    let task_dir = write_supported_task(&output_root, task_id, "abcdef123456");
     let transcript = task_dir.join("transcript").join("transcript.txt");
     fs::write(&transcript, b"mixed new text\n").expect("write mixed transcript");
     let transaction_id = "dddddddddddddddddddddddddddddddd";
@@ -628,8 +456,8 @@ fn supported_task_scan_isolates_corrupt_and_unsupported_manifests() {
     let output_root = temp_dir("supported-task-scan");
     write_supported_task(
         &output_root,
-        "20260718-120000-youtube-dQw4w9WgXcQ",
-        "dQw4w9WgXcQ",
+        "20260718-120000-local-abcdef123456",
+        "abcdef123456",
     );
     let corrupt_dir = output_root.join("tasks").join("corrupt-task");
     fs::create_dir_all(&corrupt_dir).expect("create corrupt task");
@@ -652,8 +480,8 @@ fn supported_task_scan_isolates_corrupt_and_unsupported_manifests() {
 #[test]
 fn supported_task_coordinator_rejects_overlapping_direct_access_and_releases_on_drop() {
     let output_root = temp_dir("supported-task-coordinator");
-    let task_id = "20260722-120000-youtube-dQw4w9WgXcQ";
-    write_supported_task(&output_root, task_id, "dQw4w9WgXcQ");
+    let task_id = "20260722-120000-local-abcdef123456";
+    write_supported_task(&output_root, task_id, "abcdef123456");
 
     let first = SupportedTask::open(&output_root, task_id).expect("open first lease");
     let error = SupportedTask::open(&output_root, task_id).expect_err("second access must be busy");
@@ -666,8 +494,8 @@ fn supported_task_coordinator_rejects_overlapping_direct_access_and_releases_on_
 #[test]
 fn supported_task_scan_skips_busy_task_without_counting_it_as_corrupt() {
     let output_root = temp_dir("supported-task-scan-busy");
-    let task_id = "20260722-120000-youtube-dQw4w9WgXcQ";
-    write_supported_task(&output_root, task_id, "dQw4w9WgXcQ");
+    let task_id = "20260722-120000-local-abcdef123456";
+    write_supported_task(&output_root, task_id, "abcdef123456");
     let held = SupportedTask::open(&output_root, task_id).expect("hold task lease");
 
     let scan = SupportedTask::scan(&output_root).expect("scan tasks");
@@ -680,8 +508,8 @@ fn supported_task_scan_skips_busy_task_without_counting_it_as_corrupt() {
 #[test]
 fn supported_task_artifact_errors_do_not_echo_manifest_path_material() {
     let output_root = temp_dir("supported-task-safe-artifact-error");
-    let task_id = "20260718-120000-youtube-dQw4w9WgXcQ";
-    let task_dir = write_supported_task(&output_root, task_id, "dQw4w9WgXcQ");
+    let task_id = "20260718-120000-local-abcdef123456";
+    let task_dir = write_supported_task(&output_root, task_id, "abcdef123456");
     let manifest_path = task_dir.join("StudyMind-task.json");
     let manifest = fs::read_to_string(&manifest_path).expect("read manifest");
     fs::write(
@@ -765,8 +593,6 @@ fn task_manifest_module_boundary_matches_approved_private_owners() {
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let module_dir = src.join("task_manifest");
     let root = fs::read_to_string(src.join("task_manifest.rs")).expect("read root");
-    let source_identity =
-        fs::read_to_string(module_dir.join("source_identity.rs")).expect("read source owner");
     let schema = fs::read_to_string(module_dir.join("schema.rs")).expect("read schema owner");
     let storage = fs::read_to_string(module_dir.join("storage.rs")).expect("read storage owner");
     let access = fs::read_to_string(module_dir.join("access.rs")).expect("read access owner");
@@ -785,7 +611,6 @@ fn task_manifest_module_boundary_matches_approved_private_owners() {
         "mod coordinator;",
         "mod dissection;",
         "mod schema;",
-        "mod source_identity;",
         "mod storage;",
         "mod transaction;",
         "mod tests;",
@@ -804,8 +629,6 @@ fn task_manifest_module_boundary_matches_approved_private_owners() {
         assert!(!root.contains(forbidden), "root owns {forbidden}");
     }
 
-    assert!(source_identity.contains("pub(crate) struct SourceIdentity"));
-    assert!(source_identity.contains("impl SourceIdentity"));
     assert!(schema.contains("struct TaskManifest"));
     assert!(schema.contains("pub(crate) enum TaskArtifact"));
     assert!(schema.contains("pub(crate) fn parse_insights_payload"));
@@ -820,21 +643,12 @@ fn task_manifest_module_boundary_matches_approved_private_owners() {
     assert!(transaction.contains("pub(crate) fn recover_task_artifacts"));
     assert!(tests.contains("edit_session_preserves_unknown_fields"));
 
-    for pure_owner in [&source_identity, &schema] {
-        assert!(!pure_owner.contains("std::fs"));
-        assert!(!pure_owner.contains("RuntimePaths"));
-        assert!(!pure_owner.contains("settings::"));
-    }
+    assert!(!schema.contains("std::fs"));
+    assert!(!schema.contains("RuntimePaths"));
+    assert!(!schema.contains("settings::"));
     assert!(!access.contains("RuntimePaths"));
     assert!(!access.contains("settings::"));
-    for child in [
-        &source_identity,
-        &schema,
-        &storage,
-        &access,
-        &coordinator,
-        &transaction,
-    ] {
+    for child in [&schema, &storage, &access, &coordinator, &transaction] {
         for forbidden in [
             "tauri::",
             "crate::history",
@@ -857,7 +671,6 @@ fn task_manifest_module_boundary_matches_approved_private_owners() {
         }
         let production_source = fs::read_to_string(&path).expect("read production Rust source");
         for forbidden in [
-            "task_manifest::source_identity",
             "task_manifest::schema",
             "task_manifest::storage",
             "task_manifest::access",
@@ -920,20 +733,15 @@ fn write_supported_task(
         task_dir.join("StudyMind-task.json"),
         format!(
             r#"{{
-  "schema_version": 3,
-  "source_privacy_migration_version": 2,
-  "source_privacy_quarantined": false,
+  "schema_version": 4,
   "task_id": "{task_id}",
   "created_at": "2026-07-18T12:00:00Z",
-  "source_url": "https://www.youtube.com/watch?v={stable_id}",
-  "source_identity": {{
-"version": 1,
-"platform": "youtube",
-"stable_id": "{stable_id}",
-"effective_part": null,
-"canonical_url": "https://www.youtube.com/watch?v={stable_id}"
+  "local_source": {{
+    "display_name": "Interview-{stable_id}.wmv",
+    "media_kind": "video",
+    "extension": "wmv"
   }},
-  "platform": "youtube",
+  "platform": "local",
   "status": "completed",
   "model": "iic/SenseVoiceSmall",
   "artifacts": {{"transcript_txt": "transcript/transcript.txt"}},
@@ -953,14 +761,9 @@ fn local_manifest_value(
     extension: &str,
 ) -> serde_json::Value {
     json!({
-        "schema_version": 3,
-        "source_privacy_migration_version": 2,
-        "source_privacy_quarantined": false,
+        "schema_version": 4,
         "task_id": "20260723-120000-local-abcdef123456",
         "created_at": "2026-07-23T12:00:00Z",
-        "source_kind": "local_file",
-        "source_url": "",
-        "source_identity": null,
         "local_source": {
             "display_name": display_name,
             "media_kind": media_kind,

@@ -7,14 +7,12 @@ import type { SaveTranscriptEditResponse } from "../../transcriptDetailClient";
 import { clearLocalMediaSelection } from "../../localMediaClient";
 import type { LocalMediaSelectionView } from "../../localMediaContract";
 import {
-  canSubmitUrl,
   confirmProcessingCancellation,
   createInitialWorkflow,
   finishInsightRetry,
   getToolbarNewTaskButtonState,
   isProcessingStage,
   mergeProgressEvent,
-  normalizeSubmitUrl,
   requestProcessingCancellation,
   restoreProcessingAfterCancellationFailure,
   startInsightRetry,
@@ -28,7 +26,6 @@ import {
 import {
   cancelProcess,
   processLocalMedia,
-  processVideo,
   retryInsights,
 } from "../../workerClient";
 import type { PreferenceSnapshot } from "../../insightPreferences";
@@ -75,26 +72,9 @@ export function useTaskProcessingController({
   const cancellationOperationIdRef = useRef<number | null>(null);
 
   const canSubmit =
-    !modelDownloadActive &&
-    (workflow.composerSource.kind === "local_media" ||
-      canSubmitUrl(workflow.composerSource.urlDraft));
+    !modelDownloadActive && workflow.composerSource.kind === "local_media";
   const toolbarNewTaskButtonState = getToolbarNewTaskButtonState(workflow.stage);
   const canRestoreHistory = !isProcessingStage(workflow.stage);
-
-  const updateUrlDraft = useCallback((url: string) => {
-    setWorkflow((current) =>
-      current.stage === "waiting_input" &&
-      current.composerSource.kind === "url"
-        ? {
-            ...current,
-            composerSource: {
-              kind: "url",
-              urlDraft: url,
-            },
-          }
-        : current,
-    );
-  }, []);
 
   const setLocalMediaSelection = useCallback(
     (selection: LocalMediaSelectionView) => {
@@ -102,16 +82,11 @@ export function useTaskProcessingController({
         if (current.stage !== "waiting_input") {
           return current;
         }
-        const retainedUrlDraft =
-          current.composerSource.kind === "url"
-            ? current.composerSource.urlDraft
-            : current.composerSource.retainedUrlDraft;
         return {
           ...current,
           composerSource: {
             kind: "local_media",
             selection,
-            retainedUrlDraft,
           },
         };
       });
@@ -134,10 +109,7 @@ export function useTaskProcessingController({
       current.composerSource.selection.selectionToken === selectionToken
         ? {
             ...current,
-            composerSource: {
-              kind: "url",
-              urlDraft: current.composerSource.retainedUrlDraft,
-            },
+            composerSource: { kind: "none" },
           }
         : current,
     );
@@ -198,10 +170,7 @@ export function useTaskProcessingController({
       cancellationOperationIdRef.current = null;
       clearComposerSelectionBestEffort(workflow.composerSource);
       onResetTaskUi();
-      const composerSource: TaskComposerSource =
-        item.source.kind === "url"
-          ? { kind: "url", urlDraft: item.source.url }
-          : { kind: "url", urlDraft: "" };
+      const composerSource: TaskComposerSource = { kind: "none" };
       setWorkflow({
         ...summarizeWorkerResult(historyItemToWorkerResult(item)),
         dissectionStale: item.dissectionStale,
@@ -253,41 +222,20 @@ export function useTaskProcessingController({
       }
       const operationId = operationIdRef.current + 1;
       operationIdRef.current = operationId;
-      setWorkflow((current) =>
-        startProcessing(
-          prepared.submission.kind === "url"
-            ? {
-                ...current,
-                composerSource: {
-                  kind: "url",
-                  urlDraft: prepared.submission.url,
-                },
-              }
-            : current,
-          prepared.taskSource,
-        ),
-      );
+      setWorkflow((current) => startProcessing(current, prepared.taskSource));
       const onProgress = (event: Parameters<typeof mergeProgressEvent>[1]) => {
         if (operationIdRef.current === operationId) {
           setWorkflow((current) => mergeProgressEvent(current, event));
         }
       };
-      const result =
-        prepared.submission.kind === "url"
-          ? await processVideo(
-              prepared.submission.url,
-              asrModel,
-              undefined,
-              onProgress,
-            )
-          : await processLocalMedia(
-              {
-                selectionToken: prepared.submission.selectionToken,
-                asrModel,
-              },
-              undefined,
-              onProgress,
-            );
+      const result = await processLocalMedia(
+        {
+          selectionToken: prepared.submission.selectionToken,
+          asrModel,
+        },
+        undefined,
+        onProgress,
+      );
       if (operationIdRef.current !== operationId) {
         return;
       }
@@ -298,25 +246,18 @@ export function useTaskProcessingController({
         setWorkflow((current) => confirmProcessingCancellation(current));
         return;
       }
-      const localSelectionToken =
-        prepared.submission.kind === "local_media"
-          ? prepared.submission.selectionToken
-          : null;
+      const localSelectionToken = prepared.submission.selectionToken;
       setWorkflow((current) => {
         const releaseLocalSelection =
-          localSelectionToken !== null &&
-          (result.status !== "failed" ||
-            (result.error &&
-              LOCAL_MEDIA_RESELECTION_ERROR_CODES.has(result.error.code)));
+          result.status !== "failed" ||
+          (result.error &&
+            LOCAL_MEDIA_RESELECTION_ERROR_CODES.has(result.error.code));
         const composerSource =
           releaseLocalSelection &&
           current.composerSource.kind === "local_media" &&
           current.composerSource.selection.selectionToken ===
             localSelectionToken
-            ? {
-                kind: "url" as const,
-                urlDraft: current.composerSource.retainedUrlDraft,
-              }
+            ? { kind: "none" as const }
             : current.composerSource;
         return {
           ...summarizeWorkerResult(result),
@@ -440,7 +381,6 @@ export function useTaskProcessingController({
     toolbarNewTaskButtonState,
     cancelCurrentProcessing,
     resetWorkflow,
-    updateUrlDraft,
     setLocalMediaSelection,
     removeLocalMediaSelection,
     applyTranscriptSave,
@@ -461,37 +401,20 @@ function prepareTaskSubmission(
   composerSource: TaskComposerSource,
   submission: TaskSubmission,
 ): PreparedTaskSubmission | null {
-  switch (submission.kind) {
-    case "url": {
-      const url = normalizeSubmitUrl(submission.url);
-      const composerUrl =
-        composerSource.kind === "url"
-          ? normalizeSubmitUrl(composerSource.urlDraft)
-          : null;
-      if (!url || composerUrl !== url) {
-        return null;
-      }
-      return {
-        submission: { kind: "url", url },
-        taskSource: { kind: "url", url },
-      };
-    }
-    case "local_media":
-      if (
-        composerSource.kind !== "local_media" ||
-        composerSource.selection.selectionToken !== submission.selectionToken
-      ) {
-        return null;
-      }
-      return {
-        submission,
-        taskSource: {
-          kind: "local_file",
-          displayName: composerSource.selection.displayName,
-          mediaKind: composerSource.selection.mediaKind,
-        },
-      };
+  if (
+    composerSource.kind !== "local_media" ||
+    composerSource.selection.selectionToken !== submission.selectionToken
+  ) {
+    return null;
   }
+  return {
+    submission,
+    taskSource: {
+      kind: "local_file",
+      displayName: composerSource.selection.displayName,
+      mediaKind: composerSource.selection.mediaKind,
+    },
+  };
 }
 
 function clearComposerSelectionBestEffort(

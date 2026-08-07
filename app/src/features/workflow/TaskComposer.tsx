@@ -19,7 +19,6 @@ type TaskComposerProps = {
   source: TaskComposerSource;
   canSubmit: boolean;
   statusBody: string;
-  onUrlDraftChange: (url: string) => void;
   onLocalMediaSelected: (selection: LocalMediaSelectionView) => void;
   onRemoveLocalMedia: () => Promise<boolean>;
   onSubmit: (submission: TaskSubmission) => void;
@@ -29,7 +28,6 @@ export function TaskComposer({
   source,
   canSubmit,
   statusBody,
-  onUrlDraftChange,
   onLocalMediaSelected,
   onRemoveLocalMedia,
   onSubmit,
@@ -130,14 +128,12 @@ export function TaskComposer({
 
   function submitCurrentSource(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (source.kind === "url") {
-      onSubmit({ kind: "url", url: source.urlDraft });
-      return;
+    if (source.kind === "local_media") {
+      onSubmit({
+        kind: "local_media",
+        selectionToken: source.selection.selectionToken,
+      });
     }
-    onSubmit({
-      kind: "local_media",
-      selectionToken: source.selection.selectionToken,
-    });
   }
 
   return (
@@ -201,15 +197,7 @@ export function TaskComposer({
           ) : null}
         </div>
 
-        {source.kind === "url" ? (
-          <input
-            id="video-url"
-            aria-label={t("input.urlAria")}
-            value={source.urlDraft}
-            onChange={(event) => onUrlDraftChange(event.currentTarget.value)}
-            placeholder={t("input.placeholder")}
-          />
-        ) : (
+        {source.kind === "local_media" ? (
           <div
             className="local-media-chip"
             data-media-kind={source.selection.mediaKind}
@@ -249,6 +237,10 @@ export function TaskComposer({
               )}
             </button>
           </div>
+        ) : (
+          <span className="local-media-placeholder" aria-hidden="true">
+            {t("input.placeholder")}
+          </span>
         )}
 
         <button

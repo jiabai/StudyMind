@@ -10,7 +10,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 #[test]
 fn load_detail_reads_text_segments_audio_and_backup_status() {
     let output_root = temp_dir("load_detail_task");
-    let task_id = "20260705-153012-douyin-7645505408425004329";
+    let task_id = "20260705-153012-local-abcdef123456";
     let task_dir = create_task(&output_root, task_id);
     fs::write(
         task_dir.join("transcript").join("transcript.txt"),
@@ -58,7 +58,7 @@ fn load_detail_copies_external_output_audio_to_app_local_playback_path() {
     let app_local_root = temp_dir("load_detail_app_local");
     let app_local_outputs = app_local_root.join("outputs");
     let app_local_cache = app_local_root.join("cache");
-    let task_id = "20260705-153012-douyin-7645505408425004329";
+    let task_id = "20260705-153012-local-abcdef123456";
     let task_dir = create_task(&output_root, task_id);
     let source_audio_path = task_dir.join("media").join("audio.wav");
     fs::write(
@@ -83,7 +83,7 @@ fn load_detail_copies_external_output_audio_to_app_local_playback_path() {
     let audio_asset_path = detail.audio_asset_path.expect("audio asset path");
     assert!(audio_path.ends_with("media/audio.wav"));
     assert!(audio_asset_path.ends_with(
-        "cache/.StudyMind-audio-review/20260705-153012-douyin-7645505408425004329/audio.wav"
+        "cache/.StudyMind-audio-review/20260705-153012-local-abcdef123456/audio.wav"
     ));
     assert_ne!(audio_path, audio_asset_path);
     let app_local_cache = app_local_cache
@@ -105,7 +105,7 @@ fn load_detail_replaces_existing_cache_link_without_overwriting_link_target() {
     let app_local_outputs = app_local_root.join("outputs");
     let app_local_cache = app_local_root.join("cache");
     let outside_dir = temp_dir("load_detail_replaces_cache_link_outside");
-    let task_id = "20260705-153012-douyin-7645505408425004329";
+    let task_id = "20260705-153012-local-abcdef123456";
     let task_dir = create_task(&output_root, task_id);
     let source_audio_path = task_dir.join("media").join("audio.wav");
     fs::write(
@@ -139,7 +139,7 @@ fn load_detail_replaces_existing_cache_link_without_overwriting_link_target() {
         .audio_asset_path
         .expect("audio asset path")
         .ends_with(
-            "cache/.StudyMind-audio-review/20260705-153012-douyin-7645505408425004329/audio.wav"
+            "cache/.StudyMind-audio-review/20260705-153012-local-abcdef123456/audio.wav"
         ));
     assert_eq!(
         fs::read(&outside_target).expect("read outside target"),
@@ -158,7 +158,7 @@ fn load_detail_rejects_symlinked_audio_cache_target_before_copying() {
     let app_local_outputs = app_local_root.join("outputs");
     let app_local_cache = app_local_root.join("cache");
     let outside_dir = temp_dir("load_detail_rejects_symlinked_cache_outside");
-    let task_id = "20260705-153012-douyin-7645505408425004329";
+    let task_id = "20260705-153012-local-abcdef123456";
     let task_dir = create_task(&output_root, task_id);
     let source_audio_path = task_dir.join("media").join("audio.wav");
     fs::write(
@@ -201,7 +201,7 @@ fn load_detail_rejects_symlinked_audio_cache_target_before_copying() {
 #[test]
 fn save_detail_creates_original_backup_once_and_updates_manifest() {
     let output_root = temp_dir("save_detail_task");
-    let task_id = "20260705-153012-douyin-7645505408425004329";
+    let task_id = "20260705-153012-local-abcdef123456";
     let task_dir = create_task(&output_root, task_id);
     fs::write(
         task_dir.join("transcript").join("transcript.txt"),
@@ -281,7 +281,7 @@ fn save_detail_creates_original_backup_once_and_updates_manifest() {
 fn save_detail_rejects_linked_markdown_without_touching_external_target() {
     let output_root = temp_dir("save_detail_rejects_linked_markdown");
     let outside_dir = temp_dir("save_detail_external_markdown");
-    let task_id = "20260705-153012-douyin-7645505408425004329";
+    let task_id = "20260705-153012-local-abcdef123456";
     let task_dir = create_task(&output_root, task_id);
     fs::write(
         task_dir.join("transcript").join("transcript.txt"),
@@ -317,7 +317,7 @@ fn save_detail_rejects_linked_markdown_without_touching_external_target() {
 #[test]
 fn save_detail_rejects_nested_alternate_transcript_path() {
     let output_root = temp_dir("save_detail_rejects_alternate_transcript");
-    let task_id = "20260705-153012-douyin-7645505408425004329";
+    let task_id = "20260705-153012-local-abcdef123456";
     let task_dir = create_task(&output_root, task_id);
     let alternate_dir = task_dir.join("alternate").join("transcript");
     fs::create_dir_all(&alternate_dir).expect("create alternate transcript dir");
@@ -354,7 +354,7 @@ fn save_detail_rejects_nested_alternate_transcript_path() {
 #[test]
 fn save_detail_never_backs_up_sensitive_legacy_source_metadata() {
     let output_root = temp_dir("save_detail_rejects_sensitive_legacy_source");
-    let task_id = "20260710-120000-xiaohongshu-legacy";
+    let task_id = "20260710-120000-local-legacy";
     let task_dir = create_task(&output_root, task_id);
     fs::write(
         task_dir.join("transcript").join("transcript.txt"),
@@ -406,66 +406,9 @@ fn save_detail_never_backs_up_sensitive_legacy_source_metadata() {
 }
 
 #[test]
-fn transcript_load_and_save_reject_quarantined_tasks() {
-    let output_root = temp_dir("transcript_rejects_quarantined_task");
-    let task_id = "20260710-120000-xiaohongshu-review-secret";
-    let task_dir = create_task(&output_root, task_id);
-    fs::write(
-        task_dir.join("transcript").join("transcript.txt"),
-        "original text\n",
-    )
-    .expect("write transcript");
-    fs::write(
-        task_dir.join("StudyMind-task.json"),
-        format!(
-            r#"{{
-  "schema_version": 3,
-  "source_privacy_migration_version": 2,
-  "source_privacy_quarantined": true,
-  "task_id": "{task_id}",
-  "created_at": "2026-07-10T12:00:00Z",
-  "source_url": "",
-  "platform": "xiaohongshu",
-  "status": "completed",
-  "artifacts": {{"transcript_txt": "transcript/transcript.txt"}},
-  "error": null,
-  "text_preview": "original text",
-  "insights_count": 0
-}}"#
-        ),
-    )
-    .expect("write manifest");
-
-    let load_error = load_transcript_detail_from_output_root(
-        &output_root,
-        LoadTranscriptDetailRequest {
-            task_id: task_id.to_string(),
-        },
-    )
-    .expect_err("quarantined transcript load must fail");
-    assert!(load_error.contains("current history format"));
-
-    let save_error = save_transcript_edit_to_output_root(
-        &output_root,
-        SaveTranscriptEditRequest {
-            task_id: task_id.to_string(),
-            text: "changed".to_string(),
-            segments: vec![],
-        },
-    )
-    .expect_err("quarantined transcript save must fail");
-    assert!(save_error.contains("current history format"));
-    assert_eq!(
-        fs::read_to_string(task_dir.join("transcript").join("transcript.txt"))
-            .expect("read unchanged transcript"),
-        "original text\n"
-    );
-}
-
-#[test]
 fn save_detail_rejects_empty_text_and_path_traversal() {
     let output_root = temp_dir("save_detail_rejects_invalid");
-    let task_id = "20260705-153012-source-demo";
+    let task_id = "20260705-153012-local-fedcba654321";
     let task_dir = create_task(&output_root, task_id);
     fs::write(task_dir.join("transcript").join("transcript.txt"), "text\n")
         .expect("write transcript");
@@ -488,7 +431,6 @@ fn save_detail_rejects_empty_text_and_path_traversal() {
   "schema_version": 1,
   "task_id": "{task_id}",
   "created_at": "2026-07-05T15:30:12Z",
-  "source_url": "https://example.test/video",
   "status": "completed",
   "artifacts": {{"transcript_txt": "../outside.txt"}},
   "error": null,
@@ -511,7 +453,7 @@ fn save_detail_rejects_empty_text_and_path_traversal() {
 #[test]
 fn load_detail_degrades_missing_malformed_and_mixed_segments_without_hiding_valid_items() {
     let output_root = temp_dir("load_detail_segment_fallback_matrix");
-    let task_id = "20260705-153012-douyin-7645505408425004329";
+    let task_id = "20260705-153012-local-abcdef123456";
     let task_dir = create_task(&output_root, task_id);
     fs::write(
         task_dir.join("transcript").join("transcript.txt"),
@@ -571,7 +513,7 @@ fn load_detail_degrades_missing_malformed_and_mixed_segments_without_hiding_vali
 #[test]
 fn load_detail_routes_direct_audio_without_cache_and_allows_missing_audio() {
     let output_root = temp_dir("load_detail_direct_or_missing_audio");
-    let task_id = "20260705-153012-douyin-7645505408425004329";
+    let task_id = "20260705-153012-local-abcdef123456";
     let task_dir = create_task(&output_root, task_id);
     fs::write(
         task_dir.join("transcript").join("transcript.txt"),
@@ -619,7 +561,7 @@ fn load_detail_routes_direct_audio_without_cache_and_allows_missing_audio() {
 #[test]
 fn save_detail_preserves_markdown_prefix_and_existing_empty_segments_declaration() {
     let output_root = temp_dir("save_detail_markdown_and_empty_segments");
-    let task_id = "20260705-153012-douyin-7645505408425004329";
+    let task_id = "20260705-153012-local-abcdef123456";
     let task_dir = create_task(&output_root, task_id);
     fs::write(
         task_dir.join("transcript").join("transcript.txt"),
@@ -667,7 +609,7 @@ fn save_detail_preserves_markdown_prefix_and_existing_empty_segments_declaration
 #[test]
 fn save_detail_mid_commit_failure_restores_complete_previous_revision() {
     let output_root = temp_dir("save-detail-transaction-rollback");
-    let task_id = "20260722-120000-youtube-dQw4w9WgXcQ";
+    let task_id = "20260722-120000-local-abcdef123456";
     let task_dir = create_task(&output_root, task_id);
     let transcript_path = task_dir.join("transcript").join("transcript.txt");
     let markdown_path = task_dir.join("transcript").join("transcript.md");
@@ -812,19 +754,15 @@ fn write_manifest(task_dir: &Path, task_id: &str, include_segments: bool) {
         task_dir.join("StudyMind-task.json"),
         format!(
             r#"{{
-  "schema_version": 3,
-  "source_privacy_migration_version": 2,
+  "schema_version": 4,
   "task_id": "{task_id}",
   "created_at": "2026-07-05T15:30:12Z",
-  "source_url": "https://www.douyin.com/video/7645505408425004329",
-  "source_identity": {{
-    "version": 1,
-    "platform": "douyin",
-    "stable_id": "7645505408425004329",
-    "effective_part": null,
-    "canonical_url": "https://www.douyin.com/video/7645505408425004329"
+  "local_source": {{
+    "display_name": "Lecture.wmv",
+    "media_kind": "video",
+    "extension": "wmv"
   }},
-  "platform": "douyin",
+  "platform": "local",
   "status": "completed",
   "artifacts": {{
     "audio": "media/audio.wav",

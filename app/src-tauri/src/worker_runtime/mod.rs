@@ -6,12 +6,9 @@ mod supervisor;
 
 use command::build_asr_model_download_command_spec;
 pub(crate) use facade::{AsrModelDownloadJob, TaskWorkerFacade, WorkerJob};
-#[cfg(test)]
-pub(crate) use result_protocol::SourceIdentityFailure;
 pub(crate) use result_protocol::{
-    validate_task_dissection, ModelDownloadTerminalResult, SourceIdentityTerminalResult,
-    TaskDissection, TaskTerminalResult, ValidatedWorkerResult, WORKER_PROTOCOL_MESSAGE,
-    WORKER_PROTOCOL_VIOLATION,
+    validate_task_dissection, ModelDownloadTerminalResult, TaskDissection, TaskTerminalResult,
+    ValidatedWorkerResult, WORKER_PROTOCOL_MESSAGE, WORKER_PROTOCOL_VIOLATION,
 };
 #[cfg(test)]
 pub(crate) use runner::WorkerExitSummary;

@@ -64,8 +64,7 @@ pub(crate) fn sanitize_diagnostic_text(text: &str) -> String {
         .map(redact_sensitive_line)
         .collect::<Vec<_>>()
         .join(" | ");
-    let without_media_urls = redact_youtube_media_urls(&redacted_lines);
-    let without_source_urls = redact_http_urls(&without_media_urls);
+    let without_source_urls = redact_http_urls(&redacted_lines);
     let without_credentials = redact_credential_assignments(&without_source_urls);
     let without_cookie_cli_hints = redact_cookie_cli_hints(&without_credentials);
     collapse_log_whitespace(&without_cookie_cli_hints)
@@ -89,19 +88,6 @@ fn redact_sensitive_line(line: &str) -> String {
     }
 
     line.to_string()
-}
-
-fn redact_youtube_media_urls(text: &str) -> String {
-    text.split_whitespace()
-        .map(|token| {
-            if token.contains("googlevideo.com") || token.contains("videoplayback") {
-                "[youtube media url removed]"
-            } else {
-                token
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
 }
 
 fn redact_http_urls(text: &str) -> String {
@@ -264,14 +250,14 @@ mod tests {
         append_desktop_log(
             &paths,
             "worker.finish",
-            "STUDYMIND_LLM_API_KEY=sk-secret\nSTUDYMIND_LLM_SESSION_TOKEN=session-token\nhttps://rr1---sn.googlevideo.com/videoplayback?sig=SECRET Use --cookies cookies.txt.",
+            "STUDYMIND_LLM_API_KEY=sk-secret\nSTUDYMIND_LLM_SESSION_TOKEN=session-token\nhttps://example.test/video?sig=SECRET Use --cookies cookies.txt.",
         )
         .expect("write desktop log");
 
         let log = fs::read_to_string(desktop_log_path(&paths)).expect("read desktop log");
         assert!(log.contains("worker.finish"));
         assert!(log.contains("[redacted]"));
-        assert!(log.contains("[youtube media url removed]"));
+        assert!(log.contains("[url removed]"));
         assert!(!log.contains("sk-secret"));
         assert!(!log.contains("session-token"));
         assert!(!log.contains("sig=SECRET"));
@@ -282,21 +268,21 @@ mod tests {
     fn worker_result_log_summary_includes_status_task_and_sanitized_error() {
         let result = serde_json::json!({
             "status": "failed",
-            "task_id": "20260705-120000-youtube-demo",
+            "task_id": "20260705-120000-local-demo",
             "error": {
-                "code": "VIDEO_DOWNLOAD_FAILED",
+                "code": "LOCAL_MEDIA_FAILED",
                 "stage": "video_extracting",
-                "message": "YOUTUBE_LOGIN_REQUIRED: https://rr1---sn.googlevideo.com/videoplayback?sig=SECRET Use --cookies cookies.txt."
+                "message": "extraction failed https://example.test/video?sig=SECRET Use --cookies cookies.txt."
             }
         });
 
         let summary = summarize_worker_result_for_log(&result);
 
         assert!(summary.contains("status=failed"));
-        assert!(summary.contains("task_id=20260705-120000-youtube-demo"));
-        assert!(summary.contains("error_code=VIDEO_DOWNLOAD_FAILED"));
+        assert!(summary.contains("task_id=20260705-120000-local-demo"));
+        assert!(summary.contains("error_code=LOCAL_MEDIA_FAILED"));
         assert!(summary.contains("error_stage=video_extracting"));
-        assert!(summary.contains("[youtube media url removed]"));
+        assert!(summary.contains("[url removed]"));
         assert!(!summary.contains("sig=SECRET"));
         assert!(!summary.contains("--cookies"));
     }

@@ -19,10 +19,8 @@ const MAX_WORKER_STDIN_PAYLOAD_BYTES: usize = 1024 * 1024;
 
 #[derive(Clone)]
 pub(super) enum WorkerInvocation {
-    ProcessVideo(String),
     ProcessLocalMedia(String),
     RetryInsights(String),
-    ResolveSourceIdentity(String),
 }
 
 #[derive(Clone)]
@@ -148,18 +146,12 @@ pub(super) fn build_worker_command_spec(
 ) -> Result<WorkerCommandSpec, String> {
     let include_server_managed_llm = worker_invocation_uses_server_managed_llm(&invocation);
     let (args, stdin_payload) = match invocation {
-        WorkerInvocation::ProcessVideo(payload) => {
-            (vec!["--request-stdin".to_string()], Some(payload))
-        }
         WorkerInvocation::ProcessLocalMedia(payload) => (
             vec!["--process-local-media-stdin".to_string()],
             Some(payload),
         ),
         WorkerInvocation::RetryInsights(payload) => {
             (vec!["--retry-insights-stdin".to_string()], Some(payload))
-        }
-        WorkerInvocation::ResolveSourceIdentity(payload) => {
-            (vec!["--resolve-source-stdin".to_string()], Some(payload))
         }
     };
     if stdin_payload
@@ -228,9 +220,7 @@ pub(super) fn build_worker_command_spec(
 fn worker_invocation_uses_server_managed_llm(invocation: &WorkerInvocation) -> bool {
     match invocation {
         WorkerInvocation::RetryInsights(_) => true,
-        WorkerInvocation::ProcessVideo(_)
-        | WorkerInvocation::ProcessLocalMedia(_)
-        | WorkerInvocation::ResolveSourceIdentity(_) => false,
+        WorkerInvocation::ProcessLocalMedia(_) => false,
     }
 }
 
@@ -363,18 +353,21 @@ mod tests {
     #[test]
     fn worker_command_spec_uses_bundled_python_and_app_local_data() {
         let paths = command_test_paths();
-        let request_json = r#"{"url":"https://www.douyin.com/video/7524373044106677544"}"#;
+        let request_json = r#"{"contract_version":4,"source_path":"C:\\Users\\demo\\Interview.wmv","media_kind":"video","safe_display_name":"Interview.wmv","source_extension":"wmv","asr_model":"iic/SenseVoiceSmall"}"#;
 
         let spec = build_worker_command_spec(
             &paths,
-            WorkerInvocation::ProcessVideo(request_json.to_string()),
+            WorkerInvocation::ProcessLocalMedia(request_json.to_string()),
             None,
         )
         .expect("build worker command spec");
         let env = spec.env_map();
 
         assert_eq!(spec.program, bundled_python_path(&paths.resource_dir));
-        assert_eq!(spec.args, vec!["-m", "studymind_worker", "--request-stdin"]);
+        assert_eq!(
+            spec.args,
+            vec!["-m", "studymind_worker", "--process-local-media-stdin"]
+        );
         assert_eq!(spec.stdin_payload.as_deref(), Some(request_json));
         assert!(!spec.args.join(" ").contains(request_json));
         assert!(!spec.args.join(" ").contains("xsec_token"));
@@ -413,22 +406,10 @@ mod tests {
         let secret = "review-secret";
         let cases = [
             (
-                WorkerInvocation::ProcessVideo(format!(
-                    r#"{{"url":"https://www.xiaohongshu.com/explore/64a1b2c3d4e5f67890123456?xsec_token={secret}"}}"#
-                )),
-                "--request-stdin",
-            ),
-            (
                 WorkerInvocation::ProcessLocalMedia(format!(
                     r#"{{"contract_version":4,"source_path":"C:\\Users\\{secret}\\Interview.wmv","media_kind":"video","safe_display_name":"Interview.wmv","source_extension":"wmv","asr_model":"iic/SenseVoiceSmall"}}"#
                 )),
                 "--process-local-media-stdin",
-            ),
-            (
-                WorkerInvocation::ResolveSourceIdentity(format!(
-                    r#"{{"url":"https://xhslink.com/demo?xsec_token={secret}"}}"#
-                )),
-                "--resolve-source-stdin",
             ),
             (
                 WorkerInvocation::RetryInsights(
@@ -470,7 +451,7 @@ mod tests {
 
         let error = match build_worker_command_spec(
             &paths,
-            WorkerInvocation::ProcessVideo(payload),
+            WorkerInvocation::ProcessLocalMedia(payload),
             None,
         ) {
             Ok(_) => panic!("oversized stdin payload unexpectedly accepted"),
@@ -482,13 +463,13 @@ mod tests {
     }
 
     #[test]
-    fn worker_command_spec_skips_server_managed_llm_for_process_video() {
+    fn worker_command_spec_skips_server_managed_llm_for_process_local_media() {
         let paths = command_test_paths();
-        let request_json = r#"{"url":"https://www.douyin.com/video/7524373044106677544"}"#;
+        let request_json = r#"{"contract_version":4,"source_path":"C:\\Users\\demo\\Interview.wmv","media_kind":"video","safe_display_name":"Interview.wmv","source_extension":"wmv","asr_model":"iic/SenseVoiceSmall"}"#;
 
         let spec = build_worker_command_spec(
             &paths,
-            WorkerInvocation::ProcessVideo(request_json.to_string()),
+            WorkerInvocation::ProcessLocalMedia(request_json.to_string()),
             Some(ServerManagedLlmInvocation {
                 server_base_url: "http://127.0.0.1:8787".to_string(),
                 session_token: "desktop-token".to_string(),
