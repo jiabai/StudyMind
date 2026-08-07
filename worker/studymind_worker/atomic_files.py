@@ -92,9 +92,12 @@ def write_synced_new_file(path: Path, content: bytes) -> None:
 
 
 def install_staged_file(staging_path: Path, destination: Path) -> None:
-    try:
+    def _validate_same_directory() -> None:
         if staging_path.parent != destination.parent:
             raise AtomicFileCommitError()
+
+    try:
+        _validate_same_directory()
         _validate_regular_file(staging_path)
         _validate_destination(destination)
         os.replace(staging_path, destination)

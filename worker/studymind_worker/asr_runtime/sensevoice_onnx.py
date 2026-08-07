@@ -199,6 +199,11 @@ class SenseVoiceOnnxTranscriber:
         audio_path: Path,
         language: str,
     ) -> Transcript:
+        def _segment_failure(reason: Exception) -> ASRRuntimeError:
+            return ASRRuntimeError(
+                f"ONNX ASR segment {index} of {total_blocks} failed: {reason}"
+            )
+
         try:
             import numpy as np
         except ModuleNotFoundError as exc:
@@ -244,9 +249,7 @@ class SenseVoiceOnnxTranscriber:
                     textnorm="withitn",
                 )
             except Exception as exc:
-                raise ASRRuntimeError(
-                    f"ONNX ASR segment {index} of {total_blocks} failed: {exc}"
-                ) from exc
+                raise _segment_failure(exc) from exc
             text = _clean_sensevoice_text(_extract_onnx_text(result))
             if text:
                 segments.append(

@@ -233,6 +233,21 @@ def parse_persisted_dissection(
     *,
     transcript: str,
 ) -> TranscriptDissection:
+    def _check_schema_version(root: dict[str, object]) -> None:
+        if root["schemaVersion"] != 1 or type(root["schemaVersion"]) is not int:
+            raise ValueError("schema version")
+
+    def _check_source_language(root: dict[str, object]) -> None:
+        source_language = root["sourceLanguage"]
+        if source_language is not None and (
+            not isinstance(source_language, str) or not source_language.strip()
+        ):
+            raise ValueError("source language")
+
+    def _check_provenance(report: TranscriptDissection, root: dict[str, object]) -> None:
+        if report.to_dict() != root:
+            raise ValueError("provenance")
+
     try:
         root = _closed_object(
             payload,
@@ -250,13 +265,9 @@ def parse_persisted_dissection(
                 "weaknesses",
             },
         )
-        if root["schemaVersion"] != 1 or type(root["schemaVersion"]) is not int:
-            raise ValueError("schema version")
+        _check_schema_version(root)
         source_language = root["sourceLanguage"]
-        if source_language is not None and (
-            not isinstance(source_language, str) or not source_language.strip()
-        ):
-            raise ValueError("source language")
+        _check_source_language(root)
         semantic_payload = {
             key: root[key]
             for key in (
@@ -275,8 +286,7 @@ def parse_persisted_dissection(
             chunks=MarkdownSplitter().split(transcript),
             source_language=source_language,
         )
-        if report.to_dict() != root:
-            raise ValueError("provenance")
+        _check_provenance(report, root)
         return report
     except (KeyError, TypeError, ValueError) as exc:
         raise DissectionGenerationError(
@@ -695,7 +705,7 @@ def _closed_object(value: object, keys: set[str]) -> dict[str, object]:
 
 def _list(value: object) -> list[object]:
     if not isinstance(value, list):
-        raise ValueError("array")
+        raise TypeError("array")
     return value
 
 

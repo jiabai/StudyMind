@@ -1,4 +1,4 @@
-﻿[project]
+[project]
 name = "studymind-worker"
 version = "0.1.0"
 description = "Python worker for StudyMind learning assistance workflows."

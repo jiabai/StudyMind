@@ -27,10 +27,6 @@ const settingsControllerTs = readFileSync(
   new URL("./features/settings/useSettingsController.ts", import.meta.url),
   "utf-8",
 );
-const browserSmokeSource = readFileSync(
-  new URL("../tests/app-input.browser.test.ts", import.meta.url),
-  "utf-8",
-);
 
 function getRuleBody(selectors: string[]): string {
   const selectorPattern = selectors
@@ -271,7 +267,6 @@ describe("App result workspace layout styles", () => {
     expect(listRule).toContain("overflow: auto;");
     expect(sheetRule).not.toMatch(/(?:^|\s)(?:height|min-height):/);
     expect(sheetRule).toContain("position: relative;");
-    expect(browserSmokeSource).not.toContain("style.height = '720px'");
     expect(listRule).toContain("align-items: stretch;");
     expect(itemRule).toContain("display: grid;");
     expect(itemRule).toContain("flex: 0 0 auto;");

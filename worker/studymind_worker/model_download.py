@@ -279,6 +279,14 @@ def _download_onnx_model_cache(
         message_args={"model": ONNX_SENSEVOICE_MODEL_ID},
     )
     staging_dir = cache_dir / f".{ONNX_CACHE_DIR_NAME}-staging-{uuid4().hex}"
+
+    def _validate_onnx_cache_or_raise() -> None:
+        if not _validate_onnx_model_cache(staging_dir, asset_hashes):
+            raise ModelDownloadError(
+                ARCHIVE_INVALID_ERROR_CODE,
+                "Downloaded ONNX ASR model cache is incomplete or invalid.",
+            )
+
     try:
         model_root = staging_dir / "models"
         _download_onnx_modelscope_assets(
@@ -294,11 +302,7 @@ def _download_onnx_model_cache(
             model_name=ONNX_SENSEVOICE_MODEL_ID,
             vad_model=ONNX_VAD_MODEL_ID,
         )
-        if not _validate_onnx_model_cache(staging_dir, asset_hashes):
-            raise ModelDownloadError(
-                ARCHIVE_INVALID_ERROR_CODE,
-                "Downloaded ONNX ASR model cache is incomplete or invalid.",
-            )
+        _validate_onnx_cache_or_raise()
         _promote_onnx_cache(staging_dir, ready_dir)
     except ModelDownloadError:
         raise

@@ -90,7 +90,7 @@ class _TransactionJournal:
     entries: tuple[_TransactionEntry, ...]
 
 
-class _InvalidTransaction(ValueError):
+class _InvalidTransactionError(ValueError):
     pass
 
 
@@ -170,7 +170,7 @@ def recover_task_artifacts(task_dir: Path) -> RecoveryOutcome:
         _validate_regular_path(journal_path)
         raw_journal = journal_path.read_bytes()
         if len(raw_journal) > _MAX_JOURNAL_BYTES:
-            raise _InvalidTransaction()
+            raise _InvalidTransactionError()
         payload = json.loads(
             raw_journal.decode("utf-8"),
             object_pairs_hook=_closed_object,
@@ -207,14 +207,14 @@ def _validate_mutations(
     mutations: Mapping[str, bytes | None],
 ) -> tuple[tuple[str, bytes | None], ...]:
     if not isinstance(mutations, Mapping) or not 1 <= len(mutations) <= _MAX_ENTRIES:
-        raise _InvalidTransaction()
+        raise _InvalidTransactionError()
     ordered: list[tuple[str, bytes | None]] = []
     manifest: tuple[str, bytes | None] | None = None
     for destination, content in mutations.items():
         if not isinstance(destination, str) or destination not in _ALLOWED_DESTINATION_SET:
-            raise _InvalidTransaction()
+            raise _InvalidTransactionError()
         if content is not None and not isinstance(content, bytes):
-            raise _InvalidTransaction()
+            raise _InvalidTransactionError()
         _ensure_destination_parent(task_dir, destination)
         _validate_optional_regular_path(_destination_path(task_dir, destination))
         item = (destination, content)
@@ -263,7 +263,7 @@ def _prepare_materials(
         if entry.staging is not None:
             content = content_by_destination[entry.destination]
             if not isinstance(content, bytes):
-                raise _InvalidTransaction()
+                raise _InvalidTransactionError()
             write_synced_new_file(task_dir / Path(entry.staging), content)
         if entry.rollback is not None:
             _validate_regular_path(destination)
@@ -278,31 +278,31 @@ def _parse_journal_payload(payload: Any) -> _TransactionJournal:
         "state",
         "entries",
     }:
-        raise _InvalidTransaction()
+        raise _InvalidTransactionError()
     if type(payload["schema_version"]) is not int or payload["schema_version"] != SCHEMA_VERSION:
-        raise _InvalidTransaction()
+        raise _InvalidTransactionError()
     transaction_id = payload["transaction_id"]
     if not isinstance(transaction_id, str) or not _TRANSACTION_ID_PATTERN.fullmatch(
         transaction_id
     ):
-        raise _InvalidTransaction()
+        raise _InvalidTransactionError()
     state = payload["state"]
     if state not in ("prepared", "committed") or not isinstance(state, str):
-        raise _InvalidTransaction()
+        raise _InvalidTransactionError()
     raw_entries = payload["entries"]
     if not isinstance(raw_entries, list) or not 1 <= len(raw_entries) <= _MAX_ENTRIES:
-        raise _InvalidTransaction()
+        raise _InvalidTransactionError()
 
     entries: list[_TransactionEntry] = []
     destinations: set[str] = set()
     for index, raw_entry in enumerate(raw_entries):
         entry = _parse_entry(raw_entry, transaction_id, index)
         if entry.destination in destinations:
-            raise _InvalidTransaction()
+            raise _InvalidTransactionError()
         destinations.add(entry.destination)
         entries.append(entry)
     if _MANIFEST_DESTINATION in destinations and entries[-1].destination != _MANIFEST_DESTINATION:
-        raise _InvalidTransaction()
+        raise _InvalidTransactionError()
     return _TransactionJournal(
         transaction_id=transaction_id,
         state=state,
@@ -317,19 +317,19 @@ def _parse_entry(raw_entry: Any, transaction_id: str, index: int) -> _Transactio
         "rollback",
         "existed_before",
     }:
-        raise _InvalidTransaction()
+        raise _InvalidTransactionError()
     destination = raw_entry["destination"]
     staging = raw_entry["staging"]
     rollback = raw_entry["rollback"]
     existed_before = raw_entry["existed_before"]
     if not isinstance(destination, str) or destination not in _ALLOWED_DESTINATION_SET:
-        raise _InvalidTransaction()
+        raise _InvalidTransactionError()
     if staging is not None and not isinstance(staging, str):
-        raise _InvalidTransaction()
+        raise _InvalidTransactionError()
     if rollback is not None and not isinstance(rollback, str):
-        raise _InvalidTransaction()
+        raise _InvalidTransactionError()
     if type(existed_before) is not bool:
-        raise _InvalidTransaction()
+        raise _InvalidTransactionError()
     expected_staging = _internal_relative_path(
         destination, transaction_id, index, "staging"
     )
@@ -337,11 +337,11 @@ def _parse_entry(raw_entry: Any, transaction_id: str, index: int) -> _Transactio
         destination, transaction_id, index, "rollback"
     )
     if staging is not None and staging != expected_staging:
-        raise _InvalidTransaction()
+        raise _InvalidTransactionError()
     if existed_before and rollback != expected_rollback:
-        raise _InvalidTransaction()
+        raise _InvalidTransactionError()
     if not existed_before and rollback is not None:
-        raise _InvalidTransaction()
+        raise _InvalidTransactionError()
     return _TransactionEntry(
         destination=destination,
         staging=staging,
@@ -368,7 +368,7 @@ def _load_all_rollbacks(
         if not entry.existed_before:
             continue
         if entry.rollback is None:
-            raise _InvalidTransaction()
+            raise _InvalidTransactionError()
         rollback_path = task_dir / Path(entry.rollback)
         _validate_regular_path(rollback_path)
         payloads[entry.destination] = rollback_path.read_bytes()
@@ -453,7 +453,7 @@ def _cleanup_closed_orphans_best_effort(task_dir: Path) -> None:
 def _ensure_destination_parent(task_dir: Path, destination: str) -> None:
     relative = PurePosixPath(destination)
     if relative.as_posix() != destination or relative.is_absolute():
-        raise _InvalidTransaction()
+        raise _InvalidTransactionError()
     current = task_dir
     for component in relative.parent.parts:
         current /= component
@@ -483,13 +483,13 @@ def _validate_task_dir(task_dir: Path) -> None:
 def _validate_directory_path(path: Path) -> None:
     metadata = path.lstat()
     if not stat.S_ISDIR(metadata.st_mode) or _is_link_or_reparse_point(metadata):
-        raise _InvalidTransaction()
+        raise _InvalidTransactionError()
 
 
 def _validate_regular_path(path: Path) -> None:
     metadata = path.lstat()
     if not stat.S_ISREG(metadata.st_mode) or _is_link_or_reparse_point(metadata):
-        raise _InvalidTransaction()
+        raise _InvalidTransactionError()
 
 
 def _validate_optional_regular_path(path: Path) -> None:
@@ -518,7 +518,7 @@ def _closed_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     value: dict[str, Any] = {}
     for key, item in pairs:
         if key in value:
-            raise _InvalidTransaction()
+            raise _InvalidTransactionError()
         value[key] = item
     return value
 
