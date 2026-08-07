@@ -1,0 +1,52 @@
+﻿# Agent skills
+.agents/skills/
+
+# Dependencies and local environments
+node_modules/
+app/node_modules/
+.venv/
+venv/
+
+# Build outputs
+app/dist/
+app/src-tauri/target/
+app/src-tauri/resources/*
+!app/src-tauri/resources/.gitkeep
+!app/src-tauri/resources/.env.template
+!app/src-tauri/resources/pyproject.toml
+dist/
+target/
+build/
+
+# Runtime artifacts
+models/*
+outputs/*
+work/*
+logs/*
+server/logs/
+server/data/
+server/backups/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# Local config and secrets
+.env
+.env.*
+!.env.example
+!app/src-tauri/resources/.env.template
+*.local
+
+# Python cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.tmp/
+
+.workbuddy/
+.superpowers/
+.worktrees/
+
+# Local cargo config
+app/src-tauri/.cargo/

@@ -1,0 +1,22 @@
+﻿{
+  "name": "studymind-server",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "vitest run --no-file-parallelism"
+  },
+  "dependencies": {
+    "fastify": "^5.0.0",
+    "@prisma/client": "^5.0.0"
+  },
+  "devDependencies": {
+    "typescript": "~5.8.3",
+    "tsx": "^4.0.0",
+    "vitest": "^4.1.9",
+    "prisma": "^5.0.0"
+  }
+}

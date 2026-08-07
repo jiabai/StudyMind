@@ -1,0 +1,25 @@
+﻿[package]
+name = "studymind-app"
+version = "0.1.0"
+description = "StudyMind desktop learning assistant"
+authors = ["StudyMind"]
+edition = "2021"
+
+[lib]
+name = "app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tauri-plugin-single-instance = { version = "2.4.2", features = [] }
+uuid = { version = "1", features = ["v4"] }
+sha2 = "0.10.9"
+tauri-plugin-process = "2"
+tauri-plugin-dialog = "2"

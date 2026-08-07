@@ -1,0 +1,107 @@
+export const updatesResources = {
+  "zh-CN": {
+    section: {
+      heading: "应用更新",
+      description: "StudyMind 会升级桌面端和内置 worker；模型缓存和本机产物保持在 app-local data。",
+      defaultMessage: "启动后会自动静默检查更新，也可以在这里手动检查。",
+      manualMessage: "macOS 版本通过发布页手动下载安装，暂未启用应用内自动更新。",
+      installBlocked: "当前任务或模型下载完成后才能安装更新。",
+      manualStatus: "手动更新",
+      stableVersion: "StudyMind stable",
+      versionLabel: "StudyMind {{version}}",
+      downloadProgressAria: "应用更新下载进度",
+    },
+    status: {
+      idle: "未检查", checking: "检查中", available: "可升级", downloading: "下载中",
+      installing: "安装中", ready_to_restart: "待重启", up_to_date: "已是最新",
+      failed: "检查失败", postponed: "稍后提醒",
+    },
+    action: {
+      checking: "检查中", check: "检查更新", restart: "重启完成更新",
+      install: "一键升级", postpone: "稍后提醒", releases: "前往下载页",
+    },
+    toolbar: {
+      restart: "重启更新",
+      installing: "安装中",
+      version: "新版本 {{version}}",
+      available: "有更新",
+    },
+    state: {
+      available: "发现新版本 {{version}}。", checking: "正在检查更新。",
+      upToDate: "当前已是最新版本。", downloading: "正在下载更新。",
+      installing: "正在安装更新。", readyToRestart: "更新已安装，重启后生效。",
+      failed: "更新失败，请稍后重试。", postponed: "已设为稍后提醒。",
+      installBlocked: "当前任务或模型下载完成后再安装更新。",
+    },
+  },
+  "zh-TW": {
+    section: {
+      heading: "應用程式更新",
+      description: "StudyMind 會更新桌面端與內建 worker；模型快取和本機產物會保留在 app-local data。",
+      defaultMessage: "啟動後會自動在背景檢查更新，也可以在此手動檢查。",
+      manualMessage: "macOS 版本需透過發佈頁手動下載安裝，目前未啟用應用程式內自動更新。",
+      installBlocked: "目前工作或模型下載完成後才能安裝更新。",
+      manualStatus: "手動更新",
+      stableVersion: "StudyMind stable",
+      versionLabel: "StudyMind {{version}}",
+      downloadProgressAria: "應用程式更新下載進度",
+    },
+    status: {
+      idle: "尚未檢查", checking: "檢查中", available: "可更新", downloading: "下載中",
+      installing: "安裝中", ready_to_restart: "等待重新啟動", up_to_date: "已是最新版本",
+      failed: "檢查失敗", postponed: "稍後提醒",
+    },
+    action: {
+      checking: "檢查中", check: "檢查更新", restart: "重新啟動以完成更新",
+      install: "立即更新", postpone: "稍後提醒", releases: "前往下載頁",
+    },
+    toolbar: {
+      restart: "重新啟動以更新",
+      installing: "安裝中",
+      version: "新版本 {{version}}",
+      available: "有可用更新",
+    },
+    state: {
+      available: "發現新版本 {{version}}。", checking: "正在檢查更新。",
+      upToDate: "目前已是最新版本。", downloading: "正在下載更新。",
+      installing: "正在安裝更新。", readyToRestart: "更新已安裝，重新啟動後生效。",
+      failed: "更新失敗，請稍後再試。", postponed: "已設定稍後提醒。",
+      installBlocked: "目前工作或模型下載完成後再安裝更新。",
+    },
+  },
+  "en-US": {
+    section: {
+      heading: "App Updates",
+      description: "StudyMind updates the desktop app and bundled worker. Model caches and local artifacts remain in app-local data.",
+      defaultMessage: "StudyMind checks for updates quietly after startup. You can also check manually here.",
+      manualMessage: "On macOS, download and install updates manually from the releases page. In-app updates are not enabled yet.",
+      installBlocked: "Finish the current task or model download before installing the update.",
+      manualStatus: "Manual update",
+      stableVersion: "StudyMind stable",
+      versionLabel: "StudyMind {{version}}",
+      downloadProgressAria: "Update download progress",
+    },
+    status: {
+      idle: "Not checked", checking: "Checking", available: "Update available", downloading: "Downloading",
+      installing: "Installing", ready_to_restart: "Restart required", up_to_date: "Up to date",
+      failed: "Check failed", postponed: "Remind later",
+    },
+    action: {
+      checking: "Checking", check: "Check for updates", restart: "Restart to finish",
+      install: "Update now", postpone: "Remind later", releases: "Open downloads page",
+    },
+    toolbar: {
+      restart: "Restart to update",
+      installing: "Installing",
+      version: "Version {{version}} available",
+      available: "Update available",
+    },
+    state: {
+      available: "Version {{version}} is available.", checking: "Checking for updates.",
+      upToDate: "StudyMind is up to date.", downloading: "Downloading the update.",
+      installing: "Installing the update.", readyToRestart: "The update is installed and will take effect after restart.",
+      failed: "The update failed. Try again later.", postponed: "The reminder is postponed.",
+      installBlocked: "Finish the current task or model download before installing the update.",
+    },
+  },
+} as const;

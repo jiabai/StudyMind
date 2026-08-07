@@ -1,0 +1,62 @@
+﻿{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "StudyMind",
+  "version": "0.1.0",
+  "identifier": "com.studymind.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "StudyMind",
+        "width": 1180,
+        "height": 760,
+        "minWidth": 720,
+        "minHeight": 640,
+        "center": true,
+        "decorations": false,
+        "shadow": true
+      }
+    ],
+    "security": {
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$APPLOCALDATA/outputs/**", "$APPLOCALDATA/cache/**"]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "createUpdaterArtifacts": false,
+    "targets": ["nsis", "dmg"],
+    "resources": [
+      "resources/python/**/*",
+      "resources/worker/**/*",
+      "resources/bin/**/*",
+      "resources/pyproject.toml",
+      "resources/.env.template"
+    ],
+    "windows": {
+      "nsis": {
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico"
+      }
+    },
+    "macOS": {
+      "signingIdentity": "-",
+      "hardenedRuntime": false
+    },
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

@@ -1,0 +1,1583 @@
+{
+  "contractVersion": 7,
+  "events": {
+    "workerProgress": "worker-progress",
+    "workerProgressPrefix": "STUDYMIND_PROGRESS ",
+    "asrModelDownloadProgress": "asr-model-download-progress",
+    "asrModelDownloadPrefix": "STUDYMIND_MODEL_DOWNLOAD "
+  },
+  "progressEvents": {
+    "invalidEventPolicy": {
+      "producer": "reject",
+      "consumer": "drop_and_record_code"
+    },
+    "fieldSchemas": {
+      "stage": {
+        "type": "string",
+        "enum": [
+          "waiting_input",
+          "video_extracting",
+          "video_transcribing",
+          "insights_generating",
+          "completed",
+          "partial_completed",
+          "failed"
+        ]
+      },
+      "progress": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100
+      }
+    },
+    "messageArgs": {
+      "type": "object",
+      "properties": {
+        "model": {
+          "type": "string",
+          "enum": [
+            "iic/SenseVoiceSmall",
+            "iic/speech_fsmn_vad_zh-cn-16k-common-pytorch",
+            "iic/SenseVoiceSmall-onnx",
+            "iic/speech_fsmn_vad_zh-cn-16k-common-onnx"
+          ]
+        },
+        "language": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 35,
+          "pattern": "^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$"
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "additionalProperties": false,
+      "constraints": {
+        "attemptMustNotExceedTotal": true
+      },
+      "forbiddenContent": [
+        "url",
+        "full_path",
+        "selection_token",
+        "cookie",
+        "credential",
+        "transcript_content",
+        "prompt",
+        "generated_content",
+        "request_headers",
+        "preference_prose"
+      ]
+    },
+    "worker": {
+      "requiredFields": [
+        "stage",
+        "progress",
+        "message_code"
+      ],
+      "optionalFields": [
+        "message_args"
+      ],
+      "messageCodes": {
+        "video.download.preparing": {
+          "allowedArgs": []
+        },
+        "video.stream.validating": {
+          "allowedArgs": []
+        },
+        "local.media.validating": {
+          "allowedArgs": []
+        },
+        "local.video.copying": {
+          "allowedArgs": []
+        },
+        "local.audio.normalizing": {
+          "allowedArgs": []
+        },
+        "audio.extract.running": {
+          "allowedArgs": []
+        },
+        "audio.extract.reused": {
+          "allowedArgs": []
+        },
+        "subtitle.detect.running": {
+          "allowedArgs": []
+        },
+        "subtitle.detect.found": {
+          "allowedArgs": [
+            "language"
+          ]
+        },
+        "asr.cache.preparing": {
+          "allowedArgs": [
+            "model"
+          ]
+        },
+        "asr.transcribe.starting": {
+          "allowedArgs": []
+        },
+        "asr.transcribe.running": {
+          "allowedArgs": []
+        },
+        "ai.generation.running": {
+          "allowedArgs": [
+            "attempt",
+            "total"
+          ]
+        },
+        "douyin.page.resolving": {
+          "allowedArgs": []
+        },
+        "douyin.stream.probing": {
+          "allowedArgs": []
+        },
+        "douyin.video.saving": {
+          "allowedArgs": []
+        },
+        "douyin.stream.retrying": {
+          "allowedArgs": [
+            "attempt",
+            "total"
+          ]
+        },
+        "xiaohongshu.page.resolving": {
+          "allowedArgs": []
+        },
+        "xiaohongshu.video.saving": {
+          "allowedArgs": []
+        },
+        "xiaohongshu.stream.retrying": {
+          "allowedArgs": [
+            "attempt",
+            "total"
+          ]
+        },
+        "bilibili.metadata.resolving": {
+          "allowedArgs": []
+        },
+        "bilibili.stream.probing": {
+          "allowedArgs": []
+        },
+        "bilibili.video.downloading": {
+          "allowedArgs": []
+        },
+        "bilibili.audio.downloading": {
+          "allowedArgs": []
+        },
+        "bilibili.media.merging": {
+          "allowedArgs": []
+        }
+      }
+    },
+    "asrModelDownload": {
+      "requiredFields": [
+        "status",
+        "progress",
+        "message_code"
+      ],
+      "optionalFields": [
+        "current_file",
+        "message_args"
+      ],
+      "fieldSchemas": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "started",
+            "downloading",
+            "extracting",
+            "completed",
+            "cancelled"
+          ]
+        },
+        "current_file": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": "^(?!\\.{1,2}$)(?=[A-Za-z0-9._+() -]{1,255}$)(?=.*[A-Za-z0-9])[A-Za-z0-9._+()-](?:[A-Za-z0-9._+() -]{0,253}[A-Za-z0-9_+()-])?$"
+        }
+      },
+      "messageCodes": {
+        "model.download.preparing": {
+          "status": "started",
+          "current_file": "forbidden",
+          "allowedArgs": [
+            "model"
+          ]
+        },
+        "model.download.completed": {
+          "status": "completed",
+          "current_file": "forbidden",
+          "allowedArgs": [
+            "model"
+          ]
+        },
+        "model.download.cancelled": {
+          "status": "cancelled",
+          "current_file": "forbidden",
+          "allowedArgs": []
+        },
+        "model.primary.downloading": {
+          "status": "downloading",
+          "current_file": "forbidden",
+          "allowedArgs": [
+            "model"
+          ]
+        },
+        "model.vad.downloading": {
+          "status": "downloading",
+          "current_file": "forbidden",
+          "allowedArgs": [
+            "model"
+          ]
+        },
+        "model.bpe.downloading": {
+          "status": "downloading",
+          "current_file": "forbidden",
+          "allowedArgs": [
+            "model"
+          ]
+        },
+        "model.archive.extracting": {
+          "status": "extracting",
+          "current_file": "forbidden",
+          "allowedArgs": []
+        },
+        "model.archive.reading": {
+          "status": "downloading",
+          "current_file": "forbidden",
+          "allowedArgs": []
+        },
+        "model.archive.downloading": {
+          "status": "downloading",
+          "current_file": "forbidden",
+          "allowedArgs": []
+        },
+        "model.file.downloading": {
+          "status": "downloading",
+          "current_file": "required",
+          "allowedArgs": []
+        },
+        "model.file.completed": {
+          "status": "downloading",
+          "current_file": "required",
+          "allowedArgs": []
+        }
+      }
+    }
+  },
+  "terminalResults": {
+    "stdout": {
+      "encoding": "utf-8",
+      "nonEmptyLineCount": 1,
+      "diagnosticsChannel": "stderr",
+      "invalidPayloadPolicy": "reject_without_echo"
+    },
+    "operations": {
+      "process_video": "task",
+      "process_local_media": "task",
+      "retry_insights": "task",
+      "resolve_source_identity": "sourceIdentity",
+      "download_asr_model": "modelDownload"
+    },
+    "safeErrorCode": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Z][A-Z0-9_]{0,63}$"
+    },
+    "schemas": {
+      "task": {
+        "type": "object",
+        "required": [
+          "status",
+          "task_id",
+          "task_dir",
+          "artifacts",
+          "text",
+          "summary",
+          "insights",
+          "transcript",
+          "dissection",
+          "error"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "partial_completed",
+              "failed"
+            ]
+          },
+          "task_id": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "task_dir": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "artifacts": {
+            "type": "object",
+            "properties": {
+              "video": {
+                "type": "string"
+              },
+              "audio": {
+                "type": "string"
+              },
+              "transcript_txt": {
+                "type": "string"
+              },
+              "transcript_md": {
+                "type": "string"
+              },
+              "segments": {
+                "type": "string"
+              },
+              "summary": {
+                "type": "string"
+              },
+              "mindmap": {
+                "type": "string"
+              },
+              "insights": {
+                "type": "string"
+              },
+              "insights_md": {
+                "type": "string"
+              },
+              "preference_snapshot": {
+                "type": "string"
+              },
+              "dissection": {
+                "type": "string"
+              },
+              "dissection_md": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          },
+          "text": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "insights": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "topic",
+                "matchReason",
+                "followUpQuestions",
+                "suitableUse",
+                "sourceChunkId"
+              ],
+              "properties": {
+                "id": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "topic": {
+                  "type": "string"
+                },
+                "matchReason": {
+                  "type": "string"
+                },
+                "followUpQuestions": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "suitableUse": {
+                  "type": "string"
+                },
+                "sourceChunkId": {
+                  "oneOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "transcript": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "source",
+                  "language",
+                  "engine"
+                ],
+                "properties": {
+                  "source": {
+                    "type": "string",
+                    "enum": [
+                      "asr",
+                      "subtitle"
+                    ]
+                  },
+                  "language": {
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "engine": {
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          },
+          "dissection": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "schemaVersion",
+                  "sourceTranscriptSha256",
+                  "sourceLanguage",
+                  "sourceChunks",
+                  "overallNarrative",
+                  "segments",
+                  "highlights",
+                  "reusableTemplate",
+                  "audienceFit",
+                  "strengths",
+                  "weaknesses"
+                ],
+                "properties": {
+                  "schemaVersion": {
+                    "const": 1
+                  },
+                  "sourceTranscriptSha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "sourceLanguage": {
+                    "oneOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "sourceChunks": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "object",
+                      "required": ["id", "startByte", "endByte", "sha256"],
+                      "properties": {
+                        "id": { "type": "integer", "minimum": 1 },
+                        "startByte": { "type": "integer", "minimum": 0 },
+                        "endByte": { "type": "integer", "minimum": 1 },
+                        "sha256": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{64}$"
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "overallNarrative": {
+                    "type": "object",
+                    "required": ["openingHook", "structureType", "turningPoint", "closingType"],
+                    "properties": {
+                      "openingHook": {
+                        "oneOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }]
+                      },
+                      "structureType": { "type": "string", "minLength": 1 },
+                      "turningPoint": {
+                        "oneOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }]
+                      },
+                      "closingType": {
+                        "oneOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }]
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "segments": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "id", "title", "sourceChunkIds", "coreClaim", "supportingPoints",
+                        "rhetoricalDevices", "rhythmNote", "reusablePattern", "riskFlags"
+                      ],
+                      "properties": {
+                        "id": { "type": "integer", "minimum": 1 },
+                        "title": { "type": "string", "minLength": 1 },
+                        "sourceChunkIds": {
+                          "type": "array",
+                          "minItems": 1,
+                          "items": { "type": "integer", "minimum": 1 }
+                        },
+                        "coreClaim": { "type": "string", "minLength": 1 },
+                        "supportingPoints": {
+                          "type": "array",
+                          "items": { "type": "string", "minLength": 1 }
+                        },
+                        "rhetoricalDevices": {
+                          "type": "array",
+                          "items": { "type": "string", "minLength": 1 }
+                        },
+                        "rhythmNote": { "type": "string", "minLength": 1 },
+                        "reusablePattern": { "type": "string", "minLength": 1 },
+                        "riskFlags": {
+                          "type": "array",
+                          "items": { "type": "string", "minLength": 1 }
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "highlights": {
+                    "type": "array",
+                    "maxItems": 8,
+                    "items": { "type": "string", "minLength": 1 }
+                  },
+                  "reusableTemplate": {
+                    "type": "object",
+                    "required": ["name", "skeleton"],
+                    "properties": {
+                      "name": { "type": "string", "minLength": 1 },
+                      "skeleton": {
+                        "type": "array",
+                        "minItems": 3,
+                        "maxItems": 7,
+                        "items": { "type": "string", "minLength": 1 }
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "audienceFit": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": ["audience", "fit", "note"],
+                      "properties": {
+                        "audience": { "type": "string", "minLength": 1 },
+                        "fit": { "type": "string", "enum": ["high", "medium", "low"] },
+                        "note": { "type": "string", "minLength": 1 }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "strengths": {
+                    "type": "array",
+                    "maxItems": 6,
+                    "items": { "type": "string", "minLength": 1 }
+                  },
+                  "weaknesses": {
+                    "type": "array",
+                    "maxItems": 6,
+                    "items": { "type": "string", "minLength": 1 }
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          },
+          "dissection_source_status": {
+            "description": "Optional. Omitted by worker stdout (treated as null); populated by the Rust URL cache path so the frontend can mark a stale dissection report without re-reading the transcript.",
+            "oneOf": [
+              { "type": "null" },
+              { "type": "string", "enum": ["current", "stale"] }
+            ]
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "code",
+                  "message",
+                  "stage"
+                ],
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "pattern": "^[A-Z][A-Z0-9_]{0,63}$"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "stage": {
+                    "type": "string",
+                    "enum": [
+                      "waiting_input",
+                      "video_extracting",
+                      "video_transcribing",
+                      "insights_generating",
+                      "completed",
+                      "partial_completed",
+                      "failed"
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "constraints": {
+          "completedRequiresNullError": true,
+          "nonCompletedRequiresStructuredError": true
+        }
+      },
+      "sourceIdentity": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "status",
+              "source_url",
+              "source_identity"
+            ],
+            "properties": {
+              "status": {
+                "const": "completed"
+              },
+              "source_url": {
+                "type": "string",
+                "minLength": 1
+              },
+              "source_identity": {
+                "type": "object",
+                "required": [
+                  "version",
+                  "platform",
+                  "stable_id",
+                  "effective_part",
+                  "canonical_url"
+                ],
+                "properties": {
+                  "version": {
+                    "const": 1
+                  },
+                  "platform": {
+                    "type": "string",
+                    "enum": [
+                      "douyin",
+                      "xiaohongshu",
+                      "bilibili",
+                      "youtube"
+                    ]
+                  },
+                  "stable_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80,
+                    "pattern": "^[A-Za-z0-9_-]+$"
+                  },
+                  "effective_part": {
+                    "oneOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 100000
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "canonical_url": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": [
+              "status",
+              "error"
+            ],
+            "properties": {
+              "status": {
+                "const": "failed"
+              },
+              "error": {
+                "type": "object",
+                "required": [
+                  "code"
+                ],
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "pattern": "^[A-Z][A-Z0-9_]{0,63}$"
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          }
+        ]
+      },
+      "modelDownload": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "status",
+              "model"
+            ],
+            "properties": {
+              "status": {
+                "const": "completed"
+              },
+              "model": {
+                "type": "string",
+                "enum": [
+                  "iic/SenseVoiceSmall",
+                  "iic/SenseVoiceSmall-onnx"
+                ]
+              }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": [
+              "status",
+              "code",
+              "message"
+            ],
+            "properties": {
+              "status": {
+                "const": "failed"
+              },
+              "code": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[A-Z][A-Z0-9_]{0,63}$"
+              },
+              "message": {
+                "type": "string",
+                "enum": [
+                  "ASR model download failed.",
+                  "Downloaded ASR model archive was invalid."
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        ]
+      }
+    }
+  },
+  "asr": {
+    "defaultModel": "iic/SenseVoiceSmall"
+  },
+  "processVideo": {
+    "serverManagedLlmCheckout": false,
+    "configurationOwner": "desktop_rust",
+    "ipcRequest": {
+      "type": "object",
+      "required": [
+        "url",
+        "asrModel"
+      ],
+      "properties": {
+        "url": {
+          "type": "string",
+          "minLength": 1
+        },
+        "asrModel": {
+          "type": "string",
+          "enum": [
+            "iic/SenseVoiceSmall",
+            "iic/SenseVoiceSmall-onnx"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "workerRequest": {
+      "type": "object",
+      "required": [
+        "contract_version",
+        "url",
+        "asr_model"
+      ],
+      "properties": {
+        "contract_version": {
+          "const": 3
+        },
+        "url": {
+          "type": "string",
+          "minLength": 1
+        },
+        "asr_model": {
+          "type": "string",
+          "enum": [
+            "iic/SenseVoiceSmall",
+            "iic/SenseVoiceSmall-onnx"
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "localMedia": {
+    "workerMode": "--process-local-media-stdin",
+    "mediaKinds": [
+      "video",
+      "audio"
+    ],
+    "extensionsByKind": {
+      "video": [
+        "mp4",
+        "m4v",
+        "mov",
+        "mkv",
+        "avi",
+        "wmv",
+        "webm"
+      ],
+      "audio": [
+        "mp3",
+        "wav",
+        "m4a",
+        "aac",
+        "flac",
+        "ogg",
+        "opus",
+        "wma"
+      ]
+    },
+    "frontendSelection": {
+      "type": "object",
+      "required": [
+        "selectionToken",
+        "displayName",
+        "mediaKind",
+        "extension",
+        "sizeBytes"
+      ],
+      "properties": {
+        "selectionToken": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "mediaKind": {
+          "type": "string",
+          "enum": [
+            "video",
+            "audio"
+          ]
+        },
+        "extension": {
+          "type": "string",
+          "enum": [
+            "mp4",
+            "m4v",
+            "mov",
+            "mkv",
+            "avi",
+            "wmv",
+            "webm",
+            "mp3",
+            "wav",
+            "m4a",
+            "aac",
+            "flac",
+            "ogg",
+            "opus",
+            "wma"
+          ]
+        },
+        "sizeBytes": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false,
+      "constraints": {
+        "displayNameMustBeSafeBasename": true,
+        "displayNameExtensionMustMatch": true,
+        "extensionMustMatchMediaKind": true
+      }
+    },
+    "ipcRequest": {
+      "type": "object",
+      "required": [
+        "selectionToken",
+        "asrModel"
+      ],
+      "properties": {
+        "selectionToken": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "asrModel": {
+          "type": "string",
+          "enum": [
+            "iic/SenseVoiceSmall",
+            "iic/SenseVoiceSmall-onnx"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "workerRequest": {
+      "type": "object",
+      "required": [
+        "contract_version",
+        "source_path",
+        "media_kind",
+        "safe_display_name",
+        "source_extension",
+        "asr_model"
+      ],
+      "properties": {
+        "contract_version": {
+          "const": 4
+        },
+        "source_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "media_kind": {
+          "type": "string",
+          "enum": [
+            "video",
+            "audio"
+          ]
+        },
+        "safe_display_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "source_extension": {
+          "type": "string",
+          "enum": [
+            "mp4",
+            "m4v",
+            "mov",
+            "mkv",
+            "avi",
+            "wmv",
+            "webm",
+            "mp3",
+            "wav",
+            "m4a",
+            "aac",
+            "flac",
+            "ogg",
+            "opus",
+            "wma"
+          ]
+        },
+        "asr_model": {
+          "type": "string",
+          "enum": [
+            "iic/SenseVoiceSmall",
+            "iic/SenseVoiceSmall-onnx"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "constraints": {
+        "sourcePathMustBeAbsolute": true,
+        "sourcePathExtensionMustMatch": true,
+        "safeDisplayNameMustBeSafeBasename": true,
+        "safeDisplayNameExtensionMustMatch": true,
+        "extensionMustMatchMediaKind": true
+      }
+    },
+    "errorCodes": [
+      "LOCAL_MEDIA_SELECTION_INVALID",
+      "LOCAL_MEDIA_SELECTION_CHANGED",
+      "LOCAL_MEDIA_UNSUPPORTED_FORMAT",
+      "LOCAL_MEDIA_UNAVAILABLE",
+      "LOCAL_MEDIA_LINKED",
+      "LOCAL_MEDIA_VALIDATION_FAILED",
+      "LOCAL_MEDIA_KIND_MISMATCH",
+      "LOCAL_VIDEO_STREAM_MISSING",
+      "LOCAL_VIDEO_AUDIO_STREAM_MISSING",
+      "LOCAL_AUDIO_STREAM_MISSING",
+      "LOCAL_VIDEO_COPY_FAILED",
+      "AUDIO_NORMALIZATION_FAILED"
+    ],
+    "sensitiveContent": {
+      "full_path": {
+        "allowedOnlyIn": [
+          "rust_selection_memory",
+          "worker_stdin",
+          "worker_memory"
+        ],
+        "forbiddenFrom": [
+          "frontend",
+          "ipc_request",
+          "ipc_response",
+          "argv",
+          "environment",
+          "worker_result",
+          "progress",
+          "error",
+          "log",
+          "manifest",
+          "transcript",
+          "ai_prompt",
+          "cloud_request"
+        ]
+      },
+      "selection_token": {
+        "allowedOnlyIn": [
+          "rust_selection_memory",
+          "frontend",
+          "ipc_request",
+          "ipc_response"
+        ],
+        "forbiddenFrom": [
+          "worker_stdin",
+          "argv",
+          "environment",
+          "worker_result",
+          "progress",
+          "error",
+          "log",
+          "manifest",
+          "transcript",
+          "ai_prompt",
+          "cloud_request"
+        ]
+      }
+    }
+  },
+  "aiGeneration": {
+    "command": "retry_insights",
+    "serverManagedLlmCheckout": true,
+    "request": {
+      "type": "object",
+      "required": [
+        "task_id",
+        "target",
+        "output_language"
+      ],
+      "properties": {
+        "task_id": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string",
+          "enum": [
+            "summary",
+            "insights",
+            "dissection"
+          ]
+        },
+        "output_language": {
+          "type": "string",
+          "enum": [
+            "zh-CN",
+            "zh-TW",
+            "en-US"
+          ]
+        },
+        "preference_snapshot": {
+          "type": "object",
+          "required": [
+            "profile",
+            "profileSkipped",
+            "generationPreferences",
+            "labelSnapshot"
+          ],
+          "properties": {
+            "profile": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "role",
+                    "domain",
+                    "stage",
+                    "cityContext",
+                    "genderPerspective",
+                    "platforms"
+                  ],
+                  "properties": {
+                    "role": {
+                      "type": "string",
+                      "enum": [
+                        "content_creator",
+                        "product_ops",
+                        "marketing_sales",
+                        "entrepreneur",
+                        "student_researcher",
+                        "teacher_trainer",
+                        "investor_business_analyst",
+                        "general_learner",
+                        "unspecified"
+                      ]
+                    },
+                    "domain": {
+                      "type": "string",
+                      "enum": [
+                        "content_media",
+                        "product_operations",
+                        "marketing_sales",
+                        "education_training",
+                        "technology_rd",
+                        "management_consulting",
+                        "investment_business",
+                        "freelance",
+                        "general_perspective",
+                        "unspecified"
+                      ]
+                    },
+                    "stage": {
+                      "type": "string",
+                      "enum": [
+                        "student",
+                        "early_career",
+                        "experienced_professional",
+                        "manager",
+                        "entrepreneur_operator",
+                        "retired",
+                        "unspecified"
+                      ]
+                    },
+                    "cityContext": {
+                      "type": "string",
+                      "enum": [
+                        "tier1_city",
+                        "new_tier1_city",
+                        "lower_tier_city",
+                        "county_township",
+                        "overseas",
+                        "unspecified"
+                      ]
+                    },
+                    "genderPerspective": {
+                      "type": "string",
+                      "enum": [
+                        "unspecified",
+                        "female_perspective",
+                        "male_perspective",
+                        "neutral_perspective"
+                      ]
+                    },
+                    "platforms": {
+                      "type": "array",
+                      "maxItems": 3,
+                      "uniqueItems": true,
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "douyin",
+                          "xiaohongshu",
+                          "wechat_channels",
+                          "bilibili",
+                          "wechat_official_account",
+                          "podcast",
+                          "course_community",
+                          "internal_sharing"
+                        ]
+                      }
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "profileSkipped": {
+              "type": "boolean"
+            },
+            "generationPreferences": {
+              "type": "object",
+              "required": [
+                "goal",
+                "scenario",
+                "angles",
+                "audience",
+                "styles",
+                "avoid"
+              ],
+              "properties": {
+                "goal": {
+                  "type": "string",
+                  "enum": [
+                    "content_creation",
+                    "learning_understanding",
+                    "review_deconstruction",
+                    "business_insight",
+                    "controversy_discussion",
+                    "action_advice"
+                  ]
+                },
+                "scenario": {
+                  "type": "string",
+                  "enum": [
+                    "personal_notes",
+                    "short_video",
+                    "article_official_account",
+                    "livestream_podcast",
+                    "team_sharing",
+                    "client_communication",
+                    "course_community"
+                  ]
+                },
+                "angles": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 3,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "topic_angle",
+                      "contrarian_view",
+                      "audience_pain_point",
+                      "practical_advice",
+                      "case_analogy",
+                      "risk_controversy",
+                      "trend_judgment",
+                      "reusable_method",
+                      "memorable_phrase",
+                      "cognitive_refresh"
+                    ]
+                  }
+                },
+                "audience": {
+                  "type": "string",
+                  "enum": [
+                    "self",
+                    "beginners",
+                    "peers",
+                    "clients",
+                    "boss_team",
+                    "fans_readers"
+                  ]
+                },
+                "styles": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 2,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "direct_sharp",
+                      "gentle_inspiring",
+                      "professional_analysis",
+                      "grounded",
+                      "storytelling",
+                      "short_video_friendly",
+                      "long_form_friendly"
+                    ]
+                  }
+                },
+                "avoid": {
+                  "type": "array",
+                  "maxItems": 3,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "chicken_soup",
+                      "academic",
+                      "vague",
+                      "clickbait",
+                      "commercialized",
+                      "negative",
+                      "grand_narrative"
+                    ]
+                  }
+                }
+              },
+              "additionalProperties": false
+            },
+            "labelSnapshot": {
+              "type": "object",
+              "required": [
+                "profile",
+                "generationPreferences"
+              ],
+              "properties": {
+                "profile": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "field",
+                      "label",
+                      "values"
+                    ],
+                    "properties": {
+                      "field": {
+                        "type": "string",
+                        "enum": [
+                          "role",
+                          "domain",
+                          "stage",
+                          "cityContext",
+                          "genderPerspective",
+                          "platforms"
+                        ]
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "values": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "id",
+                            "label"
+                          ],
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "label": {
+                              "type": "string"
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "generationPreferences": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "field",
+                      "label",
+                      "values"
+                    ],
+                    "properties": {
+                      "field": {
+                        "type": "string",
+                        "enum": [
+                          "goal",
+                          "scenario",
+                          "angles",
+                          "audience",
+                          "styles",
+                          "avoid"
+                        ]
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "values": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "id",
+                            "label"
+                          ],
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "label": {
+                              "type": "string"
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "preference_snapshot"
+            ]
+          },
+          "then": {
+            "properties": {
+              "target": {
+                "const": "insights"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "sourceIdentity": {
+    "preflightCommand": "resolve_source_json",
+    "preflightScope": "cache_lookup_only",
+    "processRequestAcceptsPreflightIdentity": false,
+    "manifestSchemaVersion": 3,
+    "manifestSourceUrl": "canonical_url_only",
+    "downloadUrlTransport": "transient_request_json_only",
+    "rawSourcePreflightTransport": "transient_cache_preflight_json_only",
+    "aiTranscriptArtifact": "transcript/transcript.txt"
+  },
+  "env": {
+    "outputDir": "STUDYMIND_OUTPUT_DIR",
+    "cacheDir": "STUDYMIND_CACHE_DIR",
+    "modelDir": "STUDYMIND_MODEL_DIR"
+  },
+  "workerResultKeys": [
+    "status",
+    "task_id",
+    "task_dir",
+    "artifacts",
+    "text",
+    "summary",
+    "insights",
+    "transcript",
+    "dissection",
+    "error"
+  ],
+  "insightResult": {
+    "schemaVersion": 1,
+    "itemKeys": [
+      "id",
+      "topic",
+      "matchReason",
+      "followUpQuestions",
+      "suitableUse",
+      "sourceChunkId"
+    ],
+    "preferenceSnapshotArtifact": "preference_snapshot"
+  },
+  "dissectionResult": {
+    "schemaVersion": 1,
+    "artifacts": {
+      "json": {
+        "key": "dissection",
+        "path": "ai/dissection.json"
+      },
+      "markdown": {
+        "key": "dissection_md",
+        "path": "ai/dissection.md"
+      }
+    },
+    "callPlan": {
+      "version": 1,
+      "maxChunkCharacters": 2000,
+      "chunksPerMapCall": 4,
+      "reduceCalls": 1,
+      "maxRepairCalls": 1,
+      "maxTotalCalls": 6
+    },
+    "topLevelKeys": [
+      "schemaVersion",
+      "sourceTranscriptSha256",
+      "sourceLanguage",
+      "sourceChunks",
+      "overallNarrative",
+      "segments",
+      "highlights",
+      "reusableTemplate",
+      "audienceFit",
+      "strengths",
+      "weaknesses"
+    ],
+    "limits": {
+      "highlights": 8,
+      "strengths": 6,
+      "weaknesses": 6,
+      "templateStepsMinimum": 3,
+      "templateStepsMaximum": 7
+    }
+  }
+}

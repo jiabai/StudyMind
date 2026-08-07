@@ -1,0 +1,50 @@
+[project]
+name = "frameq-worker"
+version = "0.1.0"
+description = "Python worker for FrameQ desktop video transcription workflows."
+requires-python = ">=3.11"
+dependencies = [
+    "brotli>=1.2.0",
+    "funasr>=1.2.7",
+    "funasr-onnx==0.4.2",
+    "modelscope>=1.37.1",
+    "onnxruntime>=1.17.0",
+    # macOS Intel (x86_64) is pinned to torch 2.2.2 — the last release that ships
+    # macOS x86_64 wheels — which only publishes up to CPython 3.12 (cp312) and
+    # requires numpy<2. Keep FRAMEQ_PYTHON_STANDALONE_URL_MACOS_X64 on CPython
+    # 3.11 or 3.12: a newer standalone (e.g. 3.13) has no torch==2.2.2 wheel, so
+    # the Intel build fails at pip install / the import smoke test in
+    # scripts/build-installer.mjs. Other platforms track modern torch below.
+    "numpy<2 ; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "torch==2.2.2 ; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "torch>=2.10.0 ; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+    "torchaudio==2.2.2 ; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "torchaudio>=2.10.0 ; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+    # macOS Intel also pins numba/llvmlite (pulled in transitively by funasr) to
+    # the last releases that publish self-contained macOS x86_64 wheels: llvmlite
+    # 0.45.1 and numba 0.62.1. Newer versions (llvmlite >= 0.46, numba >= 0.63)
+    # have no Intel wheel, so pip would compile llvmlite from source, which needs
+    # a matching LLVM dev install the GitHub runner lacks (CMake "Could not find
+    # LLVM"). Other platforms keep the modern versions funasr resolves.
+    "llvmlite==0.45.1 ; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "numba==0.62.1 ; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    # cryptography (pulled in by the aliyun/oss2 chain) dropped its universal2 and
+    # x86_64 macOS wheels at 49.0.0 (arm64-only), so on Intel pip would build it
+    # from source and link Homebrew's OpenSSL (/usr/local/.../libssl.3.dylib).
+    # Pin mac-x64 below 49 to use the self-contained universal2 wheel instead.
+    "cryptography<49 ; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "yt-dlp>=2026.6.9",
+]
+
+[project.optional-dependencies]
+qwen = ["qwen-asr>=0.0.6"]
+
+[dependency-groups]
+dev = [
+  "pytest>=8.0",
+  "ruff>=0.8",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["worker"]
+testpaths = ["worker/tests"]

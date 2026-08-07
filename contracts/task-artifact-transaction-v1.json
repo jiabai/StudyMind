@@ -1,0 +1,197 @@
+{
+  "contractVersion": 1,
+  "journalFileName": ".StudyMind-artifact-transaction.json",
+  "journal": {
+    "requiredFields": [
+      "schema_version",
+      "transaction_id",
+      "state",
+      "entries"
+    ],
+    "additionalProperties": false,
+    "schemaVersion": 1,
+    "transactionIdPattern": "^[0-9a-f]{32}$",
+    "states": [
+      "prepared",
+      "committed"
+    ],
+    "minimumEntries": 1,
+    "maximumEntries": 8
+  },
+  "entry": {
+    "requiredFields": [
+      "destination",
+      "staging",
+      "rollback",
+      "existed_before"
+    ],
+    "additionalProperties": false,
+    "nullableFields": [
+      "staging",
+      "rollback"
+    ],
+    "constraints": {
+      "nullStagingMeansDelete": true,
+      "rollbackRequiredWhenExistedBefore": true,
+      "rollbackForbiddenWhenDestinationWasAbsent": true,
+      "destinationsUnique": true,
+      "manifestLastWhenPresent": true
+    }
+  },
+  "allowedDestinations": [
+    "StudyMind-task.json",
+    "transcript/transcript.txt",
+    "transcript/transcript.md",
+    "transcript/segments.json",
+    "transcript/original/transcript.txt",
+    "transcript/original/transcript.md",
+    "ai/summary.md",
+    "ai/mindmap.mmd",
+    "ai/insights.json",
+    "ai/insights.md"
+  ],
+  "internalPath": {
+    "fileNameTemplate": ".StudyMind-artifact-{transaction_id}-{entry_index}.{kind}",
+    "kinds": [
+      "staging",
+      "rollback"
+    ],
+    "sameDirectoryAsDestination": true
+  },
+  "commitOrder": {
+    "manifestDestination": "StudyMind-task.json",
+    "manifestMustBeLast": true,
+    "journalCommittedStateIsCommitPoint": true
+  },
+  "validFixtures": [
+    {
+      "schema_version": 1,
+      "transaction_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "prepared",
+      "entries": [
+        {
+          "destination": "transcript/transcript.txt",
+          "staging": "transcript/.StudyMind-artifact-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-0.staging",
+          "rollback": "transcript/.StudyMind-artifact-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-0.rollback",
+          "existed_before": true
+        },
+        {
+          "destination": "StudyMind-task.json",
+          "staging": ".StudyMind-artifact-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1.staging",
+          "rollback": ".StudyMind-artifact-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1.rollback",
+          "existed_before": true
+        }
+      ]
+    },
+    {
+      "schema_version": 1,
+      "transaction_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "state": "committed",
+      "entries": [
+        {
+          "destination": "transcript/segments.json",
+          "staging": null,
+          "rollback": null,
+          "existed_before": false
+        }
+      ]
+    }
+  ],
+  "invalidFixtures": [
+    {
+      "name": "unknown schema",
+      "journal": {
+        "schema_version": 2,
+        "transaction_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "state": "prepared",
+        "entries": []
+      }
+    },
+    {
+      "name": "escaping destination",
+      "journal": {
+        "schema_version": 1,
+        "transaction_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "state": "prepared",
+        "entries": [
+          {
+            "destination": "../outside.txt",
+            "staging": ".StudyMind-artifact-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-0.staging",
+            "rollback": null,
+            "existed_before": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "additional field",
+      "journal": {
+        "schema_version": 1,
+        "transaction_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "state": "prepared",
+        "entries": [
+          {
+            "destination": "ai/summary.md",
+            "staging": "ai/.StudyMind-artifact-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-0.staging",
+            "rollback": null,
+            "existed_before": false,
+            "content": "must never be accepted"
+          }
+        ]
+      }
+    },
+    {
+      "name": "duplicate destination",
+      "journal": {
+        "schema_version": 1,
+        "transaction_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "state": "prepared",
+        "entries": [
+          {
+            "destination": "ai/summary.md",
+            "staging": "ai/.StudyMind-artifact-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-0.staging",
+            "rollback": null,
+            "existed_before": false
+          },
+          {
+            "destination": "ai/summary.md",
+            "staging": "ai/.StudyMind-artifact-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1.staging",
+            "rollback": null,
+            "existed_before": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "mismatched staging name",
+      "journal": {
+        "schema_version": 1,
+        "transaction_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "state": "prepared",
+        "entries": [
+          {
+            "destination": "ai/summary.md",
+            "staging": "ai/.StudyMind-artifact-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-0.staging",
+            "rollback": null,
+            "existed_before": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "missing required nullable field",
+      "journal": {
+        "schema_version": 1,
+        "transaction_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "state": "committed",
+        "entries": [
+          {
+            "destination": "ai/summary.md",
+            "rollback": null,
+            "existed_before": false
+          }
+        ]
+      }
+    }
+  ]
+}

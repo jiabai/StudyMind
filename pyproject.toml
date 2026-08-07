@@ -1,0 +1,32 @@
+﻿[project]
+name = "studymind-worker"
+version = "0.1.0"
+description = "Python worker for StudyMind learning assistance workflows."
+requires-python = ">=3.11"
+dependencies = [
+    "funasr>=1.2.7",
+    "funasr-onnx==0.4.2",
+    "onnxruntime>=1.17.0",
+    "onnxruntime<1.24 ; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "numpy<2 ; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "torch==2.2.2 ; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "torch>=2.10.0 ; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+    "torchaudio==2.2.2 ; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "torchaudio>=2.10.0 ; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+    "llvmlite==0.45.1 ; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "numba==0.62.1 ; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "cryptography<49 ; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+]
+
+[project.optional-dependencies]
+qwen = ["qwen-asr>=0.0.6"]
+
+[dependency-groups]
+dev = [
+  "pytest>=8.0",
+  "ruff>=0.8",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["worker"]
+testpaths = ["worker/tests"]
