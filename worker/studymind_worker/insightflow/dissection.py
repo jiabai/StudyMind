@@ -287,12 +287,13 @@ def parse_persisted_dissection(
             source_language=source_language,
         )
         _check_provenance(report, root)
-        return report
     except (KeyError, TypeError, ValueError) as exc:
         raise DissectionGenerationError(
             "DISSECTION_INVALID_RESULT",
             "The saved dissection artifact is invalid.",
         ) from exc
+    else:
+        return report
 
 
 def generate_transcript_dissection(

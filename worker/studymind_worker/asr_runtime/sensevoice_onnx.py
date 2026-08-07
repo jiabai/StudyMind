@@ -201,7 +201,7 @@ class SenseVoiceOnnxTranscriber:
     ) -> Transcript:
         def _segment_failure(reason: Exception) -> ASRRuntimeError:
             return ASRRuntimeError(
-                f"ONNX ASR segment {index} of {total_blocks} failed: {reason}"
+                f"ONNX ASR segment {_index} of {total_blocks} failed: {reason}"
             )
 
         try:
@@ -238,7 +238,7 @@ class SenseVoiceOnnxTranscriber:
         asr = self._get_asr()
         segments: list[TranscriptSegment] = []
         total_blocks = len(blocks)
-        for index, (timing, block) in enumerate(
+        for _index, (timing, block) in enumerate(
             zip(valid_segments, blocks, strict=True),
             start=1,
         ):

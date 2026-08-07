@@ -195,11 +195,12 @@ def recover_task_artifacts(task_dir: Path) -> RecoveryOutcome:
             _material_paths(task_dir, journal.entries),
             required=True,
         )
-        return outcome
     except TaskArtifactRecoveryError:
         raise
     except (AtomicFileCommitError, OSError, UnicodeError, ValueError, TypeError):
         raise TaskArtifactRecoveryError() from None
+    else:
+        return outcome
 
 
 def _validate_mutations(
