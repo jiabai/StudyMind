@@ -58,7 +58,7 @@ class SenseVoiceTranscriber:
                 merge_length_s=15,
                 cache={},
             )
-        except Exception as exc:  # noqa: BLE001 - wraps third-party model failures.
+        except Exception as exc:
             raise ASRRuntimeError(str(exc)) from exc
 
         text = _clean_sensevoice_text(extract_provider_text(results))

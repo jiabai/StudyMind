@@ -102,7 +102,7 @@ def _stream_onnx_vad_segments(
             )
         except ASRDependencyError:
             raise
-        except Exception as exc:  # noqa: BLE001 - wraps third-party ONNX errors.
+        except Exception as exc:
             raise ASRRuntimeError("ONNX VAD inference failed.") from exc
 
         for start_ms, end_ms in _decode_onnx_vad_events(result):
@@ -225,7 +225,7 @@ class SenseVoiceOnnxTranscriber:
                 sample_rate=sample_rate,
                 vad_segments=vad_segments,
             )
-        except Exception as exc:  # noqa: BLE001 - normalizes audio preparation errors.
+        except Exception as exc:
             raise ASRRuntimeError("ONNX ASR segment preparation failed.") from exc
         if not blocks or len(blocks) != len(valid_segments):
             raise ASRRuntimeError("ONNX VAD returned no usable audio segments.")
@@ -243,7 +243,7 @@ class SenseVoiceOnnxTranscriber:
                     language=_sensevoice_language(language),
                     textnorm="withitn",
                 )
-            except Exception as exc:  # noqa: BLE001 - wraps third-party ONNX errors.
+            except Exception as exc:
                 raise ASRRuntimeError(
                     f"ONNX ASR segment {index} of {total_blocks} failed: {exc}"
                 ) from exc

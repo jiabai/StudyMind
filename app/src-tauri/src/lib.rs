@@ -1,8 +1,11 @@
 use std::sync::Arc;
 use tauri::Manager;
-use tauri_plugin_mod account;
+use tauri_plugin_deep_link::DeepLinkExt;
+
+mod account;
 mod asr_model;
 mod atomic_files;
+mod deep_link;
 mod diagnostics;
 mod history;
 mod history_deletion;
@@ -61,9 +64,19 @@ pub fn run() {
         .manage(Arc::new(local_media::LocalMediaSelectionState::default()))
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
-                }
+                deep_link::activate_main_window_for_deep_link(&window, argv);
+            }
         }))
-        .plugin(tauri_plugin_}
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_dialog::init())
+        .setup(|app| {
+            #[cfg(any(windows, target_os = "linux"))]
+            if let Err(error) = app.deep_link().register_all() {
+                eprintln!("[studymind] failed to register deep links: {error}");
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -132,24 +145,24 @@ mod tests {
 
         assert_eq!(
             url,
-            "https://StudyMind.example/login?desktop=1&state=state-123456&redirect_uri=StudyMind%3A%2F%2Fauth%2Fcallback"
+            "https://StudyMind.example/login?desktop=1&state=state-123456&redirect_uri=studymind%3A%2F%2Fauth%2Fcallback"
         );
     }
 
     #[test]
     fn server_base_url_defaults_to_production_domain_and_allows_override() {
-        let original = std::env::var("STUDYMIND_SERVER_BASE_URL").ok();
-        std::env::remove_var("STUDYMIND_SERVER_BASE_URL");
+        let original = std::env::var("StudyMind_SERVER_BASE_URL").ok();
+        std::env::remove_var("StudyMind_SERVER_BASE_URL");
 
         assert_eq!(server_base_url(), "https://StudyMind.8xf.pro");
 
-        std::env::set_var("STUDYMIND_SERVER_BASE_URL", "http://127.0.0.1:8787/");
+        std::env::set_var("StudyMind_SERVER_BASE_URL", "http://127.0.0.1:8787/");
 
         assert_eq!(server_base_url(), "http://127.0.0.1:8787");
 
         match original {
-            Some(value) => std::env::set_var("STUDYMIND_SERVER_BASE_URL", value),
-            None => std::env::remove_var("STUDYMIND_SERVER_BASE_URL"),
+            Some(value) => std::env::set_var("StudyMind_SERVER_BASE_URL", value),
+            None => std::env::remove_var("StudyMind_SERVER_BASE_URL"),
         }
     }
 
@@ -164,7 +177,7 @@ mod tests {
     #[test]
     fn auth_callback_parser_accepts_matching_state() {
         let callback = parse_auth_callback_url(
-            "StudyMind://auth/callback?ticket=flt_abc123&state=state-123456",
+            "studymind://auth/callback?ticket=flt_abc123&state=state-123456",
             "state-123456",
         )
         .expect("parse auth callback");
@@ -181,12 +194,12 @@ mod tests {
     #[test]
     fn auth_callback_parser_rejects_wrong_state_or_path() {
         assert!(parse_auth_callback_url(
-            "StudyMind://auth/callback?ticket=flt_abc123&state=other-state",
+            "studymind://auth/callback?ticket=flt_abc123&state=other-state",
             "state-123456",
         )
         .is_err());
         assert!(parse_auth_callback_url(
-            "StudyMind://billing/callback?ticket=flt_abc123&state=state-123456",
+            "studymind://billing/callback?ticket=flt_abc123&state=state-123456",
             "state-123456",
         )
         .is_err());
@@ -198,13 +211,13 @@ mod tests {
         fs::write(
             &env_path,
             [
-                "STUDYMIND_LLM_PROVIDER=openai_compatible",
-                "STUDYMIND_LLM_BASE_URL=https://llm.example/v1",
-                "STUDYMIND_LLM_API_KEY=secret-key",
-                "STUDYMIND_LLM_MODEL=demo-model",
-                "STUDYMIND_LLM_TIMEOUT_SECONDS=42",
-                "STUDYMIND_OUTPUT_DIR=D:/StudyMind/results",
-                "STUDYMIND_ASR_MODEL=iic/SenseVoiceSmall",
+                "StudyMind_LLM_PROVIDER=openai_compatible",
+                "StudyMind_LLM_BASE_URL=https://llm.example/v1",
+                "StudyMind_LLM_API_KEY=secret-key",
+                "StudyMind_LLM_MODEL=demo-model",
+                "StudyMind_LLM_TIMEOUT_SECONDS=42",
+                "StudyMind_OUTPUT_DIR=D:/StudyMind/results",
+                "StudyMind_ASR_MODEL=iic/SenseVoiceSmall",
             ]
             .join("\n"),
         )
@@ -230,9 +243,9 @@ mod tests {
         assert_eq!(config.config_path, path_to_env_string(&env_path));
         assert_eq!(config.asr_model, "iic/SenseVoiceSmall");
         assert!(saved.contains("StudyMind desktop local settings"));
-        assert!(saved.contains("STUDYMIND_OUTPUT_DIR="));
-        assert!(saved.contains("STUDYMIND_ASR_MODEL=iic/SenseVoiceSmall"));
-        assert!(!saved.contains("STUDYMIND_LLM_API_KEY"));
+        assert!(saved.contains("StudyMind_OUTPUT_DIR="));
+        assert!(saved.contains("StudyMind_ASR_MODEL=iic/SenseVoiceSmall"));
+        assert!(!saved.contains("StudyMind_LLM_API_KEY"));
     }
 
     #[test]
@@ -242,11 +255,11 @@ mod tests {
             &env_path,
             [
                 "# keep this comment",
-                "STUDYMIND_LLM_PROVIDER=openai_compatible",
-                "STUDYMIND_LLM_BASE_URL=https://old.example/v1",
-                "STUDYMIND_LLM_API_KEY=old-secret",
-                "STUDYMIND_LLM_MODEL=old-model",
-                "STUDYMIND_LLM_TIMEOUT_SECONDS=44",
+                "StudyMind_LLM_PROVIDER=openai_compatible",
+                "StudyMind_LLM_BASE_URL=https://old.example/v1",
+                "StudyMind_LLM_API_KEY=old-secret",
+                "StudyMind_LLM_MODEL=old-model",
+                "StudyMind_LLM_TIMEOUT_SECONDS=44",
                 "OTHER_SETTING=keep-me",
             ]
             .join("\n"),
@@ -266,14 +279,14 @@ mod tests {
         assert_eq!(config.output_dir, "D:/StudyMind/custom-results");
         assert_eq!(config.asr_model, "iic/SenseVoiceSmall");
         assert_eq!(config.config_path, path_to_env_string(&env_path));
-        assert!(saved.contains("STUDYMIND_OUTPUT_DIR=D:/StudyMind/custom-results"));
-        assert!(saved.contains("STUDYMIND_ASR_MODEL=iic/SenseVoiceSmall"));
+        assert!(saved.contains("StudyMind_OUTPUT_DIR=D:/StudyMind/custom-results"));
+        assert!(saved.contains("StudyMind_ASR_MODEL=iic/SenseVoiceSmall"));
         assert!(saved.contains("OTHER_SETTING=keep-me"));
-        assert!(!saved.contains("STUDYMIND_LLM_PROVIDER"));
-        assert!(!saved.contains("STUDYMIND_LLM_BASE_URL"));
-        assert!(!saved.contains("STUDYMIND_LLM_API_KEY"));
-        assert!(!saved.contains("STUDYMIND_LLM_MODEL"));
-        assert!(!saved.contains("STUDYMIND_LLM_TIMEOUT_SECONDS"));
+        assert!(!saved.contains("StudyMind_LLM_PROVIDER"));
+        assert!(!saved.contains("StudyMind_LLM_BASE_URL"));
+        assert!(!saved.contains("StudyMind_LLM_API_KEY"));
+        assert!(!saved.contains("StudyMind_LLM_MODEL"));
+        assert!(!saved.contains("StudyMind_LLM_TIMEOUT_SECONDS"));
     }
 
     #[test]
@@ -292,10 +305,10 @@ mod tests {
 
         assert_eq!(config.output_dir, "D:/StudyMind/results-only");
         assert_eq!(config.asr_model, "iic/SenseVoiceSmall");
-        assert!(saved.contains("STUDYMIND_OUTPUT_DIR=D:/StudyMind/results-only"));
-        assert!(saved.contains("STUDYMIND_ASR_MODEL=iic/SenseVoiceSmall"));
+        assert!(saved.contains("StudyMind_OUTPUT_DIR=D:/StudyMind/results-only"));
+        assert!(saved.contains("StudyMind_ASR_MODEL=iic/SenseVoiceSmall"));
         assert!(saved.contains("StudyMind desktop local settings"));
-        assert!(!saved.contains("STUDYMIND_LLM_API_KEY"));
+        assert!(!saved.contains("StudyMind_LLM_API_KEY"));
     }
 
     #[test]

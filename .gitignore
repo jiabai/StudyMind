@@ -1,4 +1,4 @@
-﻿# Agent skills
+# Agent skills
 .agents/skills/
 
 # Dependencies and local environments
@@ -10,6 +10,7 @@ venv/
 # Build outputs
 app/dist/
 app/src-tauri/target/
+app/src-tauri/gen/
 app/src-tauri/resources/*
 !app/src-tauri/resources/.gitkeep
 !app/src-tauri/resources/.env.template
@@ -17,6 +18,11 @@ app/src-tauri/resources/*
 dist/
 target/
 build/
+
+# Lockfiles (platform-specific, regenerated)
+app/package-lock.json
+app/src-tauri/Cargo.lock
+uv.lock
 
 # Runtime artifacts
 models/*

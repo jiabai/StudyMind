@@ -530,7 +530,7 @@ def _resolve_archive(
     archive_path = temp_dir / "model-archive"
     _emit(progress_callback, "model.archive.downloading", "downloading", 20)
     try:
-        urllib.request.urlretrieve(download_url, archive_path)  # noqa: S310 - URL is release/user configured.
+        urllib.request.urlretrieve(download_url, archive_path)
     except OSError as exc:
         raise ModelDownloadError(
             MODEL_DOWNLOAD_ERROR_CODE,

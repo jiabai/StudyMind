@@ -63,7 +63,7 @@ def run_asr_model_download_once(
             "code": code,
             "message": message,
         }
-    except Exception:  # noqa: BLE001 - maps third-party failures to a fixed result.
+    except Exception:
         return {
             "status": "failed",
             "code": "ASR_MODEL_DOWNLOAD_FAILED",

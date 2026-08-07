@@ -36,7 +36,7 @@ class QwenAsrTranscriber:
         model = self._get_model()
         try:
             results = model.transcribe(audio=audio_path.as_posix(), language=language)
-        except Exception as exc:  # noqa: BLE001 - wraps third-party model failures.
+        except Exception as exc:
             raise ASRRuntimeError(str(exc)) from exc
 
         text = extract_provider_text(results)

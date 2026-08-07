@@ -1,4 +1,4 @@
-﻿{
+{
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "StudyMind",
   "version": "0.1.0",
@@ -26,13 +26,33 @@
       "csp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": ["$APPLOCALDATA/outputs/**", "$APPLOCALDATA/cache/**"]
+        "scope": [
+          "$APPLOCALDATA/outputs/**",
+          "$APPLOCALDATA/cache/**",
+          "$APPLOCALDATA/cache/.StudyMind-audio-review/**"
+        ]
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEJBOTY0QTMzNkM2QkRFQjEKUldTeDNtdHNNMHFXdXFaTDMvMkdOZEJPdEJWaWorUmxjQlQ2Sk9wSmtDMitBb25yMGVTN09FaUwK",
+      "endpoints": [
+        "https://github.com/jiabai/StudyMind/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    },
+    "deep-link": {
+      "desktop": {
+        "schemes": ["studymind"]
       }
     }
   },
   "bundle": {
     "active": true,
-    "createUpdaterArtifacts": false,
+    "createUpdaterArtifacts": true,
     "targets": ["nsis", "dmg"],
     "resources": [
       "resources/python/**/*",

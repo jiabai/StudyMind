@@ -1,7 +1,10 @@
-﻿[tool]
-ruff = "0.8"
+line-length = 100
+target-version = "py312"
 
-[tool.lint]
-select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "FA", "PLC", "TRY", "RUF"]
+[lint]
+select = ["E", "F", "I", "N", "UP", "B", "C4", "FA", "PLC", "TRY", "RUF"]
 ignore = ["E501"]
-target-version = "py311"
+
+[format]
+quote-style = "double"
+indent-style = "space"

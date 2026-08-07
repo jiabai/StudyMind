@@ -27,6 +27,8 @@ import {
 } from "./accountState";
 import { AccountSheet } from "./features/account/AccountSheet";
 import { useAccountController } from "./features/account/useAccountController";
+import { useAppUpdateController } from "./features/updates/useAppUpdateController";
+import { getAiCreditsCostHint } from "./aiCreditsCopy";
 import { ModelGuideSheet } from "./features/asrModel/ModelGuideSheet";
 import { useAsrModelDownload } from "./features/asrModel/useAsrModelDownload";
 import { HistorySheet } from "./features/history/HistorySheet";
@@ -47,10 +49,8 @@ import { useWindowChromeController } from "./features/window/useWindowChromeCont
 import { useModalFocus } from "./features/modal/useModalFocus";
 import { TaskComposer } from "./features/workflow/TaskComposer";
 import { useTaskProcessingController } from "./features/workflow/useTaskProcessingController";
-import { useAppUpdateController } from "./features/updates/useAppUpdateController";
 import { useLocale } from "./i18n/LocaleProvider";
 import { countTextUnits, formatWordCount } from "./i18n/formatters";
-import { getAiCreditsCostHint } from "./aiCreditsCopy";
 import { renderUiMessage, uiMessage, type UiMessage } from "./i18n/uiMessage";
 
 const asrModelLabels: Record<string, string> = {
