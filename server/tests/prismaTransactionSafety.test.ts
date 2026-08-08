@@ -144,6 +144,21 @@ describe("PrismaStore transaction safety", () => {
     } finally { await fixture.close(); }
   });
 
+  test("does not claim an activation code when its resulting quota exceeds Int32", async () => {
+    const fixture = await createPrismaTestHarness();
+    try {
+      const store = new PrismaStore(fixture.prisma);
+      const user = await store.upsertUserByEmail("activation-overflow@studymind.local", now);
+      await store.createSession({ userId: user.id, tokenHash: "activation-overflow-session", createdAt: now, expiresAt: later(60_000) });
+      await store.upsertEntitlement(user.id, later(60_000), now, { llmQuotaLimit: 2_147_483_647, llmQuotaUsed: 0 });
+      await store.createActivationCode({ codeHash: "activation-overflow-code", codePrefix: "SM-OVER", status: "active", entitlementDays: 31, redeemBy: later(60_000), createdAt: now, redeemedAt: null, redeemedByUserId: null });
+      await expect(store.redeemActivationCodeAndGrantEntitlement({ sessionTokenHash: "activation-overflow-session", codeHash: "activation-overflow-code", now, llmQuotaPerActivation: 20 }))
+        .rejects.toThrow("ENTITLEMENT_RESULT_OUT_OF_RANGE");
+      await expect(fixture.prisma.activationCode.findUnique({ where: { codeHash: "activation-overflow-code" } })).resolves.toMatchObject({ status: "active", redeemedAt: null, redeemedByUserId: null });
+      await expect(store.getEntitlement(user.id)).resolves.toMatchObject({ llmQuotaLimit: 2_147_483_647, llmQuotaUsed: 0, expiresAt: later(60_000) });
+    } finally { await fixture.close(); }
+  });
+
   test("settles a pending order from a preclaimed matching canonical event without duplicating it", async () => {
     const fixture = await createPrismaTestHarness();
     try {

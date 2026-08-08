@@ -69,6 +69,19 @@ describe("StudyMind activation codes", () => {
     await expect(service.redeemCode({ sessionTokenHash: "missing", code: (await service.generateCode()).code }))
       .rejects.toThrow("Desktop session is invalid or expired.");
   });
+
+  test("does not redeem an activation code when the resulting quota exceeds Int32", async () => {
+    const store = new MemoryStore();
+    const { user, token } = await authorized(store);
+    await store.upsertEntitlement(user.id, new Date("2026-09-01T08:00:00.000Z"), NOW, { llmQuotaLimit: 2_147_483_647, llmQuotaUsed: 0 });
+    const service = new ActivationCodeService({ store, now: () => NOW });
+    const generated = await service.generateCode();
+
+    await expect(service.redeemCode({ sessionTokenHash: sha256(token), code: generated.code }))
+      .rejects.toThrow("ENTITLEMENT_RESULT_OUT_OF_RANGE");
+    expect(store.activationCodes[0]).toMatchObject({ status: "active", redeemedAt: null, redeemedByUserId: null });
+    await expect(store.getEntitlement(user.id)).resolves.toMatchObject({ expiresAt: new Date("2026-09-01T08:00:00.000Z"), llmQuotaLimit: 2_147_483_647, llmQuotaUsed: 0 });
+  });
 });
 
 describe("entitlement adjustment service", () => {

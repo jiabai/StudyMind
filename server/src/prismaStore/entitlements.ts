@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import type { ActivationCodeRecord, AdminEntitlementAdjustmentRecord, EntitlementRecord, Store } from "../store/contracts.js";
 import { StoreConflictError } from "../store/contracts.js";
-import { assertEntitlementAdjustmentResult } from "../entitlementAdjustment.js";
+import { assertEntitlementAdjustmentResult, assertEntitlementResult } from "../entitlementAdjustment.js";
 import { isUnique, withConflictRetry } from "./concurrency.js";
 
 export async function getEntitlement(prisma: PrismaClient, userId: string): ReturnType<Store["getEntitlement"]> { return await prisma.entitlement.findUnique({ where: { userId } }) as EntitlementRecord | null; }
@@ -38,11 +38,15 @@ export async function redeemActivationCodeAndGrantEntitlement(prisma: PrismaClie
     if (!session) return { status: "session_invalid" } as const;
     const code = await tx.activationCode.findFirst({ where: { codeHash: input.codeHash, status: "active", redeemedAt: null, redeemBy: { gt: input.now } } });
     if (!code) return { status: "code_invalid" } as const;
-    const claim = await tx.activationCode.updateMany({ where: { id: code.id, status: "active", redeemedAt: null }, data: { status: "redeemed", redeemedAt: input.now, redeemedByUserId: session.userId } });
-    if (claim.count !== 1) return { status: "code_invalid" } as const;
     const before = await tx.entitlement.findUnique({ where: { userId: session.userId } });
     const active = Boolean(before && before.expiresAt > input.now); const base = active && before ? before.expiresAt : input.now;
-    const entitlement = await tx.entitlement.upsert({ where: { userId: session.userId }, update: { status: "active", expiresAt: new Date(base.getTime() + code.entitlementDays * 86_400_000), llmQuotaLimit: active && before ? before.llmQuotaLimit + input.llmQuotaPerActivation : input.llmQuotaPerActivation, llmQuotaUsed: active && before ? before.llmQuotaUsed : 0, updatedAt: input.now }, create: { id: randomUUID(), userId: session.userId, status: "active", expiresAt: new Date(base.getTime() + code.entitlementDays * 86_400_000), llmQuotaLimit: input.llmQuotaPerActivation, llmQuotaUsed: 0, updatedAt: input.now } });
+    const expiresAt = new Date(base.getTime() + code.entitlementDays * 86_400_000);
+    const llmQuotaLimit = active && before ? before.llmQuotaLimit + input.llmQuotaPerActivation : input.llmQuotaPerActivation;
+    const llmQuotaUsed = active && before ? before.llmQuotaUsed : 0;
+    assertEntitlementResult({ expiresAt, llmQuotaLimit, llmQuotaUsed });
+    const claim = await tx.activationCode.updateMany({ where: { id: code.id, status: "active", redeemedAt: null }, data: { status: "redeemed", redeemedAt: input.now, redeemedByUserId: session.userId } });
+    if (claim.count !== 1) return { status: "code_invalid" } as const;
+    const entitlement = await tx.entitlement.upsert({ where: { userId: session.userId }, update: { status: "active", expiresAt, llmQuotaLimit, llmQuotaUsed, updatedAt: input.now }, create: { id: randomUUID(), userId: session.userId, status: "active", expiresAt, llmQuotaLimit, llmQuotaUsed, updatedAt: input.now } });
     return { status: "redeemed", entitlement: entitlement as EntitlementRecord } as const;
   }));
   return result;

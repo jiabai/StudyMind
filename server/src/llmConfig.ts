@@ -87,11 +87,13 @@ function validateConfig(input: { provider: string; baseUrl: string; model: strin
     !apiKey || apiKey.length < 8 || apiKey.length > 4096 || !Number.isInteger(input.timeoutSeconds) || input.timeoutSeconds < 1 || input.timeoutSeconds > 600) {
     throw new Error("INVALID_LLM_CONFIG");
   }
+  const rawBaseUrl = input.baseUrl.trim();
+  if (rawBaseUrl.includes("\\") || /%5c/i.test(rawBaseUrl)) throw new Error("INVALID_LLM_CONFIG");
   let url: URL;
-  try { url = new URL(input.baseUrl.trim()); } catch { throw new Error("INVALID_LLM_CONFIG"); }
+  try { url = new URL(rawBaseUrl); } catch { throw new Error("INVALID_LLM_CONFIG"); }
   if (!(["http:", "https:"] as string[]).includes(url.protocol) || !url.hostname || url.username || url.password ||
     input.baseUrl.length > 2048 || url.search || url.hash) throw new Error("INVALID_LLM_CONFIG");
-  return { provider, baseUrl: input.baseUrl.trim().replace(/\/+$/, ""), model, apiKey, timeoutSeconds: input.timeoutSeconds };
+  return { provider, baseUrl: url.href.replace(/\/+$/, ""), model, apiKey, timeoutSeconds: input.timeoutSeconds };
 }
 
 function toPublic(config: LlmConfigRecord, configured: boolean): PublicLlmConfig {

@@ -15,7 +15,7 @@ async function fixture(store = new MemoryStore()) {
   await store.createSession({ userId: user.id, tokenHash: sha256(token), createdAt: NOW, expiresAt: new Date("2026-12-01T00:00:00.000Z") });
   await store.upsertEntitlement(user.id, new Date("2026-09-01T08:00:00.000Z"), NOW, { llmQuotaLimit: 2, llmQuotaUsed: 0 });
   const llmConfig = new LlmConfigService({ store, encryptionKey: KEY, now: () => NOW });
-  await llmConfig.save({ provider: "openai_compatible", baseUrl: "https://llm.example/v1", model: "study-model", apiKey: "secret-api-key", timeoutSeconds: 45 });
+  await llmConfig.save({ provider: "openai_compatible", baseUrl: "HTTPS://LLM.EXAMPLE:443/v1/../v1///", model: "study-model", apiKey: "secret-api-key", timeoutSeconds: 45 });
   const app = Fastify();
   registerDesktopLlmRoutes(app, { store, llmConfig, now: () => NOW });
   return { app, store, user, token, llmConfig };
@@ -73,16 +73,19 @@ describe("managed LLM configuration encryption", () => {
 
   test("validates provider, URL credentials, model, API key, timeout, and lengths", async () => {
     const service = new LlmConfigService({ store: new MemoryStore(), encryptionKey: KEY });
-    const base = { provider: "openai" as const, baseUrl: "https://api.openai.com/v1", model: "model", apiKey: "key", timeoutSeconds: 60 };
+    const base = { provider: "openai" as const, baseUrl: "https://api.openai.com/v1", model: "model", apiKey: "valid-api-key", timeoutSeconds: 60 };
     for (const invalid of [
       { ...base, provider: "anthropic" }, { ...base, baseUrl: "ftp://example.com" }, { ...base, baseUrl: "https://user:pass@example.com" },
       { ...base, baseUrl: "https://example.com/v1?tenant=secret" }, { ...base, baseUrl: "https://example.com/v1#fragment" },
+      { ...base, baseUrl: String.raw`https://example.com\v1` }, { ...base, baseUrl: "https://example.com/v1%5Clegacy" },
       { ...base, model: "" }, { ...base, apiKey: "1234567" }, { ...base, apiKey: "x".repeat(4097) },
       { ...base, timeoutSeconds: 0 }, { ...base, timeoutSeconds: 601 }, { ...base, timeoutSeconds: 1.5 },
     ]) await expect(service.save(invalid as never)).rejects.toThrow("INVALID_LLM_CONFIG");
     await expect(service.save({ ...base, baseUrl: "https://example.com/v1///", apiKey: "12345678" }))
       .resolves.toEqual({ configured: true, apiKeyLast4: "5678" });
     await expect(service.getDecrypted()).resolves.toMatchObject({ baseUrl: "https://example.com/v1", apiKey: "12345678" });
+    await service.save({ ...base, baseUrl: "HTTPS://EXAMPLE.COM:443/v1/../api///" });
+    await expect(service.getDecrypted()).resolves.toMatchObject({ baseUrl: "https://example.com/api" });
   });
 });
 

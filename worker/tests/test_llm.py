@@ -53,6 +53,8 @@ def test_parse_managed_checkout_response_validates_the_exact_contract() -> None:
         checkout_payload(extra_field="not-allowed"),
         checkout_payload(base_url="https://llm.example/v1?tenant=secret"),
         checkout_payload(base_url="https://llm.example/v1#fragment"),
+        checkout_payload(base_url="https://llm.example\\v1"),
+        checkout_payload(base_url="https://llm.example/v1%5Clegacy"),
         json.dumps(["not", "an", "object"]).encode(),
         json.dumps({"provider": "openai"}).encode(),
         json.dumps(

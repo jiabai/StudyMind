@@ -220,8 +220,11 @@ def parse_managed_checkout_response(raw_response: bytes) -> dict[str, str | int]
     if (
         provider not in {"openai", "openai_compatible"}
         or not base_url
+        or "\\" in base_url
+        or "%5c" in base_url.lower()
         or parsed_base_url.scheme not in {"http", "https"}
         or not parsed_base_url.hostname
+        or any(character.isspace() for character in parsed_base_url.netloc)
         or parsed_base_url.username is not None
         or parsed_base_url.password is not None
         or bool(parsed_base_url.query)
@@ -255,6 +258,8 @@ def _invalid_managed_checkout_response() -> InsightGenerationError:
 
 def _chat_completions_url(base_url: str) -> str:
     parsed = urlsplit(base_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.query or parsed.fragment:
+        raise ValueError("Invalid LLM base URL.")
     path = f"{parsed.path.rstrip('/')}/chat/completions"
     return urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
 

@@ -38,7 +38,16 @@ export class EntitlementAdjustmentService {
 export function assertEntitlementAdjustmentResult(input: {
   afterExpiresAt: Date; afterLlmQuotaLimit: number; beforeLlmQuotaUsed: number;
 }): void {
-  if (!Number.isFinite(input.afterExpiresAt.getTime()) || !Number.isInteger(input.afterLlmQuotaLimit) ||
-    input.afterLlmQuotaLimit < input.beforeLlmQuotaUsed || input.afterLlmQuotaLimit < 0 ||
-    input.afterLlmQuotaLimit > MAX_INT32) throw new Error("ENTITLEMENT_ADJUSTMENT_OUT_OF_RANGE");
+  try {
+    assertEntitlementResult({ expiresAt: input.afterExpiresAt, llmQuotaLimit: input.afterLlmQuotaLimit, llmQuotaUsed: input.beforeLlmQuotaUsed });
+  } catch { throw new Error("ENTITLEMENT_ADJUSTMENT_OUT_OF_RANGE"); }
+}
+
+export function assertEntitlementResult(input: {
+  expiresAt: Date; llmQuotaLimit: number; llmQuotaUsed: number;
+}): void {
+  if (!Number.isFinite(input.expiresAt.getTime()) || !Number.isInteger(input.llmQuotaLimit) ||
+    !Number.isInteger(input.llmQuotaUsed) || input.llmQuotaLimit < 0 || input.llmQuotaUsed < 0 ||
+    input.llmQuotaLimit > MAX_INT32 || input.llmQuotaUsed > MAX_INT32 || input.llmQuotaUsed > input.llmQuotaLimit)
+    throw new Error("ENTITLEMENT_RESULT_OUT_OF_RANGE");
 }

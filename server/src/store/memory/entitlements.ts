@@ -1,5 +1,5 @@
 import type { AdminEntitlementAdjustmentRecord, EntitlementRecord, Store } from "../contracts.js";
-import { assertEntitlementAdjustmentResult } from "../../entitlementAdjustment.js";
+import { assertEntitlementAdjustmentResult, assertEntitlementResult } from "../../entitlementAdjustment.js";
 import type { MemoryAuthContext } from "./auth.js";
 import { assertUnique } from "./atomic.js";
 
@@ -92,16 +92,18 @@ export async function redeemActivationCodeAndGrantEntitlement(
     if (!code || code.status !== "active" || code.redeemedAt !== null || code.redeemBy <= input.now) {
       return { status: "code_invalid" };
     }
-    const redeemed = await markActivationCodeRedeemed(context, input.codeHash, session.userId, input.now);
-    if (!redeemed) return { status: "code_invalid" };
     const existing = await getEntitlement(context, session.userId);
     const active = Boolean(existing && existing.expiresAt > input.now);
     const base = active && existing ? existing.expiresAt : input.now;
     const quota = active && existing
       ? { llmQuotaLimit: existing.llmQuotaLimit + input.llmQuotaPerActivation, llmQuotaUsed: existing.llmQuotaUsed }
       : { llmQuotaLimit: input.llmQuotaPerActivation, llmQuotaUsed: 0 };
+    const expiresAt = new Date(base.getTime() + code.entitlementDays * 86_400_000);
+    assertEntitlementResult({ expiresAt, ...quota });
+    const redeemed = await markActivationCodeRedeemed(context, input.codeHash, session.userId, input.now);
+    if (!redeemed) return { status: "code_invalid" };
     const entitlement = await upsertEntitlement(
-      context, session.userId, new Date(base.getTime() + redeemed.entitlementDays * 86_400_000), input.now, quota,
+      context, session.userId, expiresAt, input.now, quota,
     );
     return { status: "redeemed", entitlement };
   });
