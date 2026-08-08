@@ -57,7 +57,7 @@ export type WebhookEventRecord = {
 
 export type PaidOrderSettlement =
   | { status: "settled"; entitlement: EntitlementRecord }
-  | { status: "order_not_found" | "order_state_conflict" | "webhook_order_mismatch" | "transaction_mismatch" };
+  | { status: "order_not_found" | "order_state_conflict" | "webhook_order_mismatch" | "transaction_mismatch" | "webhook_payload_conflict" };
 export type ActivationRedemption =
   | { status: "redeemed"; entitlement: EntitlementRecord }
   | { status: "session_invalid" | "code_invalid" };
@@ -115,7 +115,6 @@ export type Store = {
   revokeSession(tokenHash: string, now: Date): Promise<void>;
   createOrder(input: Omit<OrderRecord, "id" | "paidAt" | "transactionId">): Promise<OrderRecord>;
   findOrderByOutTradeNo(outTradeNo: string): Promise<OrderRecord | null>;
-  markOrderPaid(outTradeNo: string, transactionId: string, paidAt: Date): Promise<OrderRecord>;
   settlePaidOrder(input: {
     provider: string; eventId: string; outTradeNo: string; transactionId: string;
     paidAt: Date; now: Date; passDays: number;
@@ -129,7 +128,6 @@ export type Store = {
   upsertLlmConfig(input: Omit<LlmConfigRecord, "id" | "createdAt" | "updatedAt">, now: Date): Promise<LlmConfigRecord>;
   createActivationCode(input: Omit<ActivationCodeRecord, "id">): Promise<ActivationCodeRecord>;
   findActivationCodeByHash(codeHash: string): Promise<ActivationCodeRecord | null>;
-  markActivationCodeRedeemed(codeHash: string, userId: string, redeemedAt: Date): Promise<ActivationCodeRecord | null>;
   redeemActivationCodeAndGrantEntitlement(input: {
     sessionTokenHash: string; codeHash: string; now: Date; llmQuotaPerActivation: number;
   }): Promise<ActivationRedemption>;
@@ -141,11 +139,9 @@ export type Store = {
   createUserSession(input: Omit<UserSessionRecord, "id" | "revokedAt">): Promise<UserSessionRecord>;
   findUserSessionByTokenHash(tokenHash: string, now: Date): Promise<UserSessionRecord | null>;
   revokeUserSession(tokenHash: string, now: Date): Promise<void>;
-  createAdminEntitlementAdjustment(input: AdminEntitlementAdjustmentRecord): Promise<AdminEntitlementAdjustmentRecord>;
   applyEntitlementAdjustmentWithAudit(input: {
     adminEmail: string; userId: string; reason: string; note: string | null;
     extendDays?: number; expiresAt?: Date; quotaAdd?: number; now: Date;
   }): Promise<EntitlementAdjustmentApplication>;
   listAdminEntitlementAdjustments(limit?: number): Promise<AdminEntitlementAdjustmentRecord[]>;
-  createWebhookEvent(input: Omit<WebhookEventRecord, "id">): Promise<boolean>;
 };

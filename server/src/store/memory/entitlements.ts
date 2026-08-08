@@ -63,9 +63,9 @@ export async function findActivationCodeByHash(
   return context.state.activationCodes.find((code) => code.codeHash === codeHash) ?? null;
 }
 
-export async function markActivationCodeRedeemed(
+async function markActivationCodeRedeemed(
   context: MemoryEntitlementContext, codeHash: string, userId: string, redeemedAt: Date,
-): ReturnType<Store["markActivationCodeRedeemed"]> {
+): Promise<(typeof context.state.activationCodes)[number] | null> {
   const code = await findActivationCodeByHash(context, codeHash);
   if (!code || code.status !== "active" || code.redeemedAt !== null) return null;
   code.status = "redeemed"; code.redeemedByUserId = userId; code.redeemedAt = redeemedAt;
@@ -106,9 +106,9 @@ export async function listActivationCodes(
   return [...context.state.activationCodes].sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime());
 }
 
-export async function createAdminEntitlementAdjustment(
+async function createAdminEntitlementAdjustment(
   context: MemoryEntitlementContext, input: AdminEntitlementAdjustmentRecord,
-): ReturnType<Store["createAdminEntitlementAdjustment"]> {
+): Promise<AdminEntitlementAdjustmentRecord> {
   context.state.adminEntitlementAdjustments.push(input);
   return input;
 }

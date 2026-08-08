@@ -26,20 +26,20 @@ export class MemoryStore implements Store {
     this.createId = dependencies.createId ?? randomUUID;
   }
 
-  get users(): readonly UserRecord[] { return this.state.users; }
-  get emailOtps(): readonly EmailOtpRecord[] { return this.state.emailOtps; }
-  get desktopLoginTickets(): readonly DesktopLoginTicketRecord[] { return this.state.desktopLoginTickets; }
-  get sessions(): readonly SessionRecord[] { return this.state.sessions; }
-  get orders(): readonly OrderRecord[] { return this.state.orders; }
-  get entitlements(): readonly EntitlementRecord[] { return this.state.entitlements; }
-  get llmConfig(): Readonly<LlmConfigRecord> | null { return this.state.llmConfig; }
-  get llmUsageEvents(): readonly LlmUsageEventRecord[] { return this.state.llmUsageEvents; }
-  get activationCodes(): readonly ActivationCodeRecord[] { return this.state.activationCodes; }
-  get adminSessions(): readonly AdminSessionRecord[] { return this.state.adminSessions; }
-  get adminEntitlementAdjustments(): readonly AdminEntitlementAdjustmentRecord[] { return this.state.adminEntitlementAdjustments; }
-  get webhookEvents(): readonly WebhookEventRecord[] { return this.state.webhookEvents; }
-  get authRateLimits(): readonly AuthRateLimitRecord[] { return this.state.authRateLimits; }
-  get userSessions(): readonly UserSessionRecord[] { return this.state.userSessions; }
+  get users(): readonly UserRecord[] { return structuredClone(this.state.users); }
+  get emailOtps(): readonly EmailOtpRecord[] { return structuredClone(this.state.emailOtps); }
+  get desktopLoginTickets(): readonly DesktopLoginTicketRecord[] { return structuredClone(this.state.desktopLoginTickets); }
+  get sessions(): readonly SessionRecord[] { return structuredClone(this.state.sessions); }
+  get orders(): readonly OrderRecord[] { return structuredClone(this.state.orders); }
+  get entitlements(): readonly EntitlementRecord[] { return structuredClone(this.state.entitlements); }
+  get llmConfig(): Readonly<LlmConfigRecord> | null { return structuredClone(this.state.llmConfig); }
+  get llmUsageEvents(): readonly LlmUsageEventRecord[] { return structuredClone(this.state.llmUsageEvents); }
+  get activationCodes(): readonly ActivationCodeRecord[] { return structuredClone(this.state.activationCodes); }
+  get adminSessions(): readonly AdminSessionRecord[] { return structuredClone(this.state.adminSessions); }
+  get adminEntitlementAdjustments(): readonly AdminEntitlementAdjustmentRecord[] { return structuredClone(this.state.adminEntitlementAdjustments); }
+  get webhookEvents(): readonly WebhookEventRecord[] { return structuredClone(this.state.webhookEvents); }
+  get authRateLimits(): readonly AuthRateLimitRecord[] { return structuredClone(this.state.authRateLimits); }
+  get userSessions(): readonly UserSessionRecord[] { return structuredClone(this.state.userSessions); }
 
   private context(): auth.MemoryAuthContext {
     return { state: this.state, atomic: this.atomic, allocateId: () => this.createId() };
@@ -77,9 +77,6 @@ export class MemoryStore implements Store {
   revokeSession(tokenHash: string, now: Date): ReturnType<Store["revokeSession"]> { return auth.revokeSession(this.context(), tokenHash, now); }
   createOrder(input: Parameters<Store["createOrder"]>[0]): ReturnType<Store["createOrder"]> { return billing.createOrder(this.context(), input); }
   findOrderByOutTradeNo(outTradeNo: string): ReturnType<Store["findOrderByOutTradeNo"]> { return billing.findOrderByOutTradeNo(this.context(), outTradeNo); }
-  markOrderPaid(outTradeNo: string, transactionId: string, paidAt: Date): ReturnType<Store["markOrderPaid"]> {
-    return billing.markOrderPaid(this.context(), outTradeNo, transactionId, paidAt);
-  }
   settlePaidOrder(input: Parameters<Store["settlePaidOrder"]>[0]): ReturnType<Store["settlePaidOrder"]> { return billing.settlePaidOrder(this.context(), input); }
   getEntitlement(userId: string): ReturnType<Store["getEntitlement"]> { return entitlements.getEntitlement(this.context(), userId); }
   upsertEntitlement(userId: string, expiresAt: Date, now: Date, quota?: { llmQuotaLimit?: number; llmQuotaUsed?: number }): ReturnType<Store["upsertEntitlement"]> {
@@ -97,9 +94,6 @@ export class MemoryStore implements Store {
   }
   findActivationCodeByHash(codeHash: string): ReturnType<Store["findActivationCodeByHash"]> {
     return entitlements.findActivationCodeByHash(this.context(), codeHash);
-  }
-  markActivationCodeRedeemed(codeHash: string, userId: string, redeemedAt: Date): ReturnType<Store["markActivationCodeRedeemed"]> {
-    return entitlements.markActivationCodeRedeemed(this.context(), codeHash, userId, redeemedAt);
   }
   redeemActivationCodeAndGrantEntitlement(input: Parameters<Store["redeemActivationCodeAndGrantEntitlement"]>[0]): ReturnType<Store["redeemActivationCodeAndGrantEntitlement"]> {
     return entitlements.redeemActivationCodeAndGrantEntitlement(this.context(), input);
@@ -124,16 +118,10 @@ export class MemoryStore implements Store {
   revokeUserSession(tokenHash: string, now: Date): ReturnType<Store["revokeUserSession"]> {
     return userSession.revokeUserSession(this.context(), tokenHash, now);
   }
-  createAdminEntitlementAdjustment(input: Parameters<Store["createAdminEntitlementAdjustment"]>[0]): ReturnType<Store["createAdminEntitlementAdjustment"]> {
-    return entitlements.createAdminEntitlementAdjustment(this.context(), input);
-  }
   applyEntitlementAdjustmentWithAudit(input: Parameters<Store["applyEntitlementAdjustmentWithAudit"]>[0]): ReturnType<Store["applyEntitlementAdjustmentWithAudit"]> {
     return entitlements.applyEntitlementAdjustmentWithAudit(this.context(), input);
   }
   listAdminEntitlementAdjustments(limit?: number): ReturnType<Store["listAdminEntitlementAdjustments"]> {
     return entitlements.listAdminEntitlementAdjustments(this.context(), limit);
-  }
-  createWebhookEvent(input: Parameters<Store["createWebhookEvent"]>[0]): ReturnType<Store["createWebhookEvent"]> {
-    return billing.createWebhookEvent(this.context(), input);
   }
 }

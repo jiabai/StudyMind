@@ -31,6 +31,33 @@ describe("MemoryStore semantic transaction safety", () => {
     expect(store.desktopLoginTickets[0]?.userId).toBe(store.userSessions[0]?.userId);
   });
 
+  test("rolls back OTP, user, ticket, and web session when desktop verification fails midway", async () => {
+    let idCalls = 0;
+    const store = new MemoryStore({
+      createId: () => {
+        idCalls += 1;
+        if (idCalls === 7) throw new Error("injected web session write failure");
+        return `study-id-${idCalls}`;
+      },
+    });
+    await store.issueEmailOtp({
+      purpose: "desktop_login", email: "rollback-login@studymind.local", state: "rollback-state",
+      codeHash: "sha256:otp", ip: "127.0.0.1", expiresAt: later(600_000), createdAt: now,
+    });
+
+    await expect(store.verifyDesktopOtpAndCreateTicketAndWebSession({
+      email: "rollback-login@studymind.local", state: "rollback-state", codeHash: "sha256:otp",
+      ticketHash: "sha256:ticket", sessionTokenHash: "sha256:web-session",
+      csrfTokenHash: "sha256:csrf", now: later(1_000), ticketExpiresAt: later(60_000),
+      sessionExpiresAt: later(86_400_000),
+    })).rejects.toThrow("injected web session write failure");
+
+    expect(store.users).toHaveLength(0);
+    expect(store.desktopLoginTickets).toHaveLength(0);
+    expect(store.userSessions).toHaveLength(0);
+    expect(store.emailOtps[0]).toMatchObject({ attempts: 0, consumedAt: null });
+  });
+
   test("creates a desktop session while consuming its ticket atomically", async () => {
     const store = new MemoryStore();
     await store.issueEmailOtp({
@@ -111,7 +138,30 @@ describe("MemoryStore semantic transaction safety", () => {
     expect(store.webhookEvents).toHaveLength(1);
     expect(store.entitlements[0]?.expiresAt).toEqual(expiry);
     expect((await store.settlePaidOrder({ ...input, transactionId: "wechat-conflict" })).status)
-      .toBe("transaction_mismatch");
+      .toBe("webhook_payload_conflict");
+  });
+
+  test("rejects a webhook replay whose paidAt differs without changing settled state", async () => {
+    const store = new MemoryStore();
+    const user = await store.upsertUserByEmail("payload-replay@studymind.local", now);
+    const order = await store.createOrder({
+      userId: user.id, outTradeNo: "studymind-order-payload", amountFen: 990, status: "pending",
+      codeUrl: "weixin://studymind-order-payload", expiresAt: later(1_800_000), createdAt: now,
+      providerPayload: "{}",
+    });
+    const input = {
+      provider: "wechat", eventId: "studymind-event-payload", outTradeNo: order.outTradeNo,
+      transactionId: "wechat-transaction-payload", paidAt: later(300_000), now: later(300_000), passDays: 30,
+    };
+    expect((await store.settlePaidOrder(input)).status).toBe("settled");
+    const originalOrder = structuredClone(store.orders[0]);
+    const originalEntitlement = structuredClone(store.entitlements[0]);
+    const replay = await store.settlePaidOrder({ ...input, paidAt: later(301_000), now: later(301_000) });
+
+    expect(replay.status).toBe("webhook_payload_conflict");
+    expect(store.webhookEvents).toHaveLength(1);
+    expect(store.orders[0]).toEqual(originalOrder);
+    expect(store.entitlements[0]).toEqual(originalEntitlement);
   });
 
   test("applies an administrator entitlement adjustment with its audit record", async () => {
@@ -127,5 +177,25 @@ describe("MemoryStore semantic transaction safety", () => {
     expect(store.adminEntitlementAdjustments[0]).toMatchObject({
       userId: user.id, beforeLlmQuotaLimit: 0, afterLlmQuotaLimit: 5,
     });
+  });
+
+  test("rolls back entitlement creation when administrator audit creation fails", async () => {
+    let idCalls = 0;
+    const store = new MemoryStore({
+      createId: () => {
+        idCalls += 1;
+        if (idCalls === 3) throw new Error("injected audit write failure");
+        return `adjustment-id-${idCalls}`;
+      },
+    });
+    const user = await store.upsertUserByEmail("rollback-adjustment@studymind.local", now);
+    await expect(store.applyEntitlementAdjustmentWithAudit({
+      adminEmail: "admin@studymind.local", userId: user.id, reason: "learning_support",
+      note: null, extendDays: 7, quotaAdd: 5, now,
+    })).rejects.toThrow("injected audit write failure");
+
+    expect(await store.getEntitlement(user.id)).toBeNull();
+    expect(store.entitlements).toHaveLength(0);
+    expect(store.adminEntitlementAdjustments).toHaveLength(0);
   });
 });

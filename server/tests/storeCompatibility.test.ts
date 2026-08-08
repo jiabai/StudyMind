@@ -1,6 +1,10 @@
 import { describe, expect, test } from "vitest";
 import { MemoryStore as DefiningMemoryStore } from "../src/store/memory.js";
-import { MemoryStore as PublicMemoryStore, type Store } from "../src/store.js";
+import {
+  MemoryStore as PublicMemoryStore,
+  type EntitlementRecord,
+  type Store,
+} from "../src/store.js";
 
 const now = new Date("2026-08-08T08:00:00.000Z");
 const later = (milliseconds: number) => new Date(now.getTime() + milliseconds);
@@ -20,7 +24,6 @@ const storeMethods = [
   "revokeSession",
   "createOrder",
   "findOrderByOutTradeNo",
-  "markOrderPaid",
   "settlePaidOrder",
   "getEntitlement",
   "upsertEntitlement",
@@ -29,7 +32,6 @@ const storeMethods = [
   "upsertLlmConfig",
   "createActivationCode",
   "findActivationCodeByHash",
-  "markActivationCodeRedeemed",
   "redeemActivationCodeAndGrantEntitlement",
   "listActivationCodes",
   "listUsers",
@@ -39,10 +41,8 @@ const storeMethods = [
   "createUserSession",
   "findUserSessionByTokenHash",
   "revokeUserSession",
-  "createAdminEntitlementAdjustment",
   "applyEntitlementAdjustmentWithAudit",
   "listAdminEntitlementAdjustments",
-  "createWebhookEvent",
 ] as const satisfies readonly (keyof Store)[];
 
 type Equal<Left, Right> =
@@ -85,6 +85,34 @@ describe("StudyMind Store compatibility", () => {
       "adminEntitlementAdjustments", "webhookEvents", "authRateLimits", "userSessions",
     ] as const) expect(Array.isArray(store[field]), field).toBe(true);
     expect(store.llmConfig).toBeNull();
+  });
+
+  test("does not expose partial transaction writers", () => {
+    const surface = new PublicMemoryStore() as unknown as Record<string, unknown>;
+    for (const method of [
+      "markOrderPaid",
+      "markActivationCodeRedeemed",
+      "createAdminEntitlementAdjustment",
+      "createWebhookEvent",
+    ]) {
+      expect(surface[method], method).toBeUndefined();
+    }
+  });
+
+  test("returns detached fixture records that cannot mutate internal state", async () => {
+    const store = new PublicMemoryStore();
+    const user = await store.upsertUserByEmail("snapshot@studymind.local", now);
+    await store.upsertEntitlement(user.id, later(86_400_000), now, {
+      llmQuotaLimit: 2,
+      llmQuotaUsed: 0,
+    });
+
+    const exposed = store.entitlements as EntitlementRecord[];
+    exposed[0]!.llmQuotaUsed = 999;
+    exposed.push({ ...exposed[0]!, id: "forged-entitlement" });
+
+    expect(await store.getEntitlement(user.id)).toMatchObject({ llmQuotaUsed: 0 });
+    expect(store.entitlements).toHaveLength(1);
   });
 
   test("isolates OTP purpose and replaces an older OTP of the same purpose", async () => {

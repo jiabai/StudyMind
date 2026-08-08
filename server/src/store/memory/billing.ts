@@ -16,9 +16,9 @@ export async function findOrderByOutTradeNo(
 ): ReturnType<Store["findOrderByOutTradeNo"]> {
   return context.state.orders.find((order) => order.outTradeNo === outTradeNo) ?? null;
 }
-export async function markOrderPaid(
+async function markOrderPaid(
   context: MemoryBillingContext, outTradeNo: string, transactionId: string, paidAt: Date,
-): ReturnType<Store["markOrderPaid"]> {
+): Promise<NonNullable<Awaited<ReturnType<Store["findOrderByOutTradeNo"]>>>> {
   const order = await findOrderByOutTradeNo(context, outTradeNo);
   if (!order) throw new Error("Order not found.");
   order.status = "paid"; order.transactionId = transactionId; order.paidAt = paidAt;
@@ -31,11 +31,9 @@ export async function settlePaidOrder(
     const existingEvent = context.state.webhookEvents.find((event) =>
       event.provider === input.provider && event.eventId === input.eventId,
     );
-    if (existingEvent?.outTradeNo !== undefined && existingEvent.outTradeNo !== input.outTradeNo) {
-      return { status: "webhook_order_mismatch" };
-    }
-    if (existingEvent && transactionFrom(existingEvent.payload) !== input.transactionId) {
-      return { status: "transaction_mismatch" };
+    const payload = canonicalWebhookPayload(input);
+    if (existingEvent && existingEvent.payload !== payload) {
+      return { status: "webhook_payload_conflict" };
     }
     const order = await findOrderByOutTradeNo(context, input.outTradeNo);
     if (!order) return { status: "order_not_found" };
@@ -52,7 +50,7 @@ export async function settlePaidOrder(
     if (!existingEvent) {
       await createWebhookEvent(context, {
         provider: input.provider, eventId: input.eventId, outTradeNo: input.outTradeNo,
-        payload: JSON.stringify({ outTradeNo: input.outTradeNo, transactionId: input.transactionId, paidAt: input.paidAt.toISOString() }),
+        payload,
         createdAt: input.now,
       });
     }
@@ -60,9 +58,9 @@ export async function settlePaidOrder(
     return { status: "settled", entitlement: await extend(context, order.userId, input.paidAt, input) };
   });
 }
-export async function createWebhookEvent(
+async function createWebhookEvent(
   context: MemoryBillingContext, input: Omit<WebhookEventRecord, "id">,
-): ReturnType<Store["createWebhookEvent"]> {
+): Promise<boolean> {
   if (context.state.webhookEvents.some((event) => event.provider === input.provider && event.eventId === input.eventId)) return false;
   context.state.webhookEvents.push({ ...input, id: context.allocateId() });
   return true;
@@ -74,8 +72,12 @@ async function extend(
   const base = existing && existing.expiresAt > paidAt ? existing.expiresAt : paidAt;
   return upsertEntitlement(context, userId, new Date(base.getTime() + input.passDays * 86_400_000), input.now);
 }
-function transactionFrom(payload: string): string | null {
-  try { const value: unknown = JSON.parse(payload); return typeof value === "object" && value !== null &&
-    "transactionId" in value && typeof value.transactionId === "string" ? value.transactionId : null; }
-  catch { return null; }
+function canonicalWebhookPayload(input: {
+  outTradeNo: string; transactionId: string; paidAt: Date;
+}): string {
+  return JSON.stringify({
+    outTradeNo: input.outTradeNo,
+    transactionId: input.transactionId,
+    paidAt: input.paidAt.toISOString(),
+  });
 }
