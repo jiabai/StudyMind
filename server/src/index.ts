@@ -1,14 +1,13 @@
-﻿import { createServer } from './server.js';
+import "dotenv/config";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { runServerLifecycle } from "./bootstrap.js";
 
-const port = parseInt(process.env.PORT || '8788', 10);
-const host = process.env.HOST || '0.0.0.0';
+export async function main(): Promise<void> {
+  await runServerLifecycle();
+}
 
-const server = await createServer();
-
-try {
-  await server.listen({ port, host });
-  console.log(`StudyMind server listening on http://${host}:${port}`);
-} catch (err) {
-  console.error('Failed to start server:', err);
-  process.exit(1);
+const entry = process.argv[1] ? resolve(process.argv[1]) : "";
+if (entry && fileURLToPath(import.meta.url) === entry) {
+  main().catch(() => { process.exitCode = 1; });
 }
