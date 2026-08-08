@@ -9,7 +9,9 @@ use crate::{ensure_runtime_dirs, resolve_runtime_paths, RuntimePaths};
 
 const ACCOUNT_SESSION_FILE_NAME: &str = "session.json";
 const ACCOUNT_PENDING_STATE_FILE_NAME: &str = "pending_auth_state.txt";
-const DEFAULT_SERVER_BASE_URL: &str = "https://api.studymind.example";
+const SERVER_BASE_URL_ENV: &str = "STUDYMIND_SERVER_BASE_URL";
+const SERVER_CONFIG_ERROR: &str =
+    "StudyMind server is not configured. Set STUDYMIND_SERVER_BASE_URL to a valid http(s) URL.";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AuthCallback {
@@ -126,8 +128,9 @@ pub(crate) fn begin_auth_flow(app: AppHandle) -> Result<BeginAuthFlowResult, Str
     let state = generate_auth_state();
     fs::create_dir_all(account_auth_dir(&paths)).map_err(|error| error.to_string())?;
     fs::write(account_pending_state_path(&paths), &state).map_err(|error| error.to_string())?;
+    let server_url = server_base_url()?;
     Ok(BeginAuthFlowResult {
-        auth_url: build_auth_login_url(&server_base_url(), &state)?,
+        auth_url: build_auth_login_url(&server_url, &state)?,
         state,
     })
 }
@@ -142,12 +145,12 @@ pub(crate) async fn complete_auth_flow(
     let pending_state = fs::read_to_string(account_pending_state_path(&paths))
         .map_err(|_| "No pending login state was found.".to_string())?;
     let callback = parse_auth_callback_url(&callback_url, pending_state.trim())?;
-    let exchange = exchange_auth_ticket(&server_base_url(), &callback).await?;
+    let server_url = server_base_url()?;
+    let exchange = exchange_auth_ticket(&server_url, &callback).await?;
     fs::create_dir_all(account_auth_dir(&paths)).map_err(|error| error.to_string())?;
     write_account_session(&account_session_path(&paths), &exchange)?;
     let _ = fs::remove_file(account_pending_state_path(&paths));
-    let status =
-        get_account_status_from_server(&server_base_url(), &exchange.session_token).await?;
+    let status = get_account_status_from_server(&server_url, &exchange.session_token).await?;
     Ok(CompleteAuthFlowResult {
         authenticated: true,
         email: exchange.email,
@@ -163,7 +166,8 @@ pub(crate) async fn get_account_status(app: AppHandle) -> Result<AccountStatusVi
     let Some(session) = read_account_session(&account_session_path(&paths))? else {
         return Ok(guest_account_status());
     };
-    match get_account_status_from_server(&server_base_url(), &session.session_token).await {
+    let server_url = server_base_url()?;
+    match get_account_status_from_server(&server_url, &session.session_token).await {
         Ok(status) => Ok(AccountStatusView {
             authenticated: status.authenticated,
             email: Some(status.email),
@@ -201,8 +205,9 @@ pub(crate) async fn get_account_status(app: AppHandle) -> Result<AccountStatusVi
 pub(crate) async fn logout_account(app: AppHandle) -> Result<(), String> {
     let paths = resolve_runtime_paths(&app)?;
     if let Some(session) = read_account_session(&account_session_path(&paths))? {
+        let server_url = server_base_url()?;
         let _ = reqwest::Client::new()
-            .post(format!("{}/api/desktop/logout", server_base_url()))
+            .post(format!("{server_url}/api/desktop/logout"))
             .bearer_auth(session.session_token)
             .send()
             .await;
@@ -218,8 +223,9 @@ pub(crate) async fn redeem_activation_code(
 ) -> Result<AccountStatusView, String> {
     let paths = resolve_runtime_paths(&app)?;
     let session = require_account_session(&paths)?;
+    let server_url = server_base_url()?;
     let response = reqwest::Client::new()
-        .post(build_activation_redeem_url(&server_base_url()))
+        .post(build_activation_redeem_url(&server_url))
         .bearer_auth(&session.session_token)
         .json(&serde_json::json!({ "code": code }))
         .send()
@@ -239,10 +245,11 @@ pub(crate) async fn redeem_activation_code(
 pub(crate) async fn create_wechat_checkout(app: AppHandle) -> Result<WechatCheckoutView, String> {
     let paths = resolve_runtime_paths(&app)?;
     let session = require_account_session(&paths)?;
+    let server_url = server_base_url()?;
     let response = reqwest::Client::new()
         .post(format!(
             "{}/api/desktop/billing/wechat-native",
-            server_base_url()
+            server_url
         ))
         .bearer_auth(session.session_token)
         .send()
@@ -275,10 +282,11 @@ pub(crate) async fn get_checkout_status(
 ) -> Result<CheckoutStatusView, String> {
     let paths = resolve_runtime_paths(&app)?;
     let session = require_account_session(&paths)?;
+    let server_url = server_base_url()?;
     let response = reqwest::Client::new()
         .get(format!(
             "{}/api/desktop/billing/orders/{}",
-            server_base_url(),
+            server_url,
             percent_encode(&order_id)
         ))
         .bearer_auth(session.session_token)
@@ -309,7 +317,7 @@ pub(crate) fn server_managed_llm_invocation(
         return Ok(None);
     };
     Ok(Some(ServerManagedLlmInvocation {
-        server_base_url: server_base_url(),
+        server_base_url: server_base_url()?,
         session_token: session.session_token,
         request_id: format!("llm-{}", Uuid::new_v4().simple()),
     }))
@@ -327,14 +335,36 @@ fn account_pending_state_path(paths: &RuntimePaths) -> std::path::PathBuf {
     account_auth_dir(paths).join(ACCOUNT_PENDING_STATE_FILE_NAME)
 }
 
-pub(crate) fn server_base_url() -> String {
-    std::env::vars_os()
-        .find(|(key, _)| key == "STUDYMIND_SERVER_BASE_URL")
-        .and_then(|(_, value)| value.into_string().ok())
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| DEFAULT_SERVER_BASE_URL.to_string())
-        .trim_end_matches('/')
-        .to_string()
+pub(crate) fn server_base_url() -> Result<String, String> {
+    let pairs = std::env::vars_os().filter_map(|(key, value)| {
+        Some((key.into_string().ok()?, value.into_string().ok()?))
+    });
+    server_base_url_from_env(pairs)
+}
+
+pub(crate) fn server_base_url_from_env<I, K, V>(pairs: I) -> Result<String, String>
+where
+    I: IntoIterator<Item = (K, V)>,
+    K: AsRef<str>,
+    V: AsRef<str>,
+{
+    let raw = pairs
+        .into_iter()
+        .find(|(key, _)| key.as_ref() == SERVER_BASE_URL_ENV)
+        .map(|(_, value)| value.as_ref().trim().to_string())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| SERVER_CONFIG_ERROR.to_string())?;
+    let parsed = Url::parse(&raw).map_err(|_| SERVER_CONFIG_ERROR.to_string())?;
+    if !matches!(parsed.scheme(), "http" | "https")
+        || parsed.host_str().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+    {
+        return Err(SERVER_CONFIG_ERROR.to_string());
+    }
+    Ok(raw.trim_end_matches('/').to_string())
 }
 
 fn generate_auth_state() -> String {

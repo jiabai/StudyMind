@@ -4,6 +4,8 @@ import Fastify from "fastify";
 import { registerDesktopAuthRoutes } from "../src/routes/desktopAuth.js";
 import { MemoryStore } from "../src/store.js";
 
+const OTP_KEY = "test-otp-hmac-key-32-bytes-long!!";
+
 describe("StudyMind login page", () => {
   test("renders localized StudyMind-only HTML with strict callback constants", () => {
     const html = renderLoginPage({ locale: "en", desktop: true, state: "state-123456", redirectUri: "studymind://auth/callback" });
@@ -23,7 +25,7 @@ describe("StudyMind login page", () => {
 
   test("detects an explicit locale cookie before Accept-Language", async () => {
     const app = Fastify();
-    registerDesktopAuthRoutes(app, { store: new MemoryStore(), sendOtp: async () => undefined });
+    registerDesktopAuthRoutes(app, { store: new MemoryStore(), otpHmacKey: OTP_KEY, sendOtp: async () => undefined });
     const cookie = await app.inject({ method: "GET", url: "/login", headers: { cookie: "studymind_locale=en", "accept-language": "zh-TW" } });
     expect(cookie.body).toContain('<html lang="en">');
     const header = await app.inject({ method: "GET", url: "/login", headers: { "accept-language": "zh-Hant-TW,zh;q=0.8" } });

@@ -1,4 +1,4 @@
-import { otpCode, secureToken, sha256 } from "./security.js";
+import { assertEmailOtpHmacKey, hashEmailOtp, normalizeAuthIp, otpCode, secureToken, sha256 } from "./security.js";
 import type { Store } from "./store.js";
 
 type AuthStore = Pick<Store,
@@ -19,6 +19,7 @@ export type AuthServiceOptions = {
   store: AuthStore;
   now?: () => Date;
   sendOtp: (email: string, code: string) => Promise<void>;
+  otpHmacKey: string;
   createOtp?: () => string;
   createToken?: (prefix: string) => string;
   hash?: (value: string) => string;
@@ -31,6 +32,7 @@ export class AuthService {
   private readonly hash: (value: string) => string;
 
   constructor(private readonly options: AuthServiceOptions) {
+    assertEmailOtpHmacKey(options.otpHmacKey);
     this.now = options.now ?? (() => new Date());
     this.createOtp = options.createOtp ?? otpCode;
     this.createToken = options.createToken ?? secureToken;
@@ -43,7 +45,9 @@ export class AuthService {
     const now = this.now();
     const code = this.createOtp();
     const issued = await this.options.store.issueEmailOtp({
-      purpose: "desktop_login", email, state: input.state, codeHash: this.hash(code), ip: input.ip,
+      purpose: "desktop_login", email, state: input.state,
+      codeHash: hashEmailOtp({ key: this.options.otpHmacKey, purpose: "desktop_login", email, state: input.state, code }),
+      ip: normalizeAuthIp(input.ip),
       expiresAt: new Date(now.getTime() + OTP_TTL_MS), createdAt: now,
     });
     if (issued.status === "rate_limited") throw new AuthRateLimitError(issued.retryAt);
@@ -66,7 +70,9 @@ export class AuthService {
     const webSessionToken = this.createToken("smus_");
     const webCsrfToken = this.createToken("smuc_");
     const result = await this.options.store.verifyDesktopOtpAndCreateTicketAndWebSession({
-      email, state: input.state, codeHash: this.hash(input.code), ticketHash: this.hash(ticket),
+      email, state: input.state,
+      codeHash: hashEmailOtp({ key: this.options.otpHmacKey, purpose: "desktop_login", email, state: input.state, code: input.code }),
+      ticketHash: this.hash(ticket),
       sessionTokenHash: this.hash(webSessionToken), csrfTokenHash: this.hash(webCsrfToken), now,
       ticketExpiresAt: new Date(now.getTime() + TICKET_TTL_MS),
       sessionExpiresAt: new Date(now.getTime() + SESSION_TTL_MS),

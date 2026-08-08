@@ -7,6 +7,10 @@ export function setCookie(reply: Reply, name: string, value: string, options: { 
 }
 export function parseCookies(header: string | undefined): Map<string, string> {
   const result = new Map<string, string>();
-  for (const entry of header?.split(";") ?? []) { const [name, ...value] = entry.trim().split("="); if (name && value.length) result.set(name, decodeURIComponent(value.join("="))); }
+  for (const entry of header?.split(";") ?? []) {
+    const [name, ...value] = entry.trim().split("=");
+    if (!name || value.length === 0) continue;
+    try { result.set(name, decodeURIComponent(value.join("="))); } catch { /* ignore malformed cookie */ }
+  }
   return result;
 }

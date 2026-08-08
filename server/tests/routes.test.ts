@@ -1,11 +1,14 @@
 import Fastify from "fastify";
 import { describe, expect, test } from "vitest";
 import { registerDesktopAuthRoutes } from "../src/routes/desktopAuth.js";
+import { parseCookies } from "../src/routes/cookies.js";
 import { MemoryStore } from "../src/store.js";
+
+const OTP_KEY = "test-otp-hmac-key-32-bytes-long!!";
 
 function buildApp(sendOtp: (email: string, code: string) => Promise<void> = async () => undefined) {
   const app = Fastify();
-  registerDesktopAuthRoutes(app, { store: new MemoryStore(), sendOtp, now: () => new Date("2026-08-08T08:00:00.000Z") });
+  registerDesktopAuthRoutes(app, { store: new MemoryStore(), otpHmacKey: OTP_KEY, sendOtp, now: () => new Date("2026-08-08T08:00:00.000Z") });
   return app;
 }
 
@@ -72,7 +75,7 @@ describe("desktop auth routes", () => {
       override async issueEmailOtp(): ReturnType<MemoryStore["issueEmailOtp"]> { throw new Error("Prisma secret detail"); }
     }
     const app = Fastify();
-    registerDesktopAuthRoutes(app, { store: new FailingStore(), sendOtp: async () => undefined });
+    registerDesktopAuthRoutes(app, { store: new FailingStore(), otpHmacKey: OTP_KEY, sendOtp: async () => undefined });
     const response = await app.inject({ method: "POST", url: "/auth/email/start", payload: { email: "user@example.com", state: "state-123456" } });
     expect(response.statusCode).toBe(500);
     expect(response.json()).toEqual({ error: "INTERNAL_SERVER_ERROR" });
@@ -82,7 +85,7 @@ describe("desktop auth routes", () => {
   test("returns a fixed temporarily-unavailable response when OTP delivery fails", async () => {
     const store = new MemoryStore();
     const app = Fastify();
-    registerDesktopAuthRoutes(app, { store, sendOtp: async () => { throw new Error("SMTP credentials and OTP 123456"); } });
+    registerDesktopAuthRoutes(app, { store, otpHmacKey: OTP_KEY, sendOtp: async () => { throw new Error("SMTP credentials and OTP 123456"); } });
     const response = await app.inject({
       method: "POST", url: "/auth/email/start",
       payload: { email: "user@example.com", state: "state-123456" },
@@ -92,6 +95,21 @@ describe("desktop auth routes", () => {
     expect(response.body).not.toContain("SMTP");
     expect(response.body).not.toContain("123456");
     expect(store.emailOtps[0]?.consumedAt).not.toBeNull();
+  });
+
+  test("returns 429 with a clock-derived Retry-After when OTP rate limited", async () => {
+    const app = buildApp();
+    const payload = { email: "rate@example.com", state: "state-123456" };
+    expect((await app.inject({ method: "POST", url: "/auth/email/start", payload })).statusCode).toBe(200);
+    const limited = await app.inject({ method: "POST", url: "/auth/email/start", payload });
+    expect(limited.statusCode).toBe(429);
+    expect(limited.headers["retry-after"]).toBe("60");
+    expect(limited.json()).toEqual({ error: "RATE_LIMITED", retry_at: "2026-08-08T08:01:00.000Z" });
+  });
+
+  test("ignores malformed percent-encoded cookies without throwing", () => {
+    expect(() => parseCookies("good=value; bad=%ZZ; later=ok%20value")).not.toThrow();
+    expect(parseCookies("good=value; bad=%ZZ; later=ok%20value")).toEqual(new Map([["good", "value"], ["later", "ok value"]]));
   });
 
   test("does not accept an email start until delivery succeeds", async () => {

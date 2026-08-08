@@ -134,7 +134,7 @@ pub fn run() {
 mod tests {
     use super::account::{
         build_activation_redeem_url, build_auth_login_url, parse_auth_callback_url,
-        server_base_url, AuthCallback,
+        server_base_url_from_env, AuthCallback,
     };
     use super::path_to_env_string;
     use super::settings::{load_llm_config_from_file, save_llm_config_to_file, LlmConfigInput};
@@ -154,26 +154,24 @@ mod tests {
     }
 
     #[test]
-    fn server_base_url_defaults_to_production_domain_and_allows_override() {
-        let original = std::env::var("STUDYMIND_SERVER_BASE_URL").ok();
-        let legacy = std::env::var("StudyMind_SERVER_BASE_URL").ok();
-        std::env::remove_var("STUDYMIND_SERVER_BASE_URL");
-        std::env::set_var("StudyMind_SERVER_BASE_URL", "https://legacy.example");
-
-        assert_eq!(server_base_url(), "https://api.studymind.example");
-
-        std::env::remove_var("StudyMind_SERVER_BASE_URL");
-        std::env::set_var("STUDYMIND_SERVER_BASE_URL", "http://127.0.0.1:8787/");
-
-        assert_eq!(server_base_url(), "http://127.0.0.1:8787");
-
-        match original {
-            Some(value) => std::env::set_var("STUDYMIND_SERVER_BASE_URL", value),
-            None => std::env::remove_var("STUDYMIND_SERVER_BASE_URL"),
-        }
-        match legacy {
-            Some(value) => std::env::set_var("StudyMind_SERVER_BASE_URL", value),
-            None => std::env::remove_var("StudyMind_SERVER_BASE_URL"),
+    fn server_base_url_requires_explicit_exact_valid_configuration() {
+        assert_eq!(
+            server_base_url_from_env(Vec::<(&str, &str)>::new()).unwrap_err(),
+            "StudyMind server is not configured. Set STUDYMIND_SERVER_BASE_URL to a valid http(s) URL."
+        );
+        assert!(server_base_url_from_env([("StudyMind_SERVER_BASE_URL", "https://legacy.example")]).is_err());
+        assert_eq!(
+            server_base_url_from_env([("STUDYMIND_SERVER_BASE_URL", " http://127.0.0.1:8787/ ")]).unwrap(),
+            "http://127.0.0.1:8787"
+        );
+        for invalid in [
+            "ftp://api.studymind.invalid",
+            "https://user:pass@api.studymind.invalid",
+            "https://api.studymind.invalid?secret=value",
+            "https://api.studymind.invalid#fragment",
+            "not-a-url",
+        ] {
+            assert!(server_base_url_from_env([("STUDYMIND_SERVER_BASE_URL", invalid)]).is_err());
         }
     }
 
