@@ -9,7 +9,7 @@ use crate::{ensure_runtime_dirs, resolve_runtime_paths, RuntimePaths};
 
 const ACCOUNT_SESSION_FILE_NAME: &str = "session.json";
 const ACCOUNT_PENDING_STATE_FILE_NAME: &str = "pending_auth_state.txt";
-const DEFAULT_SERVER_BASE_URL: &str = "https://StudyMind.8xf.pro";
+const DEFAULT_SERVER_BASE_URL: &str = "https://api.studymind.example";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AuthCallback {
@@ -328,8 +328,9 @@ fn account_pending_state_path(paths: &RuntimePaths) -> std::path::PathBuf {
 }
 
 pub(crate) fn server_base_url() -> String {
-    std::env::var("StudyMind_SERVER_BASE_URL")
-        .ok()
+    std::env::vars_os()
+        .find(|(key, _)| key == "STUDYMIND_SERVER_BASE_URL")
+        .and_then(|(_, value)| value.into_string().ok())
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| DEFAULT_SERVER_BASE_URL.to_string())
         .trim_end_matches('/')
@@ -388,7 +389,12 @@ pub(crate) fn parse_auth_callback_url(
     if state != expected_state {
         return Err("Auth callback state does not match this device.".to_string());
     }
-    if !ticket.starts_with("flt_") || ticket.len() > 256 {
+    if !ticket.starts_with("smlt_")
+        || ticket.len() > 256
+        || !ticket[5..]
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-'))
+    {
         return Err("Auth callback ticket is invalid.".to_string());
     }
     Ok(AuthCallback { ticket, state })

@@ -155,16 +155,23 @@ mod tests {
 
     #[test]
     fn server_base_url_defaults_to_production_domain_and_allows_override() {
-        let original = std::env::var("StudyMind_SERVER_BASE_URL").ok();
+        let original = std::env::var("STUDYMIND_SERVER_BASE_URL").ok();
+        let legacy = std::env::var("StudyMind_SERVER_BASE_URL").ok();
+        std::env::remove_var("STUDYMIND_SERVER_BASE_URL");
+        std::env::set_var("StudyMind_SERVER_BASE_URL", "https://legacy.example");
+
+        assert_eq!(server_base_url(), "https://api.studymind.example");
+
         std::env::remove_var("StudyMind_SERVER_BASE_URL");
-
-        assert_eq!(server_base_url(), "https://StudyMind.8xf.pro");
-
-        std::env::set_var("StudyMind_SERVER_BASE_URL", "http://127.0.0.1:8787/");
+        std::env::set_var("STUDYMIND_SERVER_BASE_URL", "http://127.0.0.1:8787/");
 
         assert_eq!(server_base_url(), "http://127.0.0.1:8787");
 
         match original {
+            Some(value) => std::env::set_var("STUDYMIND_SERVER_BASE_URL", value),
+            None => std::env::remove_var("STUDYMIND_SERVER_BASE_URL"),
+        }
+        match legacy {
             Some(value) => std::env::set_var("StudyMind_SERVER_BASE_URL", value),
             None => std::env::remove_var("StudyMind_SERVER_BASE_URL"),
         }
@@ -181,7 +188,7 @@ mod tests {
     #[test]
     fn auth_callback_parser_accepts_matching_state() {
         let callback = parse_auth_callback_url(
-            "studymind://auth/callback?ticket=flt_abc123&state=state-123456",
+            "studymind://auth/callback?ticket=smlt_abc123&state=state-123456",
             "state-123456",
         )
         .expect("parse auth callback");
@@ -189,7 +196,7 @@ mod tests {
         assert_eq!(
             callback,
             AuthCallback {
-                ticket: "flt_abc123".to_string(),
+                ticket: "smlt_abc123".to_string(),
                 state: "state-123456".to_string(),
             }
         );
@@ -204,6 +211,24 @@ mod tests {
         .is_err());
         assert!(parse_auth_callback_url(
             "studymind://billing/callback?ticket=flt_abc123&state=state-123456",
+            "state-123456",
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn auth_callback_parser_rejects_legacy_ticket_prefix() {
+        assert!(parse_auth_callback_url(
+            "studymind://auth/callback?ticket=flt_abc123&state=state-123456",
+            "state-123456",
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn auth_callback_parser_rejects_malformed_studymind_ticket() {
+        assert!(parse_auth_callback_url(
+            "studymind://auth/callback?ticket=smlt_bad%20ticket&state=state-123456",
             "state-123456",
         )
         .is_err());
