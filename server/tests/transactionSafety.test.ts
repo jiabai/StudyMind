@@ -1,0 +1,131 @@
+import { describe, expect, test } from "vitest";
+import { MemoryStore } from "../src/store.js";
+
+const now = new Date("2026-08-08T08:00:00.000Z");
+const later = (milliseconds: number) => new Date(now.getTime() + milliseconds);
+
+async function createUserSession(store: MemoryStore, email: string, tokenHash: string) {
+  const user = await store.upsertUserByEmail(email, now);
+  const session = await store.createSession({
+    userId: user.id, tokenHash, createdAt: now, expiresAt: later(86_400_000),
+  });
+  return { user, session };
+}
+
+describe("MemoryStore semantic transaction safety", () => {
+  test("creates ticket and web session atomically while verifying a desktop OTP", async () => {
+    const store = new MemoryStore();
+    await store.issueEmailOtp({
+      purpose: "desktop_login", email: "atomic-login@studymind.local", state: "atomic-state",
+      codeHash: "sha256:otp", ip: "127.0.0.1", expiresAt: later(600_000), createdAt: now,
+    });
+    const result = await store.verifyDesktopOtpAndCreateTicketAndWebSession({
+      email: "atomic-login@studymind.local", state: "atomic-state", codeHash: "sha256:otp",
+      ticketHash: "sha256:ticket", sessionTokenHash: "sha256:web-session",
+      csrfTokenHash: "sha256:csrf", now: later(1_000), ticketExpiresAt: later(60_000),
+      sessionExpiresAt: later(86_400_000),
+    });
+    expect(result.status).toBe("verified");
+    expect(store.desktopLoginTickets).toHaveLength(1);
+    expect(store.userSessions).toHaveLength(1);
+    expect(store.desktopLoginTickets[0]?.userId).toBe(store.userSessions[0]?.userId);
+  });
+
+  test("creates a desktop session while consuming its ticket atomically", async () => {
+    const store = new MemoryStore();
+    await store.issueEmailOtp({
+      purpose: "desktop_login", email: "exchange@studymind.local", state: "exchange-state",
+      codeHash: "sha256:otp", ip: "127.0.0.1", expiresAt: later(600_000), createdAt: now,
+    });
+    await store.verifyDesktopOtpAndCreateTicket({
+      email: "exchange@studymind.local", state: "exchange-state", codeHash: "sha256:otp",
+      ticketHash: "sha256:ticket", now: later(1_000), ticketExpiresAt: later(60_000),
+    });
+    const results = await Promise.all([
+      store.exchangeDesktopTicketAndCreateSession({
+        ticketHash: "sha256:ticket", state: "exchange-state", sessionTokenHash: "sha256:first",
+        now: later(2_000), sessionExpiresAt: later(86_400_000),
+      }),
+      store.exchangeDesktopTicketAndCreateSession({
+        ticketHash: "sha256:ticket", state: "exchange-state", sessionTokenHash: "sha256:second",
+        now: later(2_000), sessionExpiresAt: later(86_400_000),
+      }),
+    ]);
+    expect(results.filter(({ status }) => status === "exchanged")).toHaveLength(1);
+    expect(results.filter(({ status }) => status === "invalid")).toHaveLength(1);
+    expect(store.sessions).toHaveLength(1);
+  });
+
+  test("permits only one concurrent checkout of the final LLM credit", async () => {
+    const store = new MemoryStore();
+    const user = await store.upsertUserByEmail("last-credit@studymind.local", now);
+    await store.upsertEntitlement(user.id, later(86_400_000), now, { llmQuotaLimit: 1, llmQuotaUsed: 0 });
+    const results = await Promise.all([
+      store.consumeLlmQuota(user.id, "request-a", now),
+      store.consumeLlmQuota(user.id, "request-b", now),
+    ]);
+    expect(results.filter(({ status }) => status === "consumed")).toHaveLength(1);
+    expect(results.filter(({ status }) => status === "unavailable")).toHaveLength(1);
+    expect(store.llmUsageEvents).toHaveLength(1);
+    expect(store.entitlements[0]?.llmQuotaUsed).toBe(1);
+  });
+
+  test("redeems an activation code only once", async () => {
+    const store = new MemoryStore();
+    const { user, session } = await createUserSession(
+      store, "activation@studymind.local", "sha256:activation-session",
+    );
+    await store.createActivationCode({
+      codeHash: "sha256:activation", codePrefix: "SM-ACT", status: "active", entitlementDays: 30,
+      redeemBy: later(86_400_000), createdAt: now, redeemedAt: null, redeemedByUserId: null,
+    });
+    const results = await Promise.all([
+      store.redeemActivationCodeAndGrantEntitlement({
+        sessionTokenHash: session.tokenHash, codeHash: "sha256:activation", now, llmQuotaPerActivation: 20,
+      }),
+      store.redeemActivationCodeAndGrantEntitlement({
+        sessionTokenHash: session.tokenHash, codeHash: "sha256:activation", now, llmQuotaPerActivation: 20,
+      }),
+    ]);
+    expect(results.filter(({ status }) => status === "redeemed")).toHaveLength(1);
+    expect(results.filter(({ status }) => status === "code_invalid")).toHaveLength(1);
+    expect(store.activationCodes[0]).toMatchObject({ status: "redeemed", redeemedByUserId: user.id });
+    expect(await store.getEntitlement(user.id)).toMatchObject({ llmQuotaLimit: 20, llmQuotaUsed: 0 });
+  });
+
+  test("treats an identical webhook replay as idempotent and rejects a conflicting replay", async () => {
+    const store = new MemoryStore();
+    const user = await store.upsertUserByEmail("billing@studymind.local", now);
+    const order = await store.createOrder({
+      userId: user.id, outTradeNo: "studymind-order-1", amountFen: 990, status: "pending",
+      codeUrl: "weixin://studymind-order-1", expiresAt: later(1_800_000), createdAt: now,
+      providerPayload: "{}",
+    });
+    const input = {
+      provider: "wechat", eventId: "studymind-event-1", outTradeNo: order.outTradeNo,
+      transactionId: "wechat-transaction-1", paidAt: later(300_000), now: later(300_000), passDays: 30,
+    };
+    expect((await store.settlePaidOrder(input)).status).toBe("settled");
+    const expiry = store.entitlements[0]?.expiresAt;
+    expect((await store.settlePaidOrder(input)).status).toBe("settled");
+    expect(store.webhookEvents).toHaveLength(1);
+    expect(store.entitlements[0]?.expiresAt).toEqual(expiry);
+    expect((await store.settlePaidOrder({ ...input, transactionId: "wechat-conflict" })).status)
+      .toBe("transaction_mismatch");
+  });
+
+  test("applies an administrator entitlement adjustment with its audit record", async () => {
+    const store = new MemoryStore();
+    const user = await store.upsertUserByEmail("adjustment@studymind.local", now);
+    const result = await store.applyEntitlementAdjustmentWithAudit({
+      adminEmail: "admin@studymind.local", userId: user.id, reason: "learning_support",
+      note: "grant study credits", extendDays: 7, quotaAdd: 5, now,
+    });
+    expect(result.status).toBe("applied");
+    expect(store.entitlements).toHaveLength(1);
+    expect(store.adminEntitlementAdjustments).toHaveLength(1);
+    expect(store.adminEntitlementAdjustments[0]).toMatchObject({
+      userId: user.id, beforeLlmQuotaLimit: 0, afterLlmQuotaLimit: 5,
+    });
+  });
+});
