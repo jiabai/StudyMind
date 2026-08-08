@@ -1,5 +1,6 @@
 import type { EntitlementRecord, Store, WebhookEventRecord } from "../contracts.js";
 import type { MemoryAuthContext } from "./auth.js";
+import { assertUnique } from "./atomic.js";
 import { getEntitlement, upsertEntitlement } from "./entitlements.js";
 
 export type MemoryBillingContext = MemoryAuthContext;
@@ -7,6 +8,7 @@ export type MemoryBillingContext = MemoryAuthContext;
 export async function createOrder(
   context: MemoryBillingContext, input: Parameters<Store["createOrder"]>[0],
 ): ReturnType<Store["createOrder"]> {
+  assertUnique(context.state.orders, ({ outTradeNo }) => outTradeNo === input.outTradeNo, "Order.outTradeNo");
   const order = { ...input, id: context.allocateId(), paidAt: null, transactionId: null };
   context.state.orders.push(order);
   return order;
@@ -21,6 +23,11 @@ async function markOrderPaid(
 ): Promise<NonNullable<Awaited<ReturnType<Store["findOrderByOutTradeNo"]>>>> {
   const order = await findOrderByOutTradeNo(context, outTradeNo);
   if (!order) throw new Error("Order not found.");
+  assertUnique(
+    context.state.orders,
+    (candidate) => candidate.id !== order.id && candidate.transactionId === transactionId,
+    "Order.transactionId",
+  );
   order.status = "paid"; order.transactionId = transactionId; order.paidAt = paidAt;
   return order;
 }
@@ -32,15 +39,35 @@ export async function settlePaidOrder(
       event.provider === input.provider && event.eventId === input.eventId,
     );
     const payload = canonicalWebhookPayload(input);
+    if (existingEvent && existingEvent.outTradeNo !== input.outTradeNo) {
+      return { status: "webhook_order_mismatch" };
+    }
     if (existingEvent && existingEvent.payload !== payload) {
       return { status: "webhook_payload_conflict" };
     }
     const order = await findOrderByOutTradeNo(context, input.outTradeNo);
     if (!order) return { status: "order_not_found" };
+    if (context.state.orders.some((candidate) =>
+      candidate.id !== order.id && candidate.transactionId === input.transactionId,
+    )) {
+      return { status: "transaction_mismatch" };
+    }
     if (order.status === "paid") {
       if (order.transactionId !== input.transactionId) return { status: "transaction_mismatch" };
       const entitlement = await getEntitlement(context, order.userId);
-      if (entitlement) return { status: "settled", entitlement };
+      if (entitlement) {
+        if (!existingEvent) {
+          const claimed = await createWebhookEvent(context, {
+            provider: input.provider,
+            eventId: input.eventId,
+            outTradeNo: input.outTradeNo,
+            payload,
+            createdAt: input.now,
+          });
+          if (!claimed) return { status: "webhook_payload_conflict" };
+        }
+        return { status: "settled", entitlement };
+      }
       if (!existingEvent) return { status: "order_state_conflict" };
       return { status: "settled", entitlement: await extend(context, order.userId, order.paidAt ?? input.paidAt, input) };
     }

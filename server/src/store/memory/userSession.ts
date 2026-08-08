@@ -1,16 +1,16 @@
 import type { Store, UserSessionRecord } from "../contracts.js";
 import type { MemoryAuthContext } from "./auth.js";
 import { createTicket, upsertUserByEmail, usableOtp } from "./auth.js";
-import { timingSafeEqual } from "node:crypto";
-
-function equal(left: string, right: string): boolean {
-  const a = Buffer.from(left); const b = Buffer.from(right);
-  return a.length === b.length && timingSafeEqual(a, b);
-}
+import { assertUnique, constantTimeEqual } from "./atomic.js";
 
 function createRecord(
   context: MemoryAuthContext, input: Omit<UserSessionRecord, "id" | "revokedAt">,
 ): UserSessionRecord {
+  assertUnique(
+    context.state.userSessions,
+    ({ tokenHash }) => tokenHash === input.tokenHash,
+    "UserSession.tokenHash",
+  );
   const session = { ...input, id: context.allocateId(), revokedAt: null };
   context.state.userSessions.push(session);
   return session;
@@ -23,7 +23,10 @@ export async function verifyUserOtpAndCreateWebSession(
     const otp = usableOtp(context, "desktop_login", input.email, input.state, input.now);
     if (!otp) return { status: "invalid" };
     otp.attempts += 1;
-    if (!equal(otp.codeHash, input.codeHash)) return { status: "invalid" };
+    if (!constantTimeEqual(otp.codeHash, input.codeHash)) return { status: "invalid" };
+    if (context.state.userSessions.some(({ tokenHash }) => tokenHash === input.sessionTokenHash)) {
+      return { status: "temporarily_unavailable" };
+    }
     otp.consumedAt = input.now;
     const user = await upsertUserByEmail(context, input.email, input.now);
     const session = createRecord(context, {
@@ -41,7 +44,13 @@ export async function verifyDesktopOtpAndCreateTicketAndWebSession(
     const otp = usableOtp(context, "desktop_login", input.email, input.state, input.now);
     if (!otp) return { status: "invalid" };
     otp.attempts += 1;
-    if (!equal(otp.codeHash, input.codeHash)) return { status: "invalid" };
+    if (!constantTimeEqual(otp.codeHash, input.codeHash)) return { status: "invalid" };
+    if (
+      context.state.desktopLoginTickets.some(({ ticketHash }) => ticketHash === input.ticketHash) ||
+      context.state.userSessions.some(({ tokenHash }) => tokenHash === input.sessionTokenHash)
+    ) {
+      return { status: "temporarily_unavailable" };
+    }
     otp.consumedAt = input.now;
     const user = await upsertUserByEmail(context, input.email, input.now);
     const ticket = createTicket(context, {

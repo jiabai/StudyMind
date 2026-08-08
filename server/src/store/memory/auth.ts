@@ -1,9 +1,14 @@
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHash } from "node:crypto";
 import type {
   AdminSessionRecord, AuthRateLimitScope, DesktopLoginTicketRecord, EmailOtpRecord,
   OtpPurpose, SessionRecord, Store, UserRecord,
 } from "../contracts.js";
-import type { MemoryAtomicCoordinator, MemoryState } from "./atomic.js";
+import {
+  assertUnique,
+  constantTimeEqual,
+  type MemoryAtomicCoordinator,
+  type MemoryState,
+} from "./atomic.js";
 
 export type MemoryAuthContext = {
   state: MemoryState;
@@ -45,7 +50,7 @@ export async function issueEmailOtp(
     }
     for (const reservation of reservations) reserveRateLimit(context, reservation, input.createdAt);
     for (const otp of context.state.emailOtps) {
-      if (otp.purpose === input.purpose && otp.email === input.email && otp.state === input.state && otp.consumedAt === null) {
+      if (otp.purpose === input.purpose && otp.email === input.email && otp.consumedAt === null) {
         otp.consumedAt = input.createdAt;
       }
     }
@@ -72,6 +77,9 @@ export async function verifyDesktopOtpAndCreateTicket(
     if (!otp) return { status: "invalid" };
     otp.attempts += 1;
     if (!constantTimeEqual(otp.codeHash, input.codeHash)) return { status: "invalid" };
+    if (context.state.desktopLoginTickets.some(({ ticketHash }) => ticketHash === input.ticketHash)) {
+      return { status: "temporarily_unavailable" };
+    }
     otp.consumedAt = input.now;
     const user = await upsertUserByEmail(context, input.email, input.now);
     const ticket = createTicket(context, {
@@ -90,6 +98,9 @@ export async function verifyAdminOtpAndCreateSession(
     if (!otp) return { status: "invalid" };
     otp.attempts += 1;
     if (!constantTimeEqual(otp.codeHash, input.codeHash)) return { status: "invalid" };
+    if (context.state.adminSessions.some(({ tokenHash }) => tokenHash === input.sessionTokenHash)) {
+      return { status: "temporarily_unavailable" };
+    }
     otp.consumedAt = input.now;
     const session = createAdminSessionRecord(context, {
       email: input.email, tokenHash: input.sessionTokenHash, csrfTokenHash: input.csrfTokenHash,
@@ -108,6 +119,9 @@ export async function exchangeDesktopTicketAndCreateSession(
       record.consumedAt === null && record.expiresAt > input.now,
     );
     if (!ticket) return { status: "invalid" };
+    if (context.state.sessions.some(({ tokenHash }) => tokenHash === input.sessionTokenHash)) {
+      return { status: "temporarily_unavailable" };
+    }
     const user = await getUserById(context, ticket.userId);
     if (!user) return { status: "invalid" };
     ticket.consumedAt = input.now;
@@ -173,6 +187,11 @@ export function usableOtp(
 export function createTicket(
   context: MemoryAuthContext, input: Omit<DesktopLoginTicketRecord, "id" | "consumedAt">,
 ): DesktopLoginTicketRecord {
+  assertUnique(
+    context.state.desktopLoginTickets,
+    ({ ticketHash }) => ticketHash === input.ticketHash,
+    "DesktopLoginTicket.ticketHash",
+  );
   const ticket = { ...input, id: context.allocateId(), consumedAt: null };
   context.state.desktopLoginTickets.push(ticket);
   return ticket;
@@ -181,6 +200,7 @@ export function createTicket(
 function createSessionRecord(
   context: MemoryAuthContext, input: Omit<SessionRecord, "id" | "revokedAt">,
 ): SessionRecord {
+  assertUnique(context.state.sessions, ({ tokenHash }) => tokenHash === input.tokenHash, "Session.tokenHash");
   const session = { ...input, id: context.allocateId(), revokedAt: null };
   context.state.sessions.push(session);
   return session;
@@ -189,14 +209,14 @@ function createSessionRecord(
 function createAdminSessionRecord(
   context: MemoryAuthContext, input: Omit<AdminSessionRecord, "id" | "revokedAt">,
 ): AdminSessionRecord {
+  assertUnique(
+    context.state.adminSessions,
+    ({ tokenHash }) => tokenHash === input.tokenHash,
+    "AdminSession.tokenHash",
+  );
   const session = { ...input, id: context.allocateId(), revokedAt: null };
   context.state.adminSessions.push(session);
   return session;
-}
-
-function constantTimeEqual(left: string, right: string): boolean {
-  const leftBytes = Buffer.from(left); const rightBytes = Buffer.from(right);
-  return leftBytes.length === rightBytes.length && timingSafeEqual(leftBytes, rightBytes);
 }
 
 function rateKey(scope: AuthRateLimitScope, purpose: OtpPurpose, value: string): string {

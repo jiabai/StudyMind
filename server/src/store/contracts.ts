@@ -1,6 +1,23 @@
 export type OtpPurpose = "desktop_login" | "admin_login";
 export type AuthRateLimitScope = "email_minute" | "email_hour" | "ip_hour";
 
+export type StoreUniqueConstraint =
+  | "DesktopLoginTicket.ticketHash"
+  | "Session.tokenHash"
+  | "Order.outTradeNo"
+  | "Order.transactionId"
+  | "ActivationCode.codeHash"
+  | "AdminSession.tokenHash"
+  | "UserSession.tokenHash";
+
+export class StoreConflictError extends Error {
+  readonly name = "StoreConflictError";
+
+  constructor(readonly constraint: StoreUniqueConstraint) {
+    super(`Unique constraint conflict: ${constraint}.`);
+  }
+}
+
 export type UserRecord = { id: string; email: string; createdAt: Date; updatedAt: Date };
 export type EmailOtpRecord = {
   id: string; purpose: OtpPurpose; email: string; state: string; codeHash: string; ip: string;

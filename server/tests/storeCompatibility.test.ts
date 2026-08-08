@@ -273,6 +273,31 @@ describe("StudyMind Store compatibility", () => {
     expect(newResult.status).toBe("verified");
   });
 
+  test("replaces an older OTP for the same purpose and email across states", async () => {
+    const store = new PublicMemoryStore();
+    await issueOtp(store, "desktop_login", {
+      state: "older-study-state",
+      codeHash: "sha256:older-state-code",
+    });
+    await issueOtp(store, "desktop_login", {
+      state: "newer-study-state",
+      codeHash: "sha256:newer-state-code",
+      createdAt: later(61_000),
+    });
+
+    expect(store.emailOtps[0]).toMatchObject({ consumedAt: later(61_000) });
+    expect((await store.verifyDesktopOtpAndCreateTicket({
+      email: "student@studymind.local", state: "older-study-state",
+      codeHash: "sha256:older-state-code", ticketHash: "sha256:older-state-ticket",
+      now: later(62_000), ticketExpiresAt: later(362_000),
+    })).status).toBe("invalid");
+    expect((await store.verifyDesktopOtpAndCreateTicket({
+      email: "student@studymind.local", state: "newer-study-state",
+      codeHash: "sha256:newer-state-code", ticketHash: "sha256:newer-state-ticket",
+      now: later(62_000), ticketExpiresAt: later(362_000),
+    })).status).toBe("verified");
+  });
+
   test("rejects expired OTPs and locks an OTP after five attempts", async () => {
     const store = new PublicMemoryStore();
     await issueOtp(store, "desktop_login", { codeHash: "sha256:expiring" });

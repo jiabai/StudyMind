@@ -1,3 +1,5 @@
+import { timingSafeEqual } from "node:crypto";
+import { StoreConflictError, type StoreUniqueConstraint } from "../contracts.js";
 import type {
   ActivationCodeRecord, AdminEntitlementAdjustmentRecord, AdminSessionRecord,
   AuthRateLimitRecord, DesktopLoginTicketRecord, EmailOtpRecord, EntitlementRecord,
@@ -16,7 +18,15 @@ export type MemoryState = {
 
 export class MemoryAtomicCoordinator {
   private tail: Promise<void> = Promise.resolve();
-  constructor(private readonly state: MemoryState) {}
+  private committed: MemoryState;
+
+  constructor(private readonly state: MemoryState) {
+    this.committed = structuredClone(state);
+  }
+
+  snapshot(): MemoryState {
+    return structuredClone(this.committed);
+  }
 
   async run<Result>(operation: () => Promise<Result>): Promise<Result> {
     const previous = this.tail;
@@ -25,7 +35,9 @@ export class MemoryAtomicCoordinator {
     await previous;
     const snapshot = structuredClone(this.state);
     try {
-      return await operation();
+      const result = await operation();
+      this.committed = structuredClone(this.state);
+      return result;
     } catch (error: unknown) {
       Object.assign(this.state, snapshot);
       throw error;
@@ -33,4 +45,18 @@ export class MemoryAtomicCoordinator {
       release();
     }
   }
+}
+
+export function assertUnique<RecordValue>(
+  records: readonly RecordValue[],
+  conflicts: (record: RecordValue) => boolean,
+  constraint: StoreUniqueConstraint,
+): void {
+  if (records.some(conflicts)) throw new StoreConflictError(constraint);
+}
+
+export function constantTimeEqual(left: string, right: string): boolean {
+  const leftBytes = Buffer.from(left);
+  const rightBytes = Buffer.from(right);
+  return leftBytes.length === rightBytes.length && timingSafeEqual(leftBytes, rightBytes);
 }

@@ -1,5 +1,6 @@
 import type { AdminEntitlementAdjustmentRecord, EntitlementRecord, Store } from "../contracts.js";
 import type { MemoryAuthContext } from "./auth.js";
+import { assertUnique } from "./atomic.js";
 
 export type MemoryEntitlementContext = MemoryAuthContext;
 
@@ -52,6 +53,11 @@ export async function consumeLlmQuota(
 export async function createActivationCode(
   context: MemoryEntitlementContext, input: Parameters<Store["createActivationCode"]>[0],
 ): ReturnType<Store["createActivationCode"]> {
+  assertUnique(
+    context.state.activationCodes,
+    ({ codeHash }) => codeHash === input.codeHash,
+    "ActivationCode.codeHash",
+  );
   const code = { ...input, id: context.allocateId() };
   context.state.activationCodes.push(code);
   return code;

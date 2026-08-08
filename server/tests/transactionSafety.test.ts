@@ -13,6 +13,49 @@ async function createUserSession(store: MemoryStore, email: string, tokenHash: s
 }
 
 describe("MemoryStore semantic transaction safety", () => {
+  test("does not erase a successful concurrent write when a compound transaction rolls back", async () => {
+    let idCalls = 0;
+    let transactionEntered: () => void = () => undefined;
+    const entered = new Promise<void>((resolve) => { transactionEntered = resolve; });
+    const store = new MemoryStore({
+      createId: () => {
+        idCalls += 1;
+        if (idCalls === 6) transactionEntered();
+        if (idCalls === 8) throw new Error("injected compound write failure");
+        return `concurrent-id-${idCalls}`;
+      },
+    });
+    const persistentUser = await store.upsertUserByEmail("persistent@studymind.local", now);
+    await store.issueEmailOtp({
+      purpose: "desktop_login", email: "failing-transaction@studymind.local", state: "failing-state",
+      codeHash: "sha256:failing-otp", ip: "127.0.0.1", expiresAt: later(600_000), createdAt: now,
+    });
+
+    const failingTransaction = store.verifyDesktopOtpAndCreateTicketAndWebSession({
+      email: "failing-transaction@studymind.local", state: "failing-state",
+      codeHash: "sha256:failing-otp", ticketHash: "sha256:failing-ticket",
+      sessionTokenHash: "sha256:failing-web-session", csrfTokenHash: "sha256:failing-csrf",
+      now: later(1_000), ticketExpiresAt: later(60_000), sessionExpiresAt: later(86_400_000),
+    });
+    await entered;
+    const durableSession = await store.createSession({
+      userId: persistentUser.id, tokenHash: "sha256:durable-session",
+      createdAt: later(1_000), expiresAt: later(86_400_000),
+    });
+    await expect(failingTransaction).rejects.toThrow("injected compound write failure");
+
+    expect(await store.findSessionByTokenHash(durableSession.tokenHash, later(2_000))).toMatchObject({
+      id: durableSession.id,
+    });
+    expect(store.users).toHaveLength(1);
+    expect(store.desktopLoginTickets).toHaveLength(0);
+    await expect(store.createOrder({
+      userId: persistentUser.id, outTradeNo: "after-rollback-order", amountFen: 990,
+      status: "pending", codeUrl: "weixin://after-rollback-order", expiresAt: later(1_800_000),
+      createdAt: later(2_000), providerPayload: "{}",
+    })).resolves.toMatchObject({ outTradeNo: "after-rollback-order" });
+  });
+
   test("detaches records carried by compound semantic results", async () => {
     const quotaStore = new MemoryStore();
     const quotaUser = await quotaStore.upsertUserByEmail("compound-quota@studymind.local", now);
@@ -232,6 +275,98 @@ describe("MemoryStore semantic transaction safety", () => {
     expect(store.orders[0]).toEqual(originalOrder);
     expect(store.entitlements[0]).toEqual(originalEntitlement);
   });
+
+  test("atomically claims every accepted webhook event ID for a paid order", async () => {
+    const store = new MemoryStore();
+    const user = await store.upsertUserByEmail("event-claim@studymind.local", now);
+    await store.createOrder({
+      userId: user.id, outTradeNo: "event-claim-paid", amountFen: 990, status: "pending",
+      codeUrl: "weixin://event-claim-paid", expiresAt: later(1_800_000), createdAt: now,
+      providerPayload: "{}",
+    });
+    await store.createOrder({
+      userId: user.id, outTradeNo: "event-claim-pending", amountFen: 990, status: "pending",
+      codeUrl: "weixin://event-claim-pending", expiresAt: later(1_800_000), createdAt: now,
+      providerPayload: "{}",
+    });
+    const first = {
+      provider: "wechat", eventId: "event-claim-1", outTradeNo: "event-claim-paid",
+      transactionId: "event-claim-transaction", paidAt: later(300_000), now: later(300_000), passDays: 30,
+    };
+    const second = { ...first, eventId: "event-claim-2" };
+    expect((await store.settlePaidOrder(first)).status).toBe("settled");
+    expect((await store.settlePaidOrder(second)).status).toBe("settled");
+    expect((await store.settlePaidOrder(second)).status).toBe("settled");
+    expect(store.webhookEvents).toHaveLength(2);
+
+    const conflict = await store.settlePaidOrder({ ...second, outTradeNo: "event-claim-pending" });
+    expect(conflict.status).toBe("webhook_order_mismatch");
+    expect(await store.findOrderByOutTradeNo("event-claim-pending")).toMatchObject({ status: "pending" });
+    expect(store.webhookEvents).toHaveLength(2);
+  });
+
+  test("enforces schema unique constraints for direct and semantic writes", async () => {
+    const store = new MemoryStore();
+    const user = await store.upsertUserByEmail("unique@studymind.local", now);
+    const orderInput = {
+      userId: user.id, outTradeNo: "unique-order", amountFen: 990, status: "pending" as const,
+      codeUrl: "weixin://unique-order", expiresAt: later(1_800_000), createdAt: now,
+      providerPayload: "{}",
+    };
+    await store.createOrder(orderInput);
+    await expect(store.createOrder(orderInput)).rejects.toMatchObject({
+      name: "StoreConflictError", constraint: "Order.outTradeNo",
+    });
+
+    await store.createSession({
+      userId: user.id, tokenHash: "sha256:unique-session", createdAt: now,
+      expiresAt: later(86_400_000),
+    });
+    await expect(store.createSession({
+      userId: user.id, tokenHash: "sha256:unique-session", createdAt: now,
+      expiresAt: later(86_400_000),
+    })).rejects.toMatchObject({ name: "StoreConflictError", constraint: "Session.tokenHash" });
+
+    const activationInput = {
+      codeHash: "sha256:unique-activation", codePrefix: "SM-UNI", status: "active" as const,
+      entitlementDays: 30, redeemBy: later(86_400_000), createdAt: now,
+      redeemedAt: null, redeemedByUserId: null,
+    };
+    await store.createActivationCode(activationInput);
+    await expect(store.createActivationCode(activationInput)).rejects.toMatchObject({
+      name: "StoreConflictError", constraint: "ActivationCode.codeHash",
+    });
+
+    await store.issueEmailOtp({
+      purpose: "desktop_login", email: "ticket-one@studymind.local", state: "ticket-one",
+      codeHash: "sha256:ticket-one-otp", ip: "127.0.0.2", expiresAt: later(600_000), createdAt: now,
+    });
+    await store.issueEmailOtp({
+      purpose: "desktop_login", email: "ticket-two@studymind.local", state: "ticket-two",
+      codeHash: "sha256:ticket-two-otp", ip: "127.0.0.3", expiresAt: later(600_000), createdAt: now,
+    });
+    expect((await store.verifyDesktopOtpAndCreateTicket({
+      email: "ticket-one@studymind.local", state: "ticket-one", codeHash: "sha256:ticket-one-otp",
+      ticketHash: "sha256:unique-ticket", now: later(1_000), ticketExpiresAt: later(60_000),
+    })).status).toBe("verified");
+    expect((await store.verifyDesktopOtpAndCreateTicket({
+      email: "ticket-two@studymind.local", state: "ticket-two", codeHash: "sha256:ticket-two-otp",
+      ticketHash: "sha256:unique-ticket", now: later(1_000), ticketExpiresAt: later(60_000),
+    })).status).toBe("temporarily_unavailable");
+
+    await store.createOrder({ ...orderInput, outTradeNo: "unique-payment-one" });
+    await store.createOrder({ ...orderInput, outTradeNo: "unique-payment-two" });
+    expect((await store.settlePaidOrder({
+      provider: "wechat", eventId: "unique-payment-event-one", outTradeNo: "unique-payment-one",
+      transactionId: "unique-payment-transaction", paidAt: later(300_000), now: later(300_000), passDays: 30,
+    })).status).toBe("settled");
+    expect((await store.settlePaidOrder({
+      provider: "wechat", eventId: "unique-payment-event-two", outTradeNo: "unique-payment-two",
+      transactionId: "unique-payment-transaction", paidAt: later(300_000), now: later(300_000), passDays: 30,
+    })).status).toBe("transaction_mismatch");
+    expect(await store.findOrderByOutTradeNo("unique-payment-two")).toMatchObject({ status: "pending" });
+  });
+
 
   test("applies an administrator entitlement adjustment with its audit record", async () => {
     const store = new MemoryStore();
