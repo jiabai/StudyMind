@@ -72,4 +72,44 @@ describe("server lifecycle", () => {
     expect(disconnect).toHaveBeenCalledOnce();
     expect(forceExit).not.toHaveBeenCalled();
   });
+
+  test("startup failure is logged before a hanging app close and preserves the original error", async () => {
+    const records: unknown[] = []; const calls: string[] = []; const forceExit = vi.fn();
+    const startupError = new Error("ORIGINAL_STARTUP_SECRET_CLOSE");
+    const logger = createRuntimeLogger({ info: (record) => records.push(record), error: (record) => records.push(record) });
+    let failureLoggedBeforeClose = false;
+    const operation = runServerLifecycle({
+      loadConfig: () => ({ host: "127.0.0.1", port: 8787 }) as never,
+      connectDatabase: async () => ({ $disconnect: async () => { calls.push("disconnect"); } }) as never,
+      buildRuntime: async () => ({ app: { listen: async () => { throw startupError; }, close: () => { calls.push("close"); failureLoggedBeforeClose = records.some((record) => (record as { event?: string }).event === STUDYMIND_EVENTS.startupFailed); return new Promise<void>(() => undefined); } }, readiness: { beginDraining: () => calls.push("draining") } }) as never,
+      installSignalHandlers: false, shutdownTimeoutMs: 10, forceExit, logger,
+    });
+    const outcome = await Promise.race([operation.then(() => ({ status: "resolved" as const }), (error: unknown) => ({ status: "rejected" as const, error })), new Promise<{ status: "timed_out" }>((resolve) => setTimeout(() => resolve({ status: "timed_out" }), 100))]);
+    expect(outcome).toEqual({ status: "rejected", error: startupError });
+    expect(failureLoggedBeforeClose).toBe(true);
+    expect(calls).toEqual(["draining", "close"]);
+    expect(records).toEqual([{ event: STUDYMIND_EVENTS.startup, code: STUDYMIND_CODES.startup }, { event: STUDYMIND_EVENTS.startupFailed, code: STUDYMIND_CODES.startupFailed }]);
+    expect(JSON.stringify(records)).not.toContain("ORIGINAL_STARTUP_SECRET_CLOSE");
+    expect(forceExit).toHaveBeenCalledOnce(); expect(forceExit).toHaveBeenCalledWith(1);
+  });
+
+  test("startup cleanup gives a hanging disconnect only the remaining deadline", async () => {
+    const records: unknown[] = []; const calls: string[] = []; const forceExit = vi.fn();
+    const startupError = new Error("ORIGINAL_STARTUP_SECRET_DISCONNECT");
+    const logger = createRuntimeLogger({ info: (record) => records.push(record), error: (record) => records.push(record) });
+    let failureLoggedBeforeDisconnect = false;
+    const operation = runServerLifecycle({
+      loadConfig: () => ({ host: "127.0.0.1", port: 8787 }) as never,
+      connectDatabase: async () => ({ $disconnect: () => { calls.push("disconnect"); failureLoggedBeforeDisconnect = records.some((record) => (record as { event?: string }).event === STUDYMIND_EVENTS.startupFailed); return new Promise<void>(() => undefined); } }) as never,
+      buildRuntime: async () => ({ app: { listen: async () => { throw startupError; }, close: async () => { calls.push("close"); } }, readiness: { beginDraining: () => calls.push("draining") } }) as never,
+      installSignalHandlers: false, shutdownTimeoutMs: 10, forceExit, logger,
+    });
+    const outcome = await Promise.race([operation.then(() => ({ status: "resolved" as const }), (error: unknown) => ({ status: "rejected" as const, error })), new Promise<{ status: "timed_out" }>((resolve) => setTimeout(() => resolve({ status: "timed_out" }), 100))]);
+    expect(outcome).toEqual({ status: "rejected", error: startupError });
+    expect(failureLoggedBeforeDisconnect).toBe(true);
+    expect(calls).toEqual(["draining", "close", "disconnect"]);
+    expect(records).toEqual([{ event: STUDYMIND_EVENTS.startup, code: STUDYMIND_CODES.startup }, { event: STUDYMIND_EVENTS.startupFailed, code: STUDYMIND_CODES.startupFailed }]);
+    expect(JSON.stringify(records)).not.toContain("ORIGINAL_STARTUP_SECRET_DISCONNECT");
+    expect(forceExit).toHaveBeenCalledOnce(); expect(forceExit).toHaveBeenCalledWith(1);
+  });
 });

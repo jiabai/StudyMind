@@ -65,9 +65,8 @@ export async function runServerLifecycle(options: {
     await runtime.app.listen({ host: config.host, port: config.port });
     logger.info({ event: STUDYMIND_EVENTS.ready, code: STUDYMIND_CODES.ready });
   } catch (error) {
-    if (runtime) { runtime.readiness.beginDraining(); await runtime.app.close().catch(() => undefined); }
-    if (prisma) await prisma.$disconnect().catch(() => undefined);
     logger.error({ event: STUDYMIND_EVENTS.startupFailed, code: STUDYMIND_CODES.startupFailed });
+    await cleanupStartupFailure({ runtime, prisma, timeoutMs: options.shutdownTimeoutMs ?? 15_000, forceExit });
     throw error;
   }
   const shutdown = shutdownRuntime({ app: runtime.app, prisma, readiness: runtime.readiness, timeoutMs: options.shutdownTimeoutMs ?? 15_000, forceExit, logger });
@@ -112,6 +111,15 @@ function forceTimedOut(input: { forceExit?: (code: number) => void; logger?: Run
   input.logger?.error({ event: STUDYMIND_EVENTS.shutdown, code: STUDYMIND_CODES.shutdownTimeout, signal, exitCode: 1 });
   input.forceExit?.(1);
   return { exitCode: 1, signal };
+}
+
+async function cleanupStartupFailure(input: { runtime?: Runtime; prisma?: PrismaClient; timeoutMs: number; forceExit: (code: number) => void }): Promise<void> {
+  const deadline = Date.now() + input.timeoutMs;
+  if (input.runtime) {
+    input.runtime.readiness.beginDraining();
+    if (await settleBeforeDeadline(() => input.runtime!.app.close(), deadline) === "timeout") { input.forceExit(1); return; }
+  }
+  if (input.prisma && await settleBeforeDeadline(() => input.prisma!.$disconnect(), deadline) === "timeout") input.forceExit(1);
 }
 
 function createWechatConfig(config: RuntimeConfig): WechatConfig {
