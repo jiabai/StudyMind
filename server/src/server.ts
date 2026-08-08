@@ -36,6 +36,8 @@ export async function createServer(dependencies: ServerDependencies): Promise<Fa
   });
   installJsonParser(app);
   app.setErrorHandler((error, request, reply) => {
+    const protocol = publicProtocolError(error);
+    if (protocol) { void reply.code(protocol.statusCode).send({ error: protocol.code }); return; }
     request.log.error({ event: STUDYMIND_EVENTS.requestFailed, errorName: error instanceof Error ? error.name : "Error", requestId: request.id });
     void reply.code(500).send({ error: "INTERNAL_SERVER_ERROR" });
   });
@@ -60,6 +62,14 @@ function installJsonParser(app: FastifyInstance): void {
     const buffer = Buffer.isBuffer(body) ? body : Buffer.from(body);
     if (request.raw.url?.split("?", 1)[0] === "/api/wechat/notify") (request as typeof request & { rawBody?: Buffer }).rawBody = Buffer.from(buffer);
     try { done(null, buffer.length === 0 ? {} : JSON.parse(buffer.toString("utf8"))); }
-    catch (error) { done(error as Error, undefined); }
+    catch { done(Object.assign(new Error("Invalid JSON body."), { code: "FST_ERR_CTP_INVALID_JSON_BODY", statusCode: 400 }), undefined); }
   });
+}
+
+function publicProtocolError(error: unknown): { statusCode: 400 | 413 | 415; code: string } | null {
+  const value = error as { code?: string };
+  if (value?.code === "FST_ERR_CTP_INVALID_JSON_BODY") return { statusCode: 400, code: "INVALID_JSON_BODY" };
+  if (value?.code === "FST_ERR_CTP_BODY_TOO_LARGE") return { statusCode: 413, code: "REQUEST_BODY_TOO_LARGE" };
+  if (value?.code === "FST_ERR_CTP_INVALID_MEDIA_TYPE") return { statusCode: 415, code: "UNSUPPORTED_MEDIA_TYPE" };
+  return null;
 }

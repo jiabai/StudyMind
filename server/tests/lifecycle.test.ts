@@ -112,4 +112,33 @@ describe("server lifecycle", () => {
     expect(JSON.stringify(records)).not.toContain("ORIGINAL_STARTUP_SECRET_DISCONNECT");
     expect(forceExit).toHaveBeenCalledOnce(); expect(forceExit).toHaveBeenCalledWith(1);
   });
+
+  test("installs idempotent signals before blocked connect and prevents later listen", async () => {
+    const calls: string[] = []; const forceExit = vi.fn(); const disconnect = vi.fn(async () => { calls.push("disconnect"); }); const removeListeners = vi.fn();
+    let signalHandler: ((signal: "SIGINT" | "SIGTERM") => Promise<void>) | undefined;
+    let releaseConnect: ((value: unknown) => void) | undefined;
+    const blockedConnect = new Promise<unknown>((resolve) => { releaseConnect = resolve; });
+    const operation = runServerLifecycle({
+      loadConfig: () => ({ host: "127.0.0.1", port: 8787 }) as never,
+      connectDatabase: async () => { calls.push("connect"); return await blockedConnect as never; },
+      buildRuntime: async () => ({ app: { listen: async () => { calls.push("listen"); }, close: async () => { calls.push("close"); } }, readiness: { beginDraining: () => calls.push("draining") } }) as never,
+      registerSignalHandlers: (handler) => { calls.push("register"); signalHandler = handler; return removeListeners; },
+      shutdownTimeoutMs: 10, forceExit,
+      logger: createRuntimeLogger({ info: () => undefined, error: () => undefined }),
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    if (!signalHandler) {
+      releaseConnect?.({ $disconnect: disconnect }); await operation;
+      expect(calls.slice(0, 2)).toEqual(["register", "connect"]);
+      return;
+    }
+    const first = signalHandler("SIGTERM"); const second = signalHandler("SIGINT");
+    await Promise.all([first, second]);
+    expect(forceExit).toHaveBeenCalledOnce(); expect(forceExit).toHaveBeenCalledWith(1);
+    expect(removeListeners).toHaveBeenCalledOnce();
+    releaseConnect?.({ $disconnect: disconnect });
+    await expect(operation).rejects.toMatchObject({ name: "StartupInterruptedError" });
+    expect(disconnect).toHaveBeenCalledOnce();
+    expect(calls).toEqual(["register", "connect", "disconnect"]);
+  });
 });

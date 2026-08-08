@@ -25,4 +25,11 @@ describe("StudyMind OTP email", () => {
     expect(error.mock.calls.flat().join(" ")).not.toContain("123456");
     expect(error.mock.calls.flat().join(" ")).toContain("[StudyMind]");
   });
+
+  test("delivers an explicitly enabled development OTP through the dedicated sink", async () => {
+    const write = vi.fn();
+    const sender = createOtpSender({ environment: "development", smtp: null, allowConsoleOtp: true }, undefined, { write });
+    await sender("student@example.com", "654321");
+    expect(write).toHaveBeenCalledWith("student@example.com", "654321");
+  });
 });

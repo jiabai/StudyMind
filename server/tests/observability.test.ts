@@ -33,6 +33,9 @@ describe("observability", () => {
   test("entrypoint explicitly injects the secret-safe runtime logger", () => {
     const source = readFileSync(fileURLToPath(new URL("../src/index.ts", import.meta.url)), "utf8");
     expect(source).toContain("createRuntimeLogger");
-    expect(source).toContain("runServerLifecycle({ logger:");
+    expect(source).toContain("runServerLifecycle({");
+    expect(source).toContain("logger: createRuntimeLogger()");
+    expect(source).toContain("developmentOtpWriter:");
+    expect(source).toContain("process.stderr.write");
   });
 });

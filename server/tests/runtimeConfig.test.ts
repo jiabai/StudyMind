@@ -11,6 +11,11 @@ describe("runtime configuration", () => {
     expect(config.databaseUrl).toBe("file:C:/srv/server/data/studymind.sqlite");
   });
 
+  test("gives explicitly console-enabled development a safe non-production admin identity", () => {
+    const config = parseRuntimeConfig({ NODE_ENV: "development", STUDYMIND_ALLOW_CONSOLE_OTP: "true" });
+    expect(config.adminEmail).toBe("admin@localhost.invalid");
+  });
+
   test("parses explicit booleans and strict integer ports", () => {
     expect(parseRuntimeConfig({ NODE_ENV: "test", STUDYMIND_ALLOW_CONSOLE_OTP: "true", STUDYMIND_SERVER_PORT: "9001" }).allowConsoleOtp).toBe(true);
     expect(() => parseRuntimeConfig({ NODE_ENV: "test", STUDYMIND_SERVER_PORT: "9001x" })).toThrow("STUDYMIND_SERVER_PORT");

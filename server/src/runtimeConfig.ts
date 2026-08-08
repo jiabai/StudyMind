@@ -30,7 +30,7 @@ export function parseRuntimeConfig(env: NodeJS.ProcessEnv | Record<string, strin
   let database;
   try { database = resolveSqliteDatabase(databaseSource, serverRoot); }
   catch { throw new Error("DATABASE_URL must identify an explicit local SQLite file."); }
-  const adminEmail = optionalText(env.STUDYMIND_ADMIN_EMAIL) ?? "";
+  const adminEmail = optionalText(env.STUDYMIND_ADMIN_EMAIL) ?? (production ? "" : "admin@localhost.invalid");
   const otpHmacKey = requireUtf8Secret("STUDYMIND_AUTH_OTP_HMAC_KEY", env.STUDYMIND_AUTH_OTP_HMAC_KEY, production, DEV_OTP_KEY);
   const llmEncryptionKey = requireUtf8Secret("STUDYMIND_LLM_CONFIG_ENCRYPTION_KEY", env.STUDYMIND_LLM_CONFIG_ENCRYPTION_KEY, production, DEV_LLM_KEY);
   if (otpHmacKey === llmEncryptionKey) throw new Error("STUDYMIND_AUTH_OTP_HMAC_KEY and STUDYMIND_LLM_CONFIG_ENCRYPTION_KEY must be different.");

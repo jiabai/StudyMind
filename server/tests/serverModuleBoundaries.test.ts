@@ -49,4 +49,15 @@ describe("server module and route boundary", () => {
     expect((await app.inject({ method: "POST", url: "/user/auth/email/start", payload: { hello: "world" } })).statusCode).toBe(400);
     await app.close();
   });
+
+  test("preserves fixed Fastify protocol status codes without exposing parser details", async () => {
+    const app = await createServer(appDependencies());
+    const malformed = await app.inject({ method: "POST", url: "/user/auth/email/start", headers: { "content-type": "application/json" }, payload: "{secret-broken-json" });
+    expect(malformed.statusCode).toBe(400); expect(malformed.json()).toEqual({ error: "INVALID_JSON_BODY" }); expect(malformed.body).not.toContain("secret-broken-json");
+    const oversized = await app.inject({ method: "POST", url: "/user/auth/email/start", headers: { "content-type": "application/json" }, payload: JSON.stringify({ value: "x".repeat(1024 * 1024) }) });
+    expect(oversized.statusCode).toBe(413); expect(oversized.json()).toEqual({ error: "REQUEST_BODY_TOO_LARGE" });
+    const media = await app.inject({ method: "POST", url: "/user/auth/email/start", headers: { "content-type": "application/x-secret-format" }, payload: "provider-secret-detail" });
+    expect(media.statusCode).toBe(415); expect(media.json()).toEqual({ error: "UNSUPPORTED_MEDIA_TYPE" }); expect(media.body).not.toContain("provider-secret-detail");
+    await app.close();
+  });
 });

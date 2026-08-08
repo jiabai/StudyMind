@@ -22,11 +22,14 @@ type Runtime = { app: RuntimeApp; readiness: Pick<Readiness, "beginDraining"> };
 type PrismaResource = Pick<PrismaClient, "$disconnect">;
 export type LifecycleResult = { shutdown(signal?: string): Promise<ShutdownResult>; app: Runtime["app"]; prisma: PrismaResource };
 export type ShutdownResult = { exitCode: 0 | 1; signal: string };
+export class StartupInterruptedError extends Error { readonly name = "StartupInterruptedError"; constructor() { super("Server startup was interrupted by a signal."); } }
 
-export async function buildRuntime(config: RuntimeConfig, prisma: PrismaClient, options: { developmentOtpSink?: (email: string, code: string) => void } = {}): Promise<Runtime> {
+export async function buildRuntime(config: RuntimeConfig, prisma: PrismaClient, options: { developmentOtpWriter?: (email: string, code: string) => void } = {}): Promise<Runtime> {
   const store = new PrismaStore(prisma);
+  const developmentOtpWriter = config.environment === "production" ? undefined : options.developmentOtpWriter;
+  if (config.allowConsoleOtp && !config.smtp && !developmentOtpWriter) throw new Error("Development console OTP requires an explicit writer.");
   const sendOtp = createOtpSender({ environment: config.environment, smtp: config.smtp, allowConsoleOtp: config.allowConsoleOtp }, undefined, {
-    warn: () => undefined, error: () => undefined, write: options.developmentOtpSink,
+    warn: () => undefined, error: () => undefined, write: developmentOtpWriter,
   });
   const now = () => new Date();
   const auth = new AuthService({ store, sendOtp, otpHmacKey: config.otpHmacKey, now });
@@ -48,33 +51,62 @@ export async function runServerLifecycle(options: {
   loadConfig?: () => RuntimeConfig; connectDatabase?: (config: RuntimeConfig) => Promise<PrismaClient>;
   buildRuntime?: (config: RuntimeConfig, prisma: PrismaClient) => Promise<Runtime>; installSignalHandlers?: boolean; shutdownTimeoutMs?: number;
   logger?: RuntimeLogger; forceExit?: (code: number) => void;
-  registerSignalHandlers?: (handler: (signal: "SIGINT" | "SIGTERM") => Promise<void>) => void;
+  developmentOtpWriter?: (email: string, code: string) => void;
+  registerSignalHandlers?: (handler: (signal: "SIGINT" | "SIGTERM") => Promise<void>) => void | (() => void);
 } = {}): Promise<LifecycleResult> {
   const loadConfig = options.loadConfig ?? (() => parseRuntimeConfig(process.env));
   const connect = options.connectDatabase ?? ((config) => connectConfiguredDatabase(config));
-  const assemble = options.buildRuntime ?? buildRuntime;
+  const assemble = options.buildRuntime ?? ((config, prisma) => buildRuntime(config, prisma, { developmentOtpWriter: options.developmentOtpWriter }));
   const logger = options.logger ?? createRuntimeLogger();
   const forceExit = options.forceExit ?? ((code) => process.exit(code));
   let prisma: PrismaClient | undefined;
   let runtime: Runtime | undefined;
+  let shutdown: ReturnType<typeof shutdownRuntime> | undefined;
+  let startupFinished = false;
+  let receivedSignal: "SIGINT" | "SIGTERM" | undefined;
+  let signalDeadline = 0;
+  let signalHandling: Promise<void> | undefined;
+  let startupStoppedResolve: (() => void) | undefined;
+  const startupStopped = new Promise<void>((resolve) => { startupStoppedResolve = resolve; });
+  let listenersRemoved = false;
+  let removeSignalListeners: () => void = () => undefined;
+  let forced = false;
+  const forceOnce = (code: number) => { if (!forced) { forced = true; forceExit(code); } };
+  const handleSignal = (signal: "SIGINT" | "SIGTERM"): Promise<void> => signalHandling ??= (async () => {
+    receivedSignal = signal; signalDeadline = Date.now() + (options.shutdownTimeoutMs ?? 15_000);
+    if (!listenersRemoved) { listenersRemoved = true; removeSignalListeners(); }
+    if (startupFinished && shutdown) { const result = await shutdown(signal); process.exitCode = result.exitCode; return; }
+    logger.info({ event: STUDYMIND_EVENTS.draining, code: STUDYMIND_CODES.draining, signal });
+    if (!await completesBy(startupStopped, signalDeadline)) forceOnce(1);
+    else process.exitCode = 0;
+  })();
+  if (options.installSignalHandlers !== false) {
+    const register = options.registerSignalHandlers ?? registerProcessSignalHandlers;
+    removeSignalListeners = register(handleSignal) ?? (() => undefined);
+  }
   logger.info({ event: STUDYMIND_EVENTS.startup, code: STUDYMIND_CODES.startup });
   try {
     const config = loadConfig();
     prisma = await connect(config);
+    if (receivedSignal) throw new StartupInterruptedError();
     runtime = await assemble(config, prisma);
+    if (receivedSignal) throw new StartupInterruptedError();
     await runtime.app.listen({ host: config.host, port: config.port });
+    if (receivedSignal) throw new StartupInterruptedError();
     logger.info({ event: STUDYMIND_EVENTS.ready, code: STUDYMIND_CODES.ready });
   } catch (error) {
+    if (error instanceof StartupInterruptedError) {
+      await cleanupInterruptedStartup({ runtime, prisma, deadline: signalDeadline, forceOnce });
+      startupStoppedResolve?.();
+      throw error;
+    }
     logger.error({ event: STUDYMIND_EVENTS.startupFailed, code: STUDYMIND_CODES.startupFailed });
     await cleanupStartupFailure({ runtime, prisma, timeoutMs: options.shutdownTimeoutMs ?? 15_000, forceExit });
+    if (!listenersRemoved) { listenersRemoved = true; removeSignalListeners(); }
     throw error;
   }
-  const shutdown = shutdownRuntime({ app: runtime.app, prisma, readiness: runtime.readiness, timeoutMs: options.shutdownTimeoutMs ?? 15_000, forceExit, logger });
-  if (options.installSignalHandlers !== false) {
-    const handle = async (signal: "SIGINT" | "SIGTERM") => { const result = await shutdown(signal); process.exitCode = result.exitCode; };
-    const register = options.registerSignalHandlers ?? ((handler: typeof handle) => { process.once("SIGINT", () => { void handler("SIGINT"); }); process.once("SIGTERM", () => { void handler("SIGTERM"); }); });
-    register(handle);
-  }
+  shutdown = shutdownRuntime({ app: runtime.app, prisma, readiness: runtime.readiness, timeoutMs: options.shutdownTimeoutMs ?? 15_000, forceExit: forceOnce, logger });
+  startupFinished = true;
   return { app: runtime.app, prisma, shutdown };
 }
 
@@ -120,6 +152,30 @@ async function cleanupStartupFailure(input: { runtime?: Runtime; prisma?: Prisma
     if (await settleBeforeDeadline(() => input.runtime!.app.close(), deadline) === "timeout") { input.forceExit(1); return; }
   }
   if (input.prisma && await settleBeforeDeadline(() => input.prisma!.$disconnect(), deadline) === "timeout") input.forceExit(1);
+}
+
+async function cleanupInterruptedStartup(input: { runtime?: Runtime; prisma?: PrismaClient; deadline: number; forceOnce(code: number): void }): Promise<void> {
+  if (input.runtime) {
+    input.runtime.readiness.beginDraining();
+    if (await settleBeforeDeadline(() => input.runtime!.app.close(), input.deadline) === "timeout") { input.forceOnce(1); return; }
+  }
+  if (!input.prisma) return;
+  if (Date.now() >= input.deadline) { void input.prisma.$disconnect().catch(() => undefined); input.forceOnce(1); return; }
+  if (await settleBeforeDeadline(() => input.prisma!.$disconnect(), input.deadline) === "timeout") input.forceOnce(1);
+}
+
+async function completesBy(operation: Promise<void>, deadline: number): Promise<boolean> {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) return false;
+  let timer: NodeJS.Timeout | undefined;
+  try { return await Promise.race([operation.then(() => true), new Promise<false>((resolve) => { timer = setTimeout(() => resolve(false), remaining); })]); }
+  finally { if (timer) clearTimeout(timer); }
+}
+
+function registerProcessSignalHandlers(handler: (signal: "SIGINT" | "SIGTERM") => Promise<void>): () => void {
+  const sigint = () => { void handler("SIGINT"); }; const sigterm = () => { void handler("SIGTERM"); };
+  process.once("SIGINT", sigint); process.once("SIGTERM", sigterm);
+  return () => { process.off("SIGINT", sigint); process.off("SIGTERM", sigterm); };
 }
 
 function createWechatConfig(config: RuntimeConfig): WechatConfig {
