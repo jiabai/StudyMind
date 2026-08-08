@@ -1,7 +1,20 @@
 import { randomBytes } from "node:crypto";
 
-export const STUDYMIND_EVENTS = Object.freeze({ startup: "studymind.server.startup", shutdown: "studymind.server.shutdown", requestFailed: "studymind.request.failed" });
+export const STUDYMIND_EVENTS = Object.freeze({ startup: "studymind.server.startup", ready: "studymind.server.ready", draining: "studymind.server.draining", shutdown: "studymind.server.shutdown", startupFailed: "studymind.server.startup_failed", requestFailed: "studymind.request.failed" });
+export const STUDYMIND_CODES = Object.freeze({ startup: "SERVER_STARTING", ready: "SERVER_READY", draining: "SERVER_DRAINING", shutdown: "SERVER_STOPPED", startupFailed: "SERVER_STARTUP_FAILED", shutdownTimeout: "SERVER_SHUTDOWN_TIMEOUT" });
 const SENSITIVE = /authorization|cookie|set.?cookie|otp|email|api.*key|cipher|csrf|session|activation|request.?body|response.?body|prompt|output|payment|provider.?payload|raw.?body|error/i;
+
+export type RuntimeLogRecord = Record<string, unknown>;
+export type RuntimeLogger = { info(record: RuntimeLogRecord): void; error(record: RuntimeLogRecord): void };
+type RuntimeLogSink = { info(record: unknown): void; error(record: unknown): void };
+
+export function createRuntimeLogger(sink: RuntimeLogSink = {
+  info: (record) => process.stdout.write(`${JSON.stringify(record)}\n`),
+  error: (record) => process.stderr.write(`${JSON.stringify(record)}\n`),
+}): RuntimeLogger {
+  const emit = (method: "info" | "error", record: RuntimeLogRecord) => sink[method](sanitizeLogValue(record));
+  return { info: (record) => emit("info", record), error: (record) => emit("error", record) };
+}
 
 export function createRequestId(headers: Record<string, string | string[] | undefined>): string {
   const candidate = Array.isArray(headers["x-request-id"]) ? headers["x-request-id"][0] : headers["x-request-id"];
