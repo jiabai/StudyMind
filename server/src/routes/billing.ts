@@ -26,9 +26,9 @@ export function registerBillingRoutes(app: FastifyInstance, dependencies: Depend
   });
   app.post("/api/wechat/notify", async (request, reply) => {
     if (!enabled()) return reply.code(404).send({ error: "BILLING_DISABLED" });
-    const raw = (request as typeof request & { rawBody?: Buffer | string }).rawBody;
-    if (raw === undefined) return reply.code(400).send({ code: "FAIL", message: "INVALID_WECHAT_NOTIFICATION" });
-    try { const event = await dependencies.notificationParser!({ headers: request.headers, rawBody: Buffer.isBuffer(raw) ? raw : Buffer.from(raw), body: request.body }); await dependencies.billing!.applyPaidOrder({ webhookId: event.webhookId, outTradeNo: event.outTradeNo, transactionId: event.transactionId, paidAt: event.paidAt }); return { code: "SUCCESS", message: "success" }; }
+    const raw = (request as typeof request & { rawBody?: Buffer }).rawBody;
+    if (!Buffer.isBuffer(raw)) return reply.code(400).send({ code: "FAIL", message: "INVALID_WECHAT_NOTIFICATION" });
+    try { const event = await dependencies.notificationParser!({ headers: request.headers, rawBody: raw }); await dependencies.billing!.applyPaidOrder({ webhookId: event.webhookId, outTradeNo: event.outTradeNo, transactionId: event.transactionId, paidAt: event.paidAt }); return { code: "SUCCESS", message: "success" }; }
     catch (error) { return isClosedWebhookError(error) ? reply.code(400).send({ code: "FAIL", message: "INVALID_WECHAT_NOTIFICATION" }) : reply.code(503).send({ error: "SERVER_TEMPORARILY_UNAVAILABLE" }); }
   });
 }

@@ -4,6 +4,7 @@ import { BillingAuthRequiredError, BillingService } from "../src/billing.js";
 import { registerBillingRoutes } from "../src/routes/billing.js";
 import { sha256 } from "../src/security.js";
 import { MemoryStore } from "../src/store.js";
+import { createWechatNotificationParser, type WechatConfig } from "../src/wechat.js";
 
 const now = new Date("2026-08-09T08:00:00.000Z");
 
@@ -67,9 +68,10 @@ describe("StudyMind billing", () => {
     const store = new MemoryStore(); const user = await userFixture(store, "paid@example.com", "smds_paid-token");
     await store.createOrder({ userId: user.id, outTradeNo: "sm_webhook1", amountFen: 990, status: "pending", codeUrl: "weixin://pay", expiresAt: new Date("2026-08-09T08:30:00.000Z"), createdAt: now, providerPayload: "{}" });
     const billing = new BillingService({ store, now: () => now, createNativePayment: async () => { throw new Error("unused"); } }); const app = Fastify();
-    app.addHook("onRequest", async (request) => { (request as typeof request & { rawBody: Buffer }).rawBody = Buffer.from("exact raw bytes"); });
-    registerBillingRoutes(app, { store, billing, now: () => now, notificationParser: async ({ rawBody }) => { expect(rawBody.equals(Buffer.from("exact raw bytes"))).toBe(true); return { webhookId: "evt-web", outTradeNo: "sm_webhook1", transactionId: "tx-web", paidAt: now, amountFen: 990, currency: "CNY" }; } });
-    const response = await app.inject({ method: "POST", url: "/api/wechat/notify", payload: { ignored: true } });
+    const trustedRaw = Buffer.from(JSON.stringify({ webhookId: "evt-web", outTradeNo: "sm_webhook1", transactionId: "tx-web" }));
+    app.addHook("onRequest", async (request) => { (request as typeof request & { rawBody: Buffer }).rawBody = trustedRaw; });
+    registerBillingRoutes(app, { store, billing, now: () => now, notificationParser: async ({ rawBody }) => { const trusted = JSON.parse(rawBody.toString()) as { webhookId: string; outTradeNo: string; transactionId: string }; return { ...trusted, paidAt: now, amountFen: 990, currency: "CNY" }; } });
+    const response = await app.inject({ method: "POST", url: "/api/wechat/notify", payload: { webhookId: "attacker", outTradeNo: "sm_attacker", transactionId: "attacker-tx" } });
     expect(response.json()).toEqual({ code: "SUCCESS", message: "success" }); expect(store.orders[0]).toMatchObject({ status: "paid", transactionId: "tx-web" }); expect(store.webhookEvents).toHaveLength(1);
   });
 
@@ -77,6 +79,12 @@ describe("StudyMind billing", () => {
     const store = new MemoryStore(); const billing = new BillingService({ store, createNativePayment: async () => { throw new Error("unused"); } }); const app = Fastify();
     registerBillingRoutes(app, { store, billing, notificationParser: async () => { throw new Error("must not run"); } });
     const response = await app.inject({ method: "POST", url: "/api/wechat/notify", payload: {} }); expect(response.statusCode).toBe(400); expect(response.json()).toEqual({ code: "FAIL", message: "INVALID_WECHAT_NOTIFICATION" });
+    const stringApp = Fastify(); let parserCalls = 0; stringApp.addHook("onRequest", async (request) => { (request as typeof request & { rawBody: string }).rawBody = "not-original-bytes"; }); registerBillingRoutes(stringApp, { store, billing, notificationParser: async () => { parserCalls += 1; throw new Error("must not run"); } }); const stringResponse = await stringApp.inject({ method: "POST", url: "/api/wechat/notify", payload: {} }); expect(stringResponse.statusCode).toBe(400); expect(stringResponse.json()).toEqual({ code: "FAIL", message: "INVALID_WECHAT_NOTIFICATION" }); expect(parserCalls).toBe(0);
+  });
+
+  test("invalid raw UTF-8 or JSON returns fixed 400 without settling an order", async () => {
+    const config: WechatConfig = { appId: "wx-app", mchId: "merchant", serialNo: "serial", privateKey: "", notifyUrl: "https://studymind.example/api/wechat/notify", apiV3Key: "", platformPublicKey: "", platformSerialNo: "", allowInsecureNotify: true, environment: "test", requestTimeoutMs: 10_000 };
+    for (const rawBody of [Buffer.from([0xff, 0xfe]), Buffer.from("{broken")]) { const store = new MemoryStore(); const billing = new BillingService({ store, createNativePayment: async () => { throw new Error("unused"); } }); let settlementCalls = 0; billing.applyPaidOrder = async () => { settlementCalls += 1; return { entitlementExpiresAt: now }; }; const app = Fastify(); app.addHook("onRequest", async (request) => { (request as typeof request & { rawBody: Buffer }).rawBody = rawBody; }); registerBillingRoutes(app, { store, billing, notificationParser: createWechatNotificationParser(config), now: () => now }); const response = await app.inject({ method: "POST", url: "/api/wechat/notify", payload: { valid: "parsed-body-must-be-ignored" } }); expect(response.statusCode).toBe(400); expect(response.json()).toEqual({ code: "FAIL", message: "INVALID_WECHAT_NOTIFICATION" }); expect(settlementCalls).toBe(0); }
   });
 
   test("maps billing Store and unknown webhook failures to fixed private 503 responses", async () => {
