@@ -14,7 +14,7 @@ export function registerBillingRoutes(app: FastifyInstance, dependencies: Depend
     let session; try { session = await authenticateDesktop(dependencies.store, request.headers.authorization, now()); } catch { return reply.code(503).send({ error: "SERVER_TEMPORARILY_UNAVAILABLE" }); }
     if (!session) return reply.code(401).send({ error: "AUTH_REQUIRED" });
     try { const order = await dependencies.billing!.createWechatNativeOrder({ sessionTokenHash: session.tokenHash }); return { order_id: order.outTradeNo, amount_fen: order.amountFen, currency: "CNY", code_url: order.codeUrl, expires_at: order.expiresAt.toISOString(), status: order.status }; }
-    catch { return reply.code(503).send({ error: "PAYMENT_PROVIDER_UNAVAILABLE" }); }
+    catch { return reply.code(503).send({ error: "SERVER_TEMPORARILY_UNAVAILABLE" }); }
   });
   app.get("/api/desktop/billing/orders/:orderId", async (request, reply) => {
     if (!enabled()) return reply.code(404).send({ error: "BILLING_DISABLED" });
@@ -29,6 +29,7 @@ export function registerBillingRoutes(app: FastifyInstance, dependencies: Depend
     const raw = (request as typeof request & { rawBody?: Buffer | string }).rawBody;
     if (raw === undefined) return reply.code(400).send({ code: "FAIL", message: "INVALID_WECHAT_NOTIFICATION" });
     try { const event = await dependencies.notificationParser!({ headers: request.headers, rawBody: Buffer.isBuffer(raw) ? raw : Buffer.from(raw), body: request.body }); await dependencies.billing!.applyPaidOrder({ webhookId: event.webhookId, outTradeNo: event.outTradeNo, transactionId: event.transactionId, paidAt: event.paidAt }); return { code: "SUCCESS", message: "success" }; }
-    catch { return reply.code(400).send({ code: "FAIL", message: "INVALID_WECHAT_NOTIFICATION" }); }
+    catch (error) { return isClosedWebhookError(error) ? reply.code(400).send({ code: "FAIL", message: "INVALID_WECHAT_NOTIFICATION" }) : reply.code(503).send({ error: "SERVER_TEMPORARILY_UNAVAILABLE" }); }
   });
 }
+function isClosedWebhookError(error: unknown): boolean { return error instanceof Error && new Set(["INVALID_WECHAT_NOTIFICATION", "ORDER_NOT_FOUND", "TRANSACTION_MISMATCH", "WEBHOOK_ORDER_MISMATCH", "ORDER_STATE_CONFLICT", "WEBHOOK_PAYLOAD_CONFLICT"]).has(error.message); }

@@ -1,5 +1,6 @@
 import type { ActivationCodeRecord, AdminEntitlementAdjustmentRecord, EntitlementRecord, UserRecord } from "./store.js";
 import type { PublicLlmConfig } from "./llmConfig.js";
+import { safeJsonForScript } from "./dashboardPage.js";
 
 const esc = (value: unknown) => String(value ?? "").replace(/[&<>'"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[char]!);
 const shell = (title: string, body: string) => `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title></head><body>${body}</body></html>`;
@@ -7,5 +8,5 @@ export function renderAdminLoginPage() { return shell("StudyMind 管理员登录
 export function renderAdminPage(input: { adminEmail: string; csrfToken: string; users: UserRecord[]; entitlements: Map<string, EntitlementRecord | null>; llmConfig: PublicLlmConfig; activationCodes: ActivationCodeRecord[]; entitlementAdjustments: AdminEntitlementAdjustmentRecord[] }) {
   const users = input.users.map((u) => `<tr data-user-id="${esc(u.id)}"><td>${esc(u.email)}</td><td>${esc(input.entitlements.get(u.id)?.expiresAt.toISOString() ?? "-")}</td></tr>`).join("");
   const codes = input.activationCodes.map((c) => `<li>${esc(c.codePrefix)} ${esc(c.status)}</li>`).join("");
-  return shell("StudyMind Admin", `<main><h1>StudyMind Admin</h1><p>已登录：${esc(input.adminEmail)}</p><button id="logout">退出登录</button><section><h2>生成月卡激活码</h2><form id="activation-form"></form><ul>${codes}</ul></section><section><h2>LLM 配置</h2><form id="llm-config-form">configured:${esc(input.llmConfig.configured)} last4:${esc(input.llmConfig.apiKeyLast4)}</form></section><section><h2>权益调整</h2><table id="entitlement-adjustment-table">${users}</table></section><script>const csrf=${JSON.stringify(input.csrfToken)};document.querySelector("#logout").onclick=()=>fetch("/admin/auth/logout",{method:"POST",headers:{"x-studymind-csrf":csrf}})</script></main>`);
+  return shell("StudyMind Admin", `<main><h1>StudyMind Admin</h1><p>已登录：${esc(input.adminEmail)}</p><button id="logout">退出登录</button><section><h2>生成月卡激活码</h2><form id="activation-form"></form><ul>${codes}</ul></section><section><h2>LLM 配置</h2><form id="llm-config-form">configured:${esc(input.llmConfig.configured)} last4:${esc(input.llmConfig.apiKeyLast4)}</form></section><section><h2>权益调整</h2><table id="entitlement-adjustment-table">${users}</table></section><script>const csrf=${safeJsonForScript(input.csrfToken)};document.querySelector("#logout").onclick=()=>fetch("/admin/auth/logout",{method:"POST",headers:{"x-studymind-csrf":csrf}})</script></main>`);
 }

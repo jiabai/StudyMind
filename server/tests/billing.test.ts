@@ -50,7 +50,7 @@ describe("StudyMind billing", () => {
     registerBillingRoutes(failedApp, { store, billing: failingBilling, notificationParser: async () => { throw new Error("unused"); }, now: () => now });
     const failed = await failedApp.inject({ method: "POST", url: "/api/desktop/billing/wechat-native", headers: { authorization: "Bearer smds_owner-token" } });
     expect(failed.statusCode).toBe(503);
-    expect(failed.json()).toEqual({ error: "PAYMENT_PROVIDER_UNAVAILABLE" });
+    expect(failed.json()).toEqual({ error: "SERVER_TEMPORARILY_UNAVAILABLE" });
     expect(failed.body).not.toContain("private provider detail");
 
     const billing = new BillingService({ store, now: () => now, randomId: () => "owned12", createNativePayment: async () => ({ codeUrl: "weixin://owned", providerPayload: {} }) });
@@ -78,4 +78,14 @@ describe("StudyMind billing", () => {
     registerBillingRoutes(app, { store, billing, notificationParser: async () => { throw new Error("must not run"); } });
     const response = await app.inject({ method: "POST", url: "/api/wechat/notify", payload: {} }); expect(response.statusCode).toBe(400); expect(response.json()).toEqual({ code: "FAIL", message: "INVALID_WECHAT_NOTIFICATION" });
   });
+
+  test("maps billing Store and unknown webhook failures to fixed private 503 responses", async () => {
+    const detail = "private database detail"; const store = new MemoryStore(); await userFixture(store, "owner@example.com", "smds_owner-token"); const billing = new BillingService({ store, now: () => now, randomId: () => "private1", createNativePayment: async () => ({ codeUrl: "weixin://pay", providerPayload: {} }) });
+    const statusApp = Fastify(); registerBillingRoutes(statusApp, { store, billing, notificationParser: async () => { throw new Error("unused"); }, now: () => now }); billing.getOrderStatus = async () => { throw new Error(detail); };
+    await expectPrivate503(await statusApp.inject({ method: "GET", url: "/api/desktop/billing/orders/sm_private1", headers: { authorization: "Bearer smds_owner-token" } }), detail);
+    const webhookApp = Fastify(); webhookApp.addHook("onRequest", async (request) => { (request as typeof request & { rawBody: Buffer }).rawBody = Buffer.from("raw"); }); registerBillingRoutes(webhookApp, { store, billing, notificationParser: async () => { throw new Error(detail); }, now: () => now });
+    await expectPrivate503(await webhookApp.inject({ method: "POST", url: "/api/wechat/notify", payload: {} }), detail);
+  });
 });
+
+async function expectPrivate503(response: { statusCode: number; json(): unknown; body: string }, detail: string) { expect(response.statusCode).toBe(503); expect(response.json()).toEqual({ error: "SERVER_TEMPORARILY_UNAVAILABLE" }); expect(response.body).not.toContain(detail); }

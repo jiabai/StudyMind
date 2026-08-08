@@ -14,9 +14,12 @@ const encryptionKey = "test-llm-encryption-key-with-at-least-32-bytes";
 function fixture() {
   const store = new MemoryStore(); let sentCode = "";
   const auth = new AdminAuthService({ store, adminEmail: "admin@studymind.test", otpHmacKey: hmac, now: () => now, sendOtp: async (_email, value) => { sentCode = value; } });
+  const activationCodes = new ActivationCodeService({ store, now: () => now });
+  const llmConfig = new LlmConfigService({ store, encryptionKey, now: () => now });
+  const adjustments = new EntitlementAdjustmentService({ store, now: () => now });
   const app = Fastify();
-  registerAdminRoutes(app, { store, auth, activationCodes: new ActivationCodeService({ store, now: () => now }), llmConfig: new LlmConfigService({ store, encryptionKey, now: () => now }), adjustments: new EntitlementAdjustmentService({ store, now: () => now }), adminEmail: "admin@studymind.test", now: () => now, secureCookies: true });
-  return { app, store, sentCode: () => sentCode };
+  registerAdminRoutes(app, { store, auth, activationCodes, llmConfig, adjustments, adminEmail: "admin@studymind.test", now: () => now, secureCookies: true });
+  return { app, store, auth, activationCodes, llmConfig, adjustments, sentCode: () => sentCode };
 }
 async function login() {
   const f = fixture();
@@ -82,4 +85,32 @@ describe("StudyMind admin routes", () => {
     const response = await app.inject({ method: "POST", url: "/admin/auth/logout", headers: { cookie, "x-studymind-csrf": csrf } });
     expect(response.json()).toEqual({ ok: true, redirect_url: "/admin/login" }); expect(String(response.headers["set-cookie"])).toContain("Max-Age=0"); expect(store.adminSessions[0]?.revokedAt).toEqual(now);
   });
+
+  test("escapes csrf JSON embedded in the admin script while preserving its JavaScript value", async () => {
+    const { app, store } = fixture(); const token = "admin-script-session"; const csrf = "</script><script>owned()</script>\u2028line\u2029end";
+    const { sha256 } = await import("../src/security.js");
+    await store.createAdminSession({ email: "admin@studymind.test", tokenHash: sha256(token), csrfTokenHash: sha256(csrf), createdAt: now, expiresAt: new Date(now.getTime() + 60_000) });
+    const response = await app.inject({ method: "GET", url: "/admin", headers: { cookie: `studymind_admin_session=${token}; studymind_admin_csrf=${encodeURIComponent(csrf)}` } });
+    expect(response.statusCode).toBe(200); expect(response.body).not.toContain("</script><script>owned()"); expect(response.body).toContain("\\u003c/script>\\u003cscript>owned()\\u003c/script>"); expect(response.body).toContain("\\u2028line\\u2029");
+    const literal = response.body.match(/const csrf=("(?:\\.|[^"\\])*")/)?.[1]; expect(literal).toBeTruthy(); expect(JSON.parse(literal!)).toBe(csrf);
+  });
+
+  test("maps admin auth, dashboard, and mutation dependency failures to a fixed private 503", async () => {
+    const detail = "private database detail";
+    const authFailure = fixture(); authFailure.auth.authenticate = async () => { throw new Error(detail); };
+    await expectPrivate503(await authFailure.app.inject({ method: "GET", url: "/admin", headers: { cookie: "studymind_admin_session=value" } }), detail);
+    const dashboardFailure = await login(); dashboardFailure.store.listUsers = async () => { throw new Error(detail); };
+    await expectPrivate503(await dashboardFailure.app.inject({ method: "GET", url: "/admin", headers: { cookie: dashboardFailure.cookie } }), detail);
+    for (const kind of ["activation", "llm", "adjustment"] as const) {
+      const f = await login();
+      if (kind === "activation") f.activationCodes.generateCode = async () => { throw new Error(detail); };
+      if (kind === "llm") f.llmConfig.save = async () => { throw new Error(detail); };
+      if (kind === "adjustment") f.adjustments.apply = async () => { throw new Error(detail); };
+      const user = await f.store.upsertUserByEmail("failure@example.com", now);
+      const requests = { activation: { url: "/admin/api/activation-codes", payload: {} }, llm: { url: "/admin/api/llm-config", payload: { provider: "openai", base_url: "https://api.openai.com/v1", model: "gpt", api_key: "private-key", timeout_seconds: 30 } }, adjustment: { url: `/admin/api/users/${user.id}/entitlement-adjustments`, payload: { reason: "support", extend_days: 1 } } };
+      const request = requests[kind]; await expectPrivate503(await f.app.inject({ method: "POST", url: request.url, headers: { cookie: f.cookie, "x-studymind-csrf": f.csrf }, payload: request.payload }), detail);
+    }
+  });
 });
+
+async function expectPrivate503(response: { statusCode: number; json(): unknown; body: string }, detail: string) { expect(response.statusCode).toBe(503); expect(response.json()).toEqual({ error: "SERVER_TEMPORARILY_UNAVAILABLE" }); expect(response.body).not.toContain(detail); }
