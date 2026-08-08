@@ -32,6 +32,7 @@ logs/*
 server/logs/
 server/data/
 server/backups/
+server/prisma/*.db
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm

@@ -7,109 +7,193 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Task {
-  id            String    @id @default(uuid())
-  taskId        String    @unique
+model User {
+  id                              String                           @id
+  email                           String                           @unique
+  createdAt                       DateTime
+  updatedAt                       DateTime
+  sessions                        Session[]
+  orders                          Order[]
+  entitlements                    Entitlement[]
+  redeemedCodes                   ActivationCode[]
+  adminEntitlementAdjustments     AdminEntitlementAdjustment[]
+  userSessions                    UserSession[]
+}
+
+model EmailOtp {
+  id         String    @id
+  purpose    String
+  email      String
+  state      String
+  codeHash   String
+  ip         String
+  attempts   Int       @default(0)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime
+
+  @@index([purpose, email, state, createdAt])
+}
+
+model AuthRateLimit {
+  id              String   @id
+  keyHash         String   @unique
+  purpose         String
+  scope           String
+  windowStartedAt DateTime
+  count           Int
+  nextAllowedAt   DateTime
+  updatedAt       DateTime
+
+  @@index([purpose, scope, nextAllowedAt])
+}
+
+model DesktopLoginTicket {
+  id         String    @id
+  ticketHash String    @unique
+  state      String
+  userId     String
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime
+
+  @@index([state])
+}
+
+model Session {
+  id        String    @id
+  userId    String
+  tokenHash String    @unique
+  createdAt DateTime
+  expiresAt DateTime
+  revokedAt DateTime?
+  user      User      @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+}
+
+model Order {
+  id              String    @id
+  userId          String
+  outTradeNo      String    @unique
+  amountFen       Int
+  status          String
+  codeUrl         String
+  expiresAt       DateTime
+  createdAt       DateTime
+  paidAt          DateTime?
+  transactionId   String?
+  providerPayload String
+  user            User      @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+}
+
+model Entitlement {
+  id            String   @id
+  userId        String
   status        String
-  stage         String    @default("waiting_input")
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  completedAt   DateTime?
+  expiresAt     DateTime
+  llmQuotaLimit Int      @default(0)
+  llmQuotaUsed  Int      @default(0)
+  updatedAt     DateTime
+  user          User     @relation(fields: [userId], references: [id])
 
-  platform      String    @default("local")
-  sourceKind    String?
-  sourceDisplay  String?
-  sourceMediaKind String?
-  sourceExtension String?
+  @@unique([userId])
+}
 
-  appVersion    String    @default("0.1.0")
-  workerVersion String    @default("")
-  model         String    @default("")
+model LlmConfig {
+  id              String   @id
+  provider        String
+  baseUrl         String
+  model           String
+  encryptedApiKey String
+  apiKeyLast4     String
+  timeoutSeconds  Int
+  createdAt       DateTime
+  updatedAt       DateTime
+}
 
-  textPreview   String    @default("")
-  insightsCount Int       @default(0)
+model LlmUsageEvent {
+  id            String   @id
+  userId        String
+  entitlementId String
+  requestId     String
+  createdAt     DateTime
 
-  transcript   String?   // JSON: TranscriptMetadata
-  artifacts    String?   // JSON: HashMap<String, String>
-  error        String?   // JSON: TaskManifestError
-  insights     String?   // JSON: Vec<InsightView>
-  dissection   String?   // JSON: DissectionReport
-  preferenceSnapshot String?
-  extra        String?   // JSON: flexible extra
+  @@unique([userId, requestId])
+  @@index([userId])
+}
 
-  artifactsDir String?
-  taskDir      String?
-
-  progress     TaskProgress[]
-  aiGenerations AiGeneration[]
-  workerCommands WorkerCommand[]
+model ActivationCode {
+  id               String    @id
+  codeHash         String    @unique
+  codePrefix       String
+  status           String
+  entitlementDays  Int
+  redeemBy         DateTime
+  createdAt        DateTime
+  redeemedAt       DateTime?
+  redeemedByUserId String?
+  redeemedByUser   User?     @relation(fields: [redeemedByUserId], references: [id])
 
   @@index([status])
-  @@index([stage])
+  @@index([redeemedByUserId])
+}
+
+model AdminSession {
+  id            String    @id
+  email         String
+  tokenHash     String    @unique
+  csrfTokenHash String
+  createdAt     DateTime
+  expiresAt     DateTime
+  revokedAt     DateTime?
+
+  @@index([email])
+}
+
+model UserSession {
+  id            String    @id
+  userId        String
+  email         String
+  tokenHash     String    @unique
+  csrfTokenHash String
+  createdAt     DateTime
+  expiresAt     DateTime
+  revokedAt     DateTime?
+  user          User      @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([email])
+}
+
+model AdminEntitlementAdjustment {
+  id                  String   @id
+  adminEmail          String
+  userId              String
+  reason              String
+  note                String?
+  beforeExpiresAt     DateTime?
+  afterExpiresAt      DateTime
+  beforeLlmQuotaLimit Int
+  afterLlmQuotaLimit  Int
+  beforeLlmQuotaUsed  Int
+  afterLlmQuotaUsed   Int
+  createdAt           DateTime
+  user                User     @relation(fields: [userId], references: [id])
+
+  @@index([userId])
   @@index([createdAt])
 }
 
-model TaskProgress {
-  id          String   @id @default(uuid())
-  taskId      String
-  stage       String
-  progress    Int      @default(0)
-  messageCode String
-  messageArgs String?  // JSON
-  createdAt   DateTime @default(now())
+model WebhookEvent {
+  id         String   @id
+  provider   String
+  eventId    String
+  outTradeNo String
+  payload    String
+  createdAt  DateTime
 
-  task        Task     @relation(fields: [taskId], references: [taskId], onDelete: Cascade)
-
-  @@index([taskId, createdAt])
-  @@index([stage])
-}
-
-model AiGeneration {
-  id             String   @id @default(uuid())
-  taskId         String
-  target         String
-  status         String
-  outputLanguage String
-  preferenceSnapshot String?  // JSON
-  result         String?  // JSON
-  errorCode      String?
-  errorMessage   String?
-  retryAttempts  Int      @default(0)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  task           Task     @relation(fields: [taskId], references: [taskId], onDelete: Cascade)
-
-  @@index([taskId])
-  @@index([target, status])
-}
-
-model WorkerCommand {
-  id           String   @id @default(uuid())
-  taskId       String?
-  command      String
-  status       String
-  request      String?  // JSON
-  result       String?  // JSON
-  errorCode    String?
-  errorMessage String?
-  startedAt    DateTime?
-  completedAt  DateTime?
-  createdAt    DateTime @default(now())
-
-  task         Task?    @relation(fields: [taskId], references: [taskId], onDelete: SetNull)
-
-  @@index([taskId])
-  @@index([command, status])
-}
-
-model AsrModel {
-  id          String   @id @default(uuid())
-  modelId     String   @unique
-  status      String   @default("unavailable")
-  displayName String
-  sizeBytes   Int?
-  downloadedAt DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  @@unique([provider, eventId])
 }
