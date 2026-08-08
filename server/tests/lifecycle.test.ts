@@ -141,4 +141,53 @@ describe("server lifecycle", () => {
     expect(disconnect).toHaveBeenCalledOnce();
     expect(calls).toEqual(["register", "connect", "disconnect"]);
   });
+
+  test("keeps signal listeners until a shared healthy shutdown settles", async () => {
+    const handlers = new Set<(signal: "SIGINT" | "SIGTERM") => Promise<void>>(); const calls: string[] = []; const forceExit = vi.fn();
+    let releaseClose: (() => void) | undefined; const close = new Promise<void>((resolve) => { releaseClose = resolve; });
+    const runtime = await runServerLifecycle({
+      loadConfig: () => ({ host: "127.0.0.1", port: 8787 }) as never,
+      connectDatabase: async () => ({ $disconnect: async () => { calls.push("disconnect"); } }) as never,
+      buildRuntime: async () => ({ app: { listen: async () => undefined, close: () => { calls.push("close"); return close; } }, readiness: { beginDraining: () => calls.push("draining") } }) as never,
+      registerSignalHandlers: (handler) => { handlers.add(handler); return () => { handlers.delete(handler); }; },
+      shutdownTimeoutMs: 100, forceExit, logger: createRuntimeLogger({ info: () => undefined, error: () => undefined }),
+    });
+    expect(handlers.size).toBe(1);
+    const handler = [...handlers][0]!; const first = handler("SIGTERM");
+    expect(handlers.size).toBe(1);
+    const second = [...handlers][0]!("SIGINT");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(second).toBe(first); expect(calls).toEqual(["draining", "close"]); expect(forceExit).not.toHaveBeenCalled();
+    releaseClose?.(); await Promise.all([first, second]);
+    expect(handlers.size).toBe(0); expect(calls).toEqual(["draining", "close", "disconnect"]);
+    await runtime.shutdown("test");
+  });
+
+  test("reports a rejected late database cleanup as failed without forcing exit", async () => {
+    const records: unknown[] = []; const forceExit = vi.fn(); const originalExitCode = process.exitCode; let handler: ((signal: "SIGINT" | "SIGTERM") => Promise<void>) | undefined; let releaseConnect: ((value: unknown) => void) | undefined;
+    const blocked = new Promise<unknown>((resolve) => { releaseConnect = resolve; });
+    const operation = runServerLifecycle({ loadConfig: () => ({ host: "127.0.0.1", port: 8787 }) as never, connectDatabase: async () => await blocked as never, buildRuntime: async () => { throw new Error("must not build"); }, registerSignalHandlers: (value) => { handler = value; }, shutdownTimeoutMs: 100, forceExit, logger: createRuntimeLogger({ info: (record) => records.push(record), error: (record) => records.push(record) }) });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    try {
+      const handling = handler!("SIGTERM"); releaseConnect?.({ $disconnect: async () => { throw new Error("DATABASE_CLEANUP_SECRET"); } });
+      await expect(operation).rejects.toMatchObject({ name: "StartupInterruptedError" }); await handling;
+      expect(process.exitCode).toBe(1); expect(forceExit).not.toHaveBeenCalled();
+      expect(records).toContainEqual({ event: STUDYMIND_EVENTS.cleanupFailed, code: STUDYMIND_CODES.cleanupFailed, phase: "startup_signal", resource: "database" });
+      expect(JSON.stringify(records)).not.toContain("DATABASE_CLEANUP_SECRET");
+    } finally { process.exitCode = originalExitCode; }
+  });
+
+  test("reports a rejected app close during interrupted startup and still disconnects", async () => {
+    const records: unknown[] = []; const forceExit = vi.fn(); const disconnect = vi.fn(async () => undefined); const originalExitCode = process.exitCode; let handler: ((signal: "SIGINT" | "SIGTERM") => Promise<void>) | undefined; let releaseListen: (() => void) | undefined;
+    const listen = new Promise<void>((resolve) => { releaseListen = resolve; });
+    const operation = runServerLifecycle({ loadConfig: () => ({ host: "127.0.0.1", port: 8787 }) as never, connectDatabase: async () => ({ $disconnect: disconnect }) as never, buildRuntime: async () => ({ app: { listen: () => listen, close: async () => { throw new Error("APP_CLOSE_SECRET"); } }, readiness: { beginDraining: () => undefined } }) as never, registerSignalHandlers: (value) => { handler = value; }, shutdownTimeoutMs: 100, forceExit, logger: createRuntimeLogger({ info: (record) => records.push(record), error: (record) => records.push(record) }) });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    try {
+      const handling = handler!("SIGINT"); releaseListen?.();
+      await expect(operation).rejects.toMatchObject({ name: "StartupInterruptedError" }); await handling;
+      expect(process.exitCode).toBe(1); expect(forceExit).not.toHaveBeenCalled(); expect(disconnect).toHaveBeenCalledOnce();
+      expect(records).toContainEqual({ event: STUDYMIND_EVENTS.cleanupFailed, code: STUDYMIND_CODES.cleanupFailed, phase: "startup_signal", resource: "application" });
+      expect(JSON.stringify(records)).not.toContain("APP_CLOSE_SECRET");
+    } finally { process.exitCode = originalExitCode; }
+  });
 });

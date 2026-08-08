@@ -20,6 +20,7 @@ import { createWechatNativePayment, createWechatNotificationParser, type WechatC
 type RuntimeApp = { listen(options: { host: string; port: number }): Promise<unknown>; close(): Promise<unknown> };
 type Runtime = { app: RuntimeApp; readiness: Pick<Readiness, "beginDraining"> };
 type PrismaResource = Pick<PrismaClient, "$disconnect">;
+type CleanupStatus = "success" | "failed" | "timeout";
 export type LifecycleResult = { shutdown(signal?: string): Promise<ShutdownResult>; app: Runtime["app"]; prisma: PrismaResource };
 export type ShutdownResult = { exitCode: 0 | 1; signal: string };
 export class StartupInterruptedError extends Error { readonly name = "StartupInterruptedError"; constructor() { super("Server startup was interrupted by a signal."); } }
@@ -68,18 +69,18 @@ export async function runServerLifecycle(options: {
   let signalHandling: Promise<void> | undefined;
   let startupStoppedResolve: (() => void) | undefined;
   const startupStopped = new Promise<void>((resolve) => { startupStoppedResolve = resolve; });
+  let interruptedCleanupStatus: CleanupStatus = "success";
   let listenersRemoved = false;
   let removeSignalListeners: () => void = () => undefined;
   let forced = false;
   const forceOnce = (code: number) => { if (!forced) { forced = true; forceExit(code); } };
   const handleSignal = (signal: "SIGINT" | "SIGTERM"): Promise<void> => signalHandling ??= (async () => {
     receivedSignal = signal; signalDeadline = Date.now() + (options.shutdownTimeoutMs ?? 15_000);
-    if (!listenersRemoved) { listenersRemoved = true; removeSignalListeners(); }
     if (startupFinished && shutdown) { const result = await shutdown(signal); process.exitCode = result.exitCode; return; }
     logger.info({ event: STUDYMIND_EVENTS.draining, code: STUDYMIND_CODES.draining, signal });
     if (!await completesBy(startupStopped, signalDeadline)) forceOnce(1);
-    else process.exitCode = 0;
-  })();
+    else process.exitCode = interruptedCleanupStatus === "success" ? 0 : 1;
+  })().finally(() => { if (!listenersRemoved) { listenersRemoved = true; removeSignalListeners(); } });
   if (options.installSignalHandlers !== false) {
     const register = options.registerSignalHandlers ?? registerProcessSignalHandlers;
     removeSignalListeners = register(handleSignal) ?? (() => undefined);
@@ -96,7 +97,7 @@ export async function runServerLifecycle(options: {
     logger.info({ event: STUDYMIND_EVENTS.ready, code: STUDYMIND_CODES.ready });
   } catch (error) {
     if (error instanceof StartupInterruptedError) {
-      await cleanupInterruptedStartup({ runtime, prisma, deadline: signalDeadline, forceOnce });
+      interruptedCleanupStatus = await cleanupInterruptedStartup({ runtime, prisma, deadline: signalDeadline, forceOnce, logger });
       startupStoppedResolve?.();
       throw error;
     }
@@ -154,14 +155,24 @@ async function cleanupStartupFailure(input: { runtime?: Runtime; prisma?: Prisma
   if (input.prisma && await settleBeforeDeadline(() => input.prisma!.$disconnect(), deadline) === "timeout") input.forceExit(1);
 }
 
-async function cleanupInterruptedStartup(input: { runtime?: Runtime; prisma?: PrismaClient; deadline: number; forceOnce(code: number): void }): Promise<void> {
+async function cleanupInterruptedStartup(input: { runtime?: Runtime; prisma?: PrismaClient; deadline: number; forceOnce(code: number): void; logger: RuntimeLogger }): Promise<CleanupStatus> {
+  let status: CleanupStatus = "success";
   if (input.runtime) {
     input.runtime.readiness.beginDraining();
-    if (await settleBeforeDeadline(() => input.runtime!.app.close(), input.deadline) === "timeout") { input.forceOnce(1); return; }
+    const closeStatus = await settleBeforeDeadline(() => input.runtime!.app.close(), input.deadline);
+    if (closeStatus === "timeout") { input.forceOnce(1); return "timeout"; }
+    if (closeStatus === "failed") { status = "failed"; logCleanupFailure(input.logger, "application"); }
   }
-  if (!input.prisma) return;
-  if (Date.now() >= input.deadline) { void input.prisma.$disconnect().catch(() => undefined); input.forceOnce(1); return; }
-  if (await settleBeforeDeadline(() => input.prisma!.$disconnect(), input.deadline) === "timeout") input.forceOnce(1);
+  if (!input.prisma) return status;
+  if (Date.now() >= input.deadline) { void input.prisma.$disconnect().catch(() => undefined); input.forceOnce(1); return "timeout"; }
+  const disconnectStatus = await settleBeforeDeadline(() => input.prisma!.$disconnect(), input.deadline);
+  if (disconnectStatus === "timeout") { input.forceOnce(1); return "timeout"; }
+  if (disconnectStatus === "failed") { status = "failed"; logCleanupFailure(input.logger, "database"); }
+  return status;
+}
+
+function logCleanupFailure(logger: RuntimeLogger, resource: "application" | "database"): void {
+  logger.error({ event: STUDYMIND_EVENTS.cleanupFailed, code: STUDYMIND_CODES.cleanupFailed, phase: "startup_signal", resource });
 }
 
 async function completesBy(operation: Promise<void>, deadline: number): Promise<boolean> {

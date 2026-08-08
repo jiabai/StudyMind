@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 
-export const STUDYMIND_EVENTS = Object.freeze({ startup: "studymind.server.startup", ready: "studymind.server.ready", draining: "studymind.server.draining", shutdown: "studymind.server.shutdown", startupFailed: "studymind.server.startup_failed", requestFailed: "studymind.request.failed" });
-export const STUDYMIND_CODES = Object.freeze({ startup: "SERVER_STARTING", ready: "SERVER_READY", draining: "SERVER_DRAINING", shutdown: "SERVER_STOPPED", startupFailed: "SERVER_STARTUP_FAILED", shutdownTimeout: "SERVER_SHUTDOWN_TIMEOUT" });
+export const STUDYMIND_EVENTS = Object.freeze({ startup: "studymind.server.startup", ready: "studymind.server.ready", draining: "studymind.server.draining", shutdown: "studymind.server.shutdown", startupFailed: "studymind.server.startup_failed", cleanupFailed: "studymind.server.cleanup_failed", requestFailed: "studymind.request.failed" });
+export const STUDYMIND_CODES = Object.freeze({ startup: "SERVER_STARTING", ready: "SERVER_READY", draining: "SERVER_DRAINING", shutdown: "SERVER_STOPPED", startupFailed: "SERVER_STARTUP_FAILED", shutdownTimeout: "SERVER_SHUTDOWN_TIMEOUT", cleanupFailed: "SERVER_CLEANUP_FAILED" });
 const SENSITIVE = /authorization|cookie|set.?cookie|otp|email|api.*key|cipher|csrf|session|activation|request.?body|response.?body|prompt|output|payment|provider.?payload|raw.?body|error/i;
 
 export type RuntimeLogRecord = Record<string, unknown>;

@@ -17,8 +17,8 @@ describe("observability", () => {
   });
 
   test("uses fixed StudyMind event names", () => {
-    expect(STUDYMIND_EVENTS).toEqual({ startup: "studymind.server.startup", ready: "studymind.server.ready", draining: "studymind.server.draining", shutdown: "studymind.server.shutdown", startupFailed: "studymind.server.startup_failed", requestFailed: "studymind.request.failed" });
-    expect(STUDYMIND_CODES).toEqual({ startup: "SERVER_STARTING", ready: "SERVER_READY", draining: "SERVER_DRAINING", shutdown: "SERVER_STOPPED", startupFailed: "SERVER_STARTUP_FAILED", shutdownTimeout: "SERVER_SHUTDOWN_TIMEOUT" });
+    expect(STUDYMIND_EVENTS).toEqual({ startup: "studymind.server.startup", ready: "studymind.server.ready", draining: "studymind.server.draining", shutdown: "studymind.server.shutdown", startupFailed: "studymind.server.startup_failed", cleanupFailed: "studymind.server.cleanup_failed", requestFailed: "studymind.request.failed" });
+    expect(STUDYMIND_CODES).toEqual({ startup: "SERVER_STARTING", ready: "SERVER_READY", draining: "SERVER_DRAINING", shutdown: "SERVER_STOPPED", startupFailed: "SERVER_STARTUP_FAILED", shutdownTimeout: "SERVER_SHUTDOWN_TIMEOUT", cleanupFailed: "SERVER_CLEANUP_FAILED" });
   });
 
   test("runtime logger sanitizes every structured field before emission", () => {
