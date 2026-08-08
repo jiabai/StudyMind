@@ -11,7 +11,7 @@ export type WechatConfig = {
 type ValidatedWechatConfig = WechatConfig & { requestTimeoutMs: number };
 export type ParsedWechatNotification = { webhookId: string; outTradeNo: string; transactionId: string; paidAt: Date; amountFen: number; currency: "CNY" };
 export type WechatNotificationParser = (input: { headers: IncomingHttpHeaders; rawBody: Buffer }) => Promise<ParsedWechatNotification>;
-const PROVIDER_RESPONSE_LIMIT = 1024 * 1024;
+export const MAX_RESPONSE_BYTES = 1024 * 1024;
 
 export class WechatConfigError extends Error { readonly name = "WechatConfigError"; constructor() { super("WeChat configuration is invalid."); } }
 export class WechatProviderUnavailableError extends Error { readonly name = "WechatProviderUnavailableError"; constructor() { super("WeChat provider is unavailable."); } }
@@ -47,9 +47,8 @@ export function createWechatNativePayment(config: WechatConfig, fetchImplementat
       const authorization = `WECHATPAY2-SHA256-RSA2048 mchid="${validated.mchId}",nonce_str="${nonce}",signature="${signature}",timestamp="${timestamp}",serial_no="${validated.serialNo}"`;
       const response = await withAbort(fetchImplementation(`https://api.mch.weixin.qq.com${path}`, { method: "POST", headers: { authorization, accept: "application/json", "content-type": "application/json" }, body, signal: controller.signal }), controller.signal);
       const declaredLength = response.headers.get("content-length");
-      if (declaredLength !== null && (!/^\d+$/.test(declaredLength) || Number(declaredLength) > PROVIDER_RESPONSE_LIMIT)) throw providerUnavailable();
-      const bytes = Buffer.from(await withAbort(response.arrayBuffer(), controller.signal));
-      if (bytes.byteLength > PROVIDER_RESPONSE_LIMIT) throw providerUnavailable();
+      if (declaredLength !== null && !validContentLength(declaredLength)) { await cancelBody(response.body, controller); throw providerUnavailable(); }
+      const bytes = await readBoundedBody(response.body, controller);
       const raw = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
       verifyProviderResponse(validated, response.headers, raw, now());
       const payload = object(JSON.parse(raw) as unknown);
@@ -86,6 +85,27 @@ function object(value: unknown): Record<string, unknown> { if (!value || typeof 
 function stringValue(value: unknown): string { if (typeof value !== "string" || !value) throw invalidNotify(); return value; }
 function identifier(value: string): boolean { return typeof value === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(value); }
 function withAbort<Value>(operation: Promise<Value>, signal: AbortSignal): Promise<Value> { if (signal.aborted) return Promise.reject(providerUnavailable()); return new Promise<Value>((resolve, reject) => { const aborted = () => { cleanup(); reject(providerUnavailable()); }; const cleanup = () => signal.removeEventListener("abort", aborted); signal.addEventListener("abort", aborted, { once: true }); operation.then((value) => { cleanup(); resolve(value); }, (error: unknown) => { cleanup(); reject(error); }); }); }
+function validContentLength(value: string): boolean { if (!/^\d+$/.test(value)) return false; const length = Number(value); return Number.isSafeInteger(length) && length >= 0 && length <= MAX_RESPONSE_BYTES; }
+async function cancelBody(body: ReadableStream<Uint8Array> | null, controller: AbortController): Promise<void> { try { await body?.cancel(); } catch { /* best effort */ } finally { controller.abort(); } }
+async function cancelReader(reader: ReadableStreamDefaultReader<Uint8Array>, controller: AbortController): Promise<void> { try { await reader.cancel(); } catch { /* best effort */ } finally { controller.abort(); } }
+async function readBoundedBody(body: ReadableStream<Uint8Array> | null, controller: AbortController): Promise<Buffer> {
+  if (!body) { controller.abort(); throw providerUnavailable(); }
+  const reader = body.getReader(); const chunks: Uint8Array[] = []; let total = 0; let completed = false; let cancelled = false;
+  try {
+    while (true) {
+      const result = await withAbort(reader.read(), controller.signal);
+      if (result.done) { completed = true; break; }
+      const chunk = result.value; total += chunk.byteLength;
+      if (total > MAX_RESPONSE_BYTES) { await cancelReader(reader, controller); cancelled = true; throw providerUnavailable(); }
+      chunks.push(chunk);
+    }
+    return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength)), total);
+  } catch (error) {
+    if (!completed && !cancelled) await cancelReader(reader, controller);
+    if (error instanceof WechatProviderUnavailableError) throw error;
+    throw providerUnavailable();
+  } finally { reader.releaseLock(); }
+}
 function header(value: string | string[] | undefined) { return Array.isArray(value) ? value[0] : value; }
 function freshTimestamp(value: string, now: Date) { return /^\d{10}$/.test(value) && Math.abs(Math.floor(now.getTime() / 1000) - Number(value)) <= 300; }
 function invalidConfig() { return new WechatConfigError(); }
