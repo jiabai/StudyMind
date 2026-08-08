@@ -37,7 +37,7 @@ export class MemoryAtomicCoordinator {
     try {
       const result = await operation();
       this.committed = structuredClone(this.state);
-      return result;
+      return structuredClone(result);
     } catch (error: unknown) {
       Object.assign(this.state, snapshot);
       throw error;

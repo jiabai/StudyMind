@@ -13,6 +13,54 @@ async function createUserSession(store: MemoryStore, email: string, tokenHash: s
 }
 
 describe("MemoryStore semantic transaction safety", () => {
+  test("snapshots each queued user upsert result before the next write starts", async () => {
+    const store = new MemoryStore();
+    const firstNow = new Date("2026-08-08T08:01:00.000Z");
+    const secondNow = new Date("2026-08-08T08:02:00.000Z");
+
+    const firstPromise = store.upsertUserByEmail("queued-user@studymind.local", firstNow);
+    const secondPromise = store.upsertUserByEmail("queued-user@studymind.local", secondNow);
+    const [first, second] = await Promise.all([firstPromise, secondPromise]);
+
+    expect(first.updatedAt).toEqual(firstNow);
+    expect(second.updatedAt).toEqual(secondNow);
+    expect(first).not.toBe(second);
+    expect(await store.getUserById(first.id)).toMatchObject({ updatedAt: secondNow });
+  });
+
+  test("snapshots each successful queued quota checkout at its own committed usage", async () => {
+    const store = new MemoryStore();
+    const user = await store.upsertUserByEmail("queued-quota@studymind.local", now);
+    const entitlement = await store.upsertEntitlement(user.id, later(86_400_000), now, {
+      llmQuotaLimit: 2,
+      llmQuotaUsed: 0,
+    });
+
+    const firstPromise = store.consumeLlmQuota(user.id, "queued-request-one", later(1_000));
+    const secondPromise = store.consumeLlmQuota(user.id, "queued-request-two", later(2_000));
+    const [first, second] = await Promise.all([firstPromise, secondPromise]);
+
+    expect(first.status).toBe("consumed");
+    expect(second.status).toBe("consumed");
+    if (first.status !== "consumed" || second.status !== "consumed") {
+      throw new Error("expected both queued checkouts to consume quota");
+    }
+    expect(first.entitlement.llmQuotaUsed).toBe(1);
+    expect(second.entitlement.llmQuotaUsed).toBe(2);
+    expect(store.llmUsageEvents).toEqual([
+      expect.objectContaining({
+        userId: user.id,
+        entitlementId: entitlement.id,
+        requestId: "queued-request-one",
+      }),
+      expect.objectContaining({
+        userId: user.id,
+        entitlementId: entitlement.id,
+        requestId: "queued-request-two",
+      }),
+    ]);
+  });
+
   test("does not erase a successful concurrent write when a compound transaction rolls back", async () => {
     let idCalls = 0;
     let transactionEntered: () => void = () => undefined;
