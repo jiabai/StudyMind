@@ -41,13 +41,15 @@ import { useTranscriptDissectionController } from "./features/dissection/useTran
 import { AiGenerationWorkspace } from "./features/results/AiGenerationWorkspace";
 import { AiResultDetailSheet } from "./features/results/AiResultDetailSheet";
 import { TaskStatusBanner } from "./features/results/TaskStatusBanner";
+import { AnnotationListPanel } from "./features/results/AnnotationListPanel";
+import { useAnnotationsController } from "./hooks/useAnnotationsController";
 import { SettingsSheet } from "./features/settings/SettingsSheet";
 import { useSettingsController } from "./features/settings/useSettingsController";
 import { LocalTranscriptWorkspace } from "./features/transcript/LocalTranscriptWorkspace";
 import { useTranscriptDetailController } from "./features/transcript/useTranscriptDetailController";
 import { useWindowChromeController } from "./features/window/useWindowChromeController";
 import { useModalFocus } from "./features/modal/useModalFocus";
-import { TaskComposer } from "./features/workflow/TaskComposer";
+import { HeroUploadZone } from "./features/workflow/HeroUploadZone";
 import { useTaskProcessingController } from "./features/workflow/useTaskProcessingController";
 import { useLocale } from "./i18n/LocaleProvider";
 import { countTextUnits, formatWordCount } from "./i18n/formatters";
@@ -110,6 +112,9 @@ function App() {
   const { t: tUpdates } = useTranslation("updates");
   const { t: tSynthesis } = useTranslation("synthesis");
   const [actionNotice, setActionNotice] = useState<UiMessage | null>(null);
+  const [workspaceTransition, setWorkspaceTransition] = useState<"hero-to-workspace" | "workspace-to-hero" | null>(null);
+  const prevStageRef = useRef<string>("waiting_input");
+
   const settingsController = useSettingsController();
   const { settingsOpen, closeSettings, openSettings } = settingsController;
   const closeDetailForTaskRef = useRef<() => void>(() => {});
@@ -173,12 +178,42 @@ function App() {
     processBlockerMessage: accountProcessBlockerMessage,
     aiBlockerMessage: accountAiBlockerMessage,
   });
+
+  useEffect(() => {
+    const prev = prevStageRef.current;
+    const next = workflow.stage;
+    if (prev === "waiting_input" && next !== "waiting_input") {
+      setWorkspaceTransition("hero-to-workspace");
+      const t = setTimeout(() => setWorkspaceTransition(null), 400);
+      return () => clearTimeout(t);
+    }
+    if (prev !== "waiting_input" && next === "waiting_input") {
+      setWorkspaceTransition("workspace-to-hero");
+      const t = setTimeout(() => setWorkspaceTransition(null), 400);
+      return () => clearTimeout(t);
+    }
+    prevStageRef.current = next;
+    return undefined;
+  }, [workflow.stage]);
+
   const transcriptDetailController = useTranscriptDetailController({
     workflow,
     applyTranscriptSave,
     setActionNotice,
     locale: resolvedLocale,
   });
+  const annotationsController = useAnnotationsController({
+    workflow,
+    setActionNotice,
+  });
+  const [annotationPanelVisible, setAnnotationPanelVisible] = useState(true);
+  const [activeAnnotationId, setActiveAnnotationId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (annotationsController.annotations.length > 0 && workflow.taskId) {
+      void annotationsController.saveAnnotationsToDisk();
+    }
+  }, [annotationsController.annotations, workflow.taskId]);
   const {
     detailTab,
     openDetailTab,
@@ -514,22 +549,20 @@ function App() {
         </header>
 
         <section
-          className={`workspace ${workflow.stage === "waiting_input" ? "waiting-layout" : "active-layout"}`}
+          className={`workspace ${workflow.stage === "waiting_input" ? "waiting-layout" : "active-layout"}${workspaceTransition ? ` hero-transitioning ${workspaceTransition}` : ""}`}
           aria-label={tWorkflow("input.workspaceAria")}
         >
           {workflow.stage === "waiting_input" ? (
-            <div className="workflow-column">
-              <TaskComposer
-                source={workflow.composerSource}
-                canSubmit={canSubmit}
-                statusBody={activeStageBody}
-                onLocalMediaSelected={setLocalMediaSelection}
-                onRemoveLocalMedia={removeLocalMediaSelection}
-                onSubmit={(submission) => {
-                  void submitTask(submission, account, openAccountPanel);
-                }}
-              />
-            </div>
+            <HeroUploadZone
+              source={workflow.composerSource}
+              canSubmit={canSubmit}
+              statusBody={activeStageBody}
+              onLocalMediaSelected={setLocalMediaSelection}
+              onRemoveLocalMedia={removeLocalMediaSelection}
+              onSubmit={(submission) => {
+                void submitTask(submission, account, openAccountPanel);
+              }}
+            />
           ) : (
             <>
               <TaskStatusBanner model={taskWorkspaceModel.banner} />
@@ -555,6 +588,26 @@ function App() {
                   onCancel={() => void cancelCurrentProcessing()}
                 />
               </div>
+              <AnnotationListPanel
+                annotations={annotationsController.annotations}
+                colors={[
+                  { key: "yellow", label: "重点", className: "color-yellow" },
+                  { key: "blue", label: "疑问", className: "color-blue" },
+                  { key: "green", label: "已掌握", className: "color-green" },
+                  { key: "red", label: "待复习", className: "color-red" },
+                ]}
+                onJumpTo={(annotation) => {
+                  openDetailTab(annotation.target_tab as "summary" | "insights" | "dissection");
+                  setActiveAnnotationId(annotation.id);
+                }}
+                onEdit={(annotation) => {
+                  openDetailTab(annotation.target_tab as "summary" | "insights" | "dissection");
+                  setActiveAnnotationId(annotation.id);
+                }}
+                onDelete={(id) => annotationsController.deleteAnnotation(id)}
+                visible={annotationPanelVisible}
+                onToggleVisible={() => setAnnotationPanelVisible(!annotationPanelVisible)}
+              />
             </>
           )}
         </section>
@@ -701,9 +754,19 @@ function App() {
         actionNotice={actionNotice}
         controller={transcriptDetailController}
         workflow={workflow}
+        annotations={annotationsController.annotations}
+        annotationsLoading={annotationsController.annotationsLoading}
+        activeAnnotationId={activeAnnotationId}
+        onAnnotationAdd={annotationsController.addAnnotation}
+        onAnnotationUpdate={annotationsController.updateAnnotation}
+        onAnnotationDelete={(id) => {
+          annotationsController.deleteAnnotation(id);
+          annotationsController.saveAnnotationsToDisk();
+        }}
+        onLocateDissectionChunks={locateDissectionChunks}
         onOpenDirectionEditor={openDirectionEditorFromDetail}
         onOpenDissectionConfirmation={dissectionController.openConfirmation}
-        onLocateDissectionChunks={locateDissectionChunks}
+        onAnnotationInteraction={() => setActiveAnnotationId(null)}
       />
 
       <HistorySheet

@@ -1,22 +1,29 @@
-﻿{
+{
   "name": "studymind-server",
   "private": true,
   "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "tsx src/index.ts",
-    "build": "tsc",
+    "build": "prisma generate && tsc",
     "start": "node dist/index.js",
-    "test": "vitest run --no-file-parallelism"
+    "test": "vitest run --no-file-parallelism",
+    "prisma:generate": "prisma generate",
+    "prisma:push": "prisma db push",
+    "prisma:studio": "prisma studio",
+    "prisma:reset": "prisma db push --force-reset"
   },
   "dependencies": {
     "fastify": "^5.0.0",
-    "@prisma/client": "^5.0.0"
+    "@prisma/client": "^5.0.0",
+    "zod": "^3.24.0",
+    "dotenv": "^16.4.0"
   },
   "devDependencies": {
     "typescript": "~5.8.3",
     "tsx": "^4.0.0",
     "vitest": "^4.1.9",
-    "prisma": "^5.0.0"
+    "prisma": "^5.0.0",
+    "@types/node": "^22.0.0"
   }
 }

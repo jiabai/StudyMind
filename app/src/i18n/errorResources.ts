@@ -14,9 +14,9 @@ export const errorResources = {
     },
     request: { invalid: "请求格式无效，请返回上一页后重试。" },
     video: {
-      downloadFailed: "视频下载失败，请确认链接可公开访问后重试。",
-      outputMissing: "视频下载完成后未找到可用文件，请重新处理。",
-      validationFailed: "下载的媒体文件无法验证，请更换公开链接后重试。",
+      downloadFailed: "媒体文件处理失败，请确认文件可用后重试。",
+      outputMissing: "媒体文件处理完成后未找到可用输出，请重新处理。",
+      validationFailed: "媒体文件无法验证，请确认文件格式正确后重试。",
       youtube: {
         loginRequired: "YouTube 要求登录或验证；请改用公开可访问的视频。",
         ageRestricted: "该 YouTube 视频存在年龄、会员或访问限制；请改用公开视频。",
@@ -57,10 +57,10 @@ export const errorResources = {
       runtimeFailed: "本地 ASR 运行失败，请稍后重试。",
       modelUnsupported: "当前 ASR 模型不受支持，请选择受支持的模型。",
     },
-    source: { identityUnavailable: "无法确认视频来源，请重新复制公开链接。" },
+    source: { identityUnavailable: "无法确认来源信息，请重新处理该任务。" },
     task: {
       storageUnavailable: "本地任务存储不可用，请检查磁盘空间和权限。",
-      manifestNotFound: "未找到任务记录，请重新处理该视频。",
+      manifestNotFound: "未找到任务记录，请重新处理该任务。",
       artifactCommitFailed: "无法安全保存本次结果。现有结果已保留，请检查磁盘空间和权限后重试。",
       artifactRecoveryFailed: "无法安全恢复该任务，StudyMind 已停止继续修改。请重启应用；如仍失败，请联系支持。",
     },
@@ -106,9 +106,9 @@ export const errorResources = {
     },
     request: { invalid: "請求格式無效，請返回上一頁後重試。" },
     video: {
-      downloadFailed: "影片下載失敗，請確認連結可公開存取後重試。",
-      outputMissing: "影片下載完成後找不到可用檔案，請重新處理。",
-      validationFailed: "下載的媒體檔案無法驗證，請更換公開連結後重試。",
+      downloadFailed: "媒體檔案處理失敗，請確認檔案可用後重試。",
+      outputMissing: "媒體檔案處理完成後找不到可用輸出，請重新處理。",
+      validationFailed: "媒體檔案無法驗證，請確認檔案格式正確後重試。",
       youtube: {
         loginRequired: "YouTube 要求登入或驗證；請改用可公開存取的影片。",
         ageRestricted: "此 YouTube 影片有年齡、會員或存取限制；請改用公開影片。",
@@ -149,10 +149,10 @@ export const errorResources = {
       runtimeFailed: "本機 ASR 執行失敗，請稍後重試。",
       modelUnsupported: "目前不支援此 ASR 模型，請選擇受支援的模型。",
     },
-    source: { identityUnavailable: "無法確認影片來源，請重新複製公開連結。" },
+    source: { identityUnavailable: "無法確認來源資訊，請重新處理該工作。" },
     task: {
       storageUnavailable: "本機工作儲存空間無法使用，請檢查磁碟空間和權限。",
-      manifestNotFound: "找不到工作記錄，請重新處理此影片。",
+      manifestNotFound: "找不到工作記錄，請重新處理此工作。",
       artifactCommitFailed: "無法安全儲存本次結果。現有結果已保留，請檢查磁碟空間和權限後重試。",
       artifactRecoveryFailed: "無法安全復原此工作，StudyMind 已停止繼續修改。請重新啟動應用程式；若仍失敗，請聯絡支援。",
     },
@@ -198,9 +198,9 @@ export const errorResources = {
     },
     request: { invalid: "The request was invalid. Go back and try again." },
     video: {
-      downloadFailed: "The video could not be downloaded. Confirm that the link is public and try again.",
-      outputMissing: "No usable file was found after the download. Process the video again.",
-      validationFailed: "The downloaded media could not be validated. Try another public link.",
+      downloadFailed: "The media file could not be processed. Confirm that the file is available and try again.",
+      outputMissing: "No usable output was found after processing. Process the media again.",
+      validationFailed: "The media file could not be validated. Confirm the file format is correct and try again.",
       youtube: {
         loginRequired: "YouTube requires sign-in or verification. Use a publicly accessible video.",
         ageRestricted: "This YouTube video has an age, membership, or access restriction. Use a public video.",
@@ -241,10 +241,10 @@ export const errorResources = {
       runtimeFailed: "Local ASR failed. Try again later.",
       modelUnsupported: "This ASR model is unsupported. Choose a supported model.",
     },
-    source: { identityUnavailable: "StudyMind could not confirm the video source. Copy the public link again." },
+    source: { identityUnavailable: "StudyMind could not confirm the source. Reprocess the task." },
     task: {
       storageUnavailable: "Local task storage is unavailable. Check disk space and permissions.",
-      manifestNotFound: "The task record could not be found. Process the video again.",
+      manifestNotFound: "The task record could not be found. Process the task again.",
       artifactCommitFailed: "The result could not be saved safely. Existing results were preserved. Check disk space and permissions, then try again.",
       artifactRecoveryFailed: "This task could not be recovered safely, so StudyMind stopped modifying it. Restart the app; contact support if it still fails.",
     },

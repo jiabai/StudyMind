@@ -29,6 +29,18 @@ export async function selectLocalMedia(
   return parsed.value;
 }
 
+export async function selectLocalMediaByPath(
+  path: string,
+  runner: LocalMediaCommandRunner = defaultLocalMediaRunner,
+): Promise<LocalMediaSelectionView> {
+  const response = await runner("select_local_media_by_path", { path });
+  const parsed = parseLocalMediaSelectionView(response);
+  if (parsed.kind === "invalid") {
+    throw new Error(parsed.errorCode);
+  }
+  return parsed.value;
+}
+
 export async function clearLocalMediaSelection(
   selectionToken: string,
   runner: LocalMediaCommandRunner = defaultLocalMediaRunner,

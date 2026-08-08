@@ -274,6 +274,18 @@ pub(crate) fn select_local_media(
 }
 
 #[tauri::command]
+pub(crate) fn select_local_media_by_path(
+    selection_state: State<'_, std::sync::Arc<LocalMediaSelectionState>>,
+    path: String,
+) -> Result<Option<LocalMediaSelectionView>, String> {
+    let path_buf = PathBuf::from(&path);
+    selection_state
+        .select_for_path(&path_buf)
+        .map(Some)
+        .map_err(str::to_string)
+}
+
+#[tauri::command]
 pub(crate) fn clear_local_media_selection(
     selection_state: State<'_, std::sync::Arc<LocalMediaSelectionState>>,
     selection_token: String,

@@ -12,14 +12,18 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "StudyMind",
+        "url": "http://localhost:1420",
         "width": 1180,
         "height": 760,
         "minWidth": 720,
         "minHeight": 640,
         "center": true,
         "decorations": false,
-        "shadow": true
+        "shadow": true,
+        "resizable": true,
+        "fullscreen": false
       }
     ],
     "security": {

@@ -1,0 +1,58 @@
+# StudyMind server (Fastify API) systemd 服务单元
+#
+# 监听端口: 8788 (来自 .env 的 PORT)
+# 入口: dist/index.js (npm run build 产物)
+#
+# 安装步骤:
+#   1. 部署代码到 /opt/studymind:
+#        sudo mkdir -p /opt/studymind
+#        sudo chown studymind:studymind /opt/studymind   # 需先创建用户
+#        # 以 studymind 身份拉取代码到 /opt/studymind (server 目录在其下)
+#
+#   2. 构建 server:
+#        cd /opt/studymind/server
+#        npm ci                       # 安装全部依赖(含 dev，供 build 用)
+#        npm run build                # prisma generate && tsc -> dist/
+#        npm prune --omit=dev         # 可选: 移除 dev 依赖减小体积
+#
+#   3. 初始化数据库 (生产建议改用 PostgreSQL，修改 .env 的 DATABASE_URL):
+#        cp .env.example .env         # 按需编辑
+#        npx prisma db push           # 建表 / 同步 schema
+#
+#   4. 注册并启动服务:
+#        sudo cp deploy/systemd/studymind-server.service /etc/systemd/system/
+#        sudo systemctl daemon-reload
+#        sudo systemctl enable --now studymind-server
+#
+#   5. 验证:
+#        systemctl status studymind-server
+#        curl -s http://127.0.0.1:8788/health/live
+#        journalctl -u studymind-server -f
+#
+# 注意:
+#   - ExecStart 的 node 路径按实际修改: which node (常见 /usr/bin/node 或 /usr/local/bin/node)
+#   - Node 版本要求 >= 20 (项目依赖 fastify ^5)
+
+[Unit]
+Description=StudyMind server (Fastify API)
+After=network.target
+
+[Service]
+Type=simple
+User=studymind
+Group=studymind
+WorkingDirectory=/opt/studymind/server
+EnvironmentFile=/opt/studymind/server/.env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node /opt/studymind/server/dist/index.js
+Restart=on-failure
+RestartSec=5
+
+# 安全限制
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

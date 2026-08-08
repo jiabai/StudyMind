@@ -3,6 +3,7 @@ use tauri::Manager;
 use tauri_plugin_deep_link::DeepLinkExt;
 
 mod account;
+mod annotation_storage;
 mod asr_model;
 mod atomic_files;
 mod deep_link;
@@ -82,6 +83,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             local_media::select_local_media,
+            local_media::select_local_media_by_path,
             local_media::clear_local_media_selection,
             video_processing::process_local_media,
             video_processing::retry_insights,
@@ -102,6 +104,8 @@ pub fn run() {
             history_deletion::delete_history_task,
             transcript_detail::load_transcript_detail,
             transcript_detail::save_transcript_edit,
+            annotation_storage::load_annotations,
+            annotation_storage::save_annotations,
             updates::get_update_preferences,
             updates::save_update_preferences,
             updates::get_update_delivery,

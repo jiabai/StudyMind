@@ -3,7 +3,8 @@ export type IpcProtocolErrorCode =
   | "HISTORY_IPC_RESPONSE_INVALID"
   | "SETTINGS_IPC_RESPONSE_INVALID"
   | "TRANSCRIPT_IPC_RESPONSE_INVALID"
-  | "UPDATE_IPC_RESPONSE_INVALID";
+  | "UPDATE_IPC_RESPONSE_INVALID"
+  | "ANNOTATION_IPC_RESPONSE_INVALID";
 
 export class IpcProtocolError extends Error {
   readonly code: IpcProtocolErrorCode;

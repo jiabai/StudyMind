@@ -1,0 +1,115 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Task {
+  id            String    @id @default(uuid())
+  taskId        String    @unique
+  status        String
+  stage         String    @default("waiting_input")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  completedAt   DateTime?
+
+  platform      String    @default("local")
+  sourceKind    String?
+  sourceDisplay  String?
+  sourceMediaKind String?
+  sourceExtension String?
+
+  appVersion    String    @default("0.1.0")
+  workerVersion String    @default("")
+  model         String    @default("")
+
+  textPreview   String    @default("")
+  insightsCount Int       @default(0)
+
+  transcript   String?   // JSON: TranscriptMetadata
+  artifacts    String?   // JSON: HashMap<String, String>
+  error        String?   // JSON: TaskManifestError
+  insights     String?   // JSON: Vec<InsightView>
+  dissection   String?   // JSON: DissectionReport
+  preferenceSnapshot String?
+  extra        String?   // JSON: flexible extra
+
+  artifactsDir String?
+  taskDir      String?
+
+  progress     TaskProgress[]
+  aiGenerations AiGeneration[]
+  workerCommands WorkerCommand[]
+
+  @@index([status])
+  @@index([stage])
+  @@index([createdAt])
+}
+
+model TaskProgress {
+  id          String   @id @default(uuid())
+  taskId      String
+  stage       String
+  progress    Int      @default(0)
+  messageCode String
+  messageArgs String?  // JSON
+  createdAt   DateTime @default(now())
+
+  task        Task     @relation(fields: [taskId], references: [taskId], onDelete: Cascade)
+
+  @@index([taskId, createdAt])
+  @@index([stage])
+}
+
+model AiGeneration {
+  id             String   @id @default(uuid())
+  taskId         String
+  target         String
+  status         String
+  outputLanguage String
+  preferenceSnapshot String?  // JSON
+  result         String?  // JSON
+  errorCode      String?
+  errorMessage   String?
+  retryAttempts  Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  task           Task     @relation(fields: [taskId], references: [taskId], onDelete: Cascade)
+
+  @@index([taskId])
+  @@index([target, status])
+}
+
+model WorkerCommand {
+  id           String   @id @default(uuid())
+  taskId       String?
+  command      String
+  status       String
+  request      String?  // JSON
+  result       String?  // JSON
+  errorCode    String?
+  errorMessage String?
+  startedAt    DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime @default(now())
+
+  task         Task?    @relation(fields: [taskId], references: [taskId], onDelete: SetNull)
+
+  @@index([taskId])
+  @@index([command, status])
+}
+
+model AsrModel {
+  id          String   @id @default(uuid())
+  modelId     String   @unique
+  status      String   @default("unavailable")
+  displayName String
+  sizeBytes   Int?
+  downloadedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
