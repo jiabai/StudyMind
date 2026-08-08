@@ -4,7 +4,7 @@ import { describe, expect, test } from "vitest";
 
 const schemaPath = fileURLToPath(new URL("../prisma/schema.prisma", import.meta.url));
 const schema = readFileSync(schemaPath, "utf8");
-const modelNames = Array.from(schema.matchAll(/^model\s+(\w+)\s*\{/gm), (match) => match[1]);
+const modelNames = Array.from(schema.matchAll(/^\s*model\s+(\w+)\s*\{/gm), (match) => match[1]);
 
 const accountModels = [
   "User",

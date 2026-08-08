@@ -14,7 +14,9 @@ model User {
   updatedAt                       DateTime
   sessions                        Session[]
   orders                          Order[]
-  entitlements                    Entitlement[]
+  entitlement                     Entitlement?
+  desktopLoginTickets             DesktopLoginTicket[]
+  llmUsageEvents                  LlmUsageEvent[]
   redeemedCodes                   ActivationCode[]
   adminEntitlementAdjustments     AdminEntitlementAdjustment[]
   userSessions                    UserSession[]
@@ -56,6 +58,7 @@ model DesktopLoginTicket {
   expiresAt  DateTime
   consumedAt DateTime?
   createdAt  DateTime
+  user       User      @relation(fields: [userId], references: [id])
 
   @@index([state])
 }
@@ -82,7 +85,7 @@ model Order {
   expiresAt       DateTime
   createdAt       DateTime
   paidAt          DateTime?
-  transactionId   String?
+  transactionId   String?   @unique
   providerPayload String
   user            User      @relation(fields: [userId], references: [id])
 
@@ -98,6 +101,7 @@ model Entitlement {
   llmQuotaUsed  Int      @default(0)
   updatedAt     DateTime
   user          User     @relation(fields: [userId], references: [id])
+  llmUsageEvents LlmUsageEvent[]
 
   @@unique([userId])
 }
@@ -120,9 +124,12 @@ model LlmUsageEvent {
   entitlementId String
   requestId     String
   createdAt     DateTime
+  user          User        @relation(fields: [userId], references: [id])
+  entitlement   Entitlement @relation(fields: [entitlementId], references: [id])
 
   @@unique([userId, requestId])
   @@index([userId])
+  @@index([entitlementId])
 }
 
 model ActivationCode {

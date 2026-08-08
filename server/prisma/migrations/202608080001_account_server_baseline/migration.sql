@@ -44,7 +44,8 @@ CREATE TABLE "DesktopLoginTicket" (
     "userId" TEXT NOT NULL,
     "expiresAt" DATETIME NOT NULL,
     "consumedAt" DATETIME,
-    "createdAt" DATETIME NOT NULL
+    "createdAt" DATETIME NOT NULL,
+    CONSTRAINT "DesktopLoginTicket_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
 CREATE TABLE "Session" (
@@ -103,7 +104,9 @@ CREATE TABLE "LlmUsageEvent" (
     "userId" TEXT NOT NULL,
     "entitlementId" TEXT NOT NULL,
     "requestId" TEXT NOT NULL,
-    "createdAt" DATETIME NOT NULL
+    "createdAt" DATETIME NOT NULL,
+    CONSTRAINT "LlmUsageEvent_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT "LlmUsageEvent_entitlementId_fkey" FOREIGN KEY ("entitlementId") REFERENCES "Entitlement" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
 CREATE TABLE "ActivationCode" (
@@ -175,9 +178,11 @@ CREATE INDEX "DesktopLoginTicket_state_idx" ON "DesktopLoginTicket"("state");
 CREATE UNIQUE INDEX "Session_tokenHash_key" ON "Session"("tokenHash");
 CREATE INDEX "Session_userId_idx" ON "Session"("userId");
 CREATE UNIQUE INDEX "Order_outTradeNo_key" ON "Order"("outTradeNo");
+CREATE UNIQUE INDEX "Order_transactionId_key" ON "Order"("transactionId");
 CREATE INDEX "Order_userId_idx" ON "Order"("userId");
 CREATE UNIQUE INDEX "Entitlement_userId_key" ON "Entitlement"("userId");
 CREATE INDEX "LlmUsageEvent_userId_idx" ON "LlmUsageEvent"("userId");
+CREATE INDEX "LlmUsageEvent_entitlementId_idx" ON "LlmUsageEvent"("entitlementId");
 CREATE UNIQUE INDEX "LlmUsageEvent_userId_requestId_key" ON "LlmUsageEvent"("userId", "requestId");
 CREATE UNIQUE INDEX "ActivationCode_codeHash_key" ON "ActivationCode"("codeHash");
 CREATE INDEX "ActivationCode_status_idx" ON "ActivationCode"("status");
