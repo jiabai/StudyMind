@@ -13,6 +13,75 @@ async function createUserSession(store: MemoryStore, email: string, tokenHash: s
 }
 
 describe("MemoryStore semantic transaction safety", () => {
+  test("detaches records carried by compound semantic results", async () => {
+    const quotaStore = new MemoryStore();
+    const quotaUser = await quotaStore.upsertUserByEmail("compound-quota@studymind.local", now);
+    await quotaStore.upsertEntitlement(quotaUser.id, later(86_400_000), now, {
+      llmQuotaLimit: 2,
+      llmQuotaUsed: 0,
+    });
+    const checkout = await quotaStore.consumeLlmQuota(quotaUser.id, "compound-request", now);
+    expect(checkout.status).toBe("consumed");
+    if (checkout.status !== "consumed") throw new Error("expected consumed checkout");
+    checkout.entitlement.llmQuotaUsed = 999;
+    checkout.entitlement.expiresAt.setUTCFullYear(1988);
+    expect(await quotaStore.getEntitlement(quotaUser.id)).toMatchObject({
+      llmQuotaUsed: 1,
+      expiresAt: later(86_400_000),
+    });
+
+    const redemptionStore = new MemoryStore();
+    const { user: redemptionUser, session } = await createUserSession(
+      redemptionStore,
+      "compound-redemption@studymind.local",
+      "sha256:compound-redemption-session",
+    );
+    await redemptionStore.createActivationCode({
+      codeHash: "sha256:compound-code", codePrefix: "SM-CMP", status: "active",
+      entitlementDays: 30, redeemBy: later(86_400_000), createdAt: now,
+      redeemedAt: null, redeemedByUserId: null,
+    });
+    const redemption = await redemptionStore.redeemActivationCodeAndGrantEntitlement({
+      sessionTokenHash: session.tokenHash, codeHash: "sha256:compound-code",
+      now, llmQuotaPerActivation: 20,
+    });
+    expect(redemption.status).toBe("redeemed");
+    if (redemption.status !== "redeemed") throw new Error("expected redeemed result");
+    redemption.entitlement.llmQuotaLimit = 999;
+    expect(await redemptionStore.getEntitlement(redemptionUser.id)).toMatchObject({ llmQuotaLimit: 20 });
+
+    const billingStore = new MemoryStore();
+    const billingUser = await billingStore.upsertUserByEmail("compound-billing@studymind.local", now);
+    await billingStore.createOrder({
+      userId: billingUser.id, outTradeNo: "compound-order", amountFen: 990, status: "pending",
+      codeUrl: "weixin://compound-order", expiresAt: later(1_800_000), createdAt: now,
+      providerPayload: "{}",
+    });
+    const settlement = await billingStore.settlePaidOrder({
+      provider: "wechat", eventId: "compound-event", outTradeNo: "compound-order",
+      transactionId: "compound-transaction", paidAt: later(300_000), now: later(300_000), passDays: 30,
+    });
+    expect(settlement.status).toBe("settled");
+    if (settlement.status !== "settled") throw new Error("expected settled result");
+    settlement.entitlement.expiresAt.setUTCFullYear(1987);
+    expect((await billingStore.getEntitlement(billingUser.id))!.expiresAt.getUTCFullYear()).toBe(2026);
+
+    const adjustmentStore = new MemoryStore();
+    const adjustmentUser = await adjustmentStore.upsertUserByEmail("compound-adjustment@studymind.local", now);
+    const adjustment = await adjustmentStore.applyEntitlementAdjustmentWithAudit({
+      adminEmail: "admin@studymind.local", userId: adjustmentUser.id, reason: "learning_support",
+      note: null, extendDays: 7, quotaAdd: 5, now,
+    });
+    expect(adjustment.status).toBe("applied");
+    if (adjustment.status !== "applied") throw new Error("expected applied adjustment");
+    adjustment.entitlement.llmQuotaLimit = 999;
+    adjustment.adjustment.reason = "attacker-reason";
+    expect(await adjustmentStore.getEntitlement(adjustmentUser.id)).toMatchObject({ llmQuotaLimit: 5 });
+    expect(await adjustmentStore.listAdminEntitlementAdjustments()).toMatchObject([
+      { reason: "learning_support" },
+    ]);
+  });
+
   test("creates ticket and web session atomically while verifying a desktop OTP", async () => {
     const store = new MemoryStore();
     await store.issueEmailOtp({

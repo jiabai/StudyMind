@@ -3,6 +3,7 @@ import { MemoryStore as DefiningMemoryStore } from "../src/store/memory.js";
 import {
   MemoryStore as PublicMemoryStore,
   type EntitlementRecord,
+  type LlmConfigRecord,
   type Store,
 } from "../src/store.js";
 
@@ -115,6 +116,130 @@ describe("StudyMind Store compatibility", () => {
     expect(store.entitlements).toHaveLength(1);
   });
 
+  test("detaches user and entitlement records returned by public methods", async () => {
+    const store = new PublicMemoryStore();
+    const expectedNow = new Date(now);
+    const expectedExpiry = later(86_400_000);
+    const createdUser = await store.upsertUserByEmail("detached-user@studymind.local", now);
+    const userId = createdUser.id;
+    createdUser.email = "attacker@studymind.local";
+    createdUser.createdAt.setUTCFullYear(1999);
+
+    const foundUser = await store.getUserById(userId);
+    expect(foundUser).toMatchObject({ email: "detached-user@studymind.local", createdAt: expectedNow });
+    foundUser!.email = "second-attack@studymind.local";
+    foundUser!.updatedAt.setUTCFullYear(1998);
+    expect(await store.getUserById(userId)).toMatchObject({
+      email: "detached-user@studymind.local",
+      updatedAt: expectedNow,
+    });
+
+    const createdEntitlement = await store.upsertEntitlement(userId, later(86_400_000), now, {
+      llmQuotaLimit: 3,
+      llmQuotaUsed: 0,
+    });
+    createdEntitlement.llmQuotaUsed = 998;
+    createdEntitlement.expiresAt.setUTCFullYear(1997);
+    const foundEntitlement = await store.getEntitlement(userId);
+    foundEntitlement!.llmQuotaUsed = 999;
+    foundEntitlement!.expiresAt.setUTCFullYear(1996);
+
+    expect(await store.getEntitlement(userId)).toMatchObject({
+      llmQuotaUsed: 0,
+      expiresAt: expectedExpiry,
+    });
+    expect(store.entitlements[0]).toMatchObject({ llmQuotaUsed: 0, expiresAt: expectedExpiry });
+  });
+
+  test("detaches session, order, and LLM configuration find results including Dates", async () => {
+    const store = new PublicMemoryStore();
+    const user = await store.upsertUserByEmail("detached-records@studymind.local", now);
+    await store.createSession({
+      userId: user.id,
+      tokenHash: "sha256:detached-session",
+      createdAt: now,
+      expiresAt: later(86_400_000),
+    });
+    const session = await store.findSessionByTokenHash("sha256:detached-session", later(1_000));
+    session!.tokenHash = "sha256:session-attack";
+    session!.expiresAt.setUTCFullYear(1995);
+    expect(await store.findSessionByTokenHash("sha256:detached-session", later(1_000))).toMatchObject({
+      tokenHash: "sha256:detached-session",
+      expiresAt: later(86_400_000),
+    });
+
+    await store.createOrder({
+      userId: user.id,
+      outTradeNo: "detached-order",
+      amountFen: 990,
+      status: "pending",
+      codeUrl: "weixin://detached-order",
+      expiresAt: later(1_800_000),
+      createdAt: now,
+      providerPayload: "{}",
+    });
+    const order = await store.findOrderByOutTradeNo("detached-order");
+    order!.status = "cancelled";
+    order!.expiresAt.setUTCFullYear(1994);
+    expect(await store.findOrderByOutTradeNo("detached-order")).toMatchObject({
+      status: "pending",
+      expiresAt: later(1_800_000),
+    });
+
+    await store.upsertLlmConfig({
+      provider: "openai-compatible",
+      baseUrl: "https://llm.studymind.local/v1",
+      model: "detached-model",
+      encryptedApiKey: "ciphertext",
+      apiKeyLast4: "mind",
+      timeoutSeconds: 60,
+    }, now);
+    const config = await store.getLlmConfig() as LlmConfigRecord;
+    config.model = "attacker-model";
+    config.updatedAt.setUTCFullYear(1993);
+    expect(await store.getLlmConfig()).toMatchObject({ model: "detached-model", updatedAt: now });
+  });
+
+  test("clones public inputs so later object and Date mutations cannot alter stored state", async () => {
+    const store = new PublicMemoryStore();
+    const user = await store.upsertUserByEmail("detached-input@studymind.local", now);
+    const expiresAt = later(86_400_000);
+    const sessionInput = {
+      userId: user.id,
+      tokenHash: "sha256:input-session",
+      createdAt: new Date(now),
+      expiresAt,
+    };
+    await store.createSession(sessionInput);
+    sessionInput.tokenHash = "sha256:mutated-input";
+    sessionInput.createdAt.setUTCFullYear(1992);
+    sessionInput.expiresAt.setUTCFullYear(1991);
+
+    expect(await store.findSessionByTokenHash("sha256:input-session", later(1_000))).toMatchObject({
+      tokenHash: "sha256:input-session",
+      createdAt: now,
+      expiresAt: later(86_400_000),
+    });
+
+    const orderInput = {
+      userId: user.id,
+      outTradeNo: "detached-input-order",
+      amountFen: 990,
+      status: "pending" as const,
+      codeUrl: "weixin://detached-input-order",
+      expiresAt: later(1_800_000),
+      createdAt: new Date(now),
+      providerPayload: "{}",
+    };
+    await store.createOrder(orderInput);
+    orderInput.expiresAt.setUTCFullYear(1990);
+    orderInput.createdAt.setUTCFullYear(1989);
+    expect(await store.findOrderByOutTradeNo(orderInput.outTradeNo)).toMatchObject({
+      expiresAt: later(1_800_000),
+      createdAt: now,
+    });
+  });
+
   test("isolates OTP purpose and replaces an older OTP of the same purpose", async () => {
     const store = new PublicMemoryStore();
     await issueOtp(store, "desktop_login", { codeHash: "sha256:desktop-old" });
@@ -212,13 +337,13 @@ describe("StudyMind Store compatibility", () => {
     const store = new PublicMemoryStore();
     const zulu = await store.upsertUserByEmail("zulu@studymind.local", now);
     const alpha = await store.upsertUserByEmail("alpha@studymind.local", later(1_000));
-    expect(await store.getUserById(zulu.id)).toBe(zulu);
+    expect(await store.getUserById(zulu.id)).toEqual(zulu);
     expect(await store.listUsers()).toEqual([alpha, zulu]);
 
     const config = await store.upsertLlmConfig({
       provider: "openai-compatible", baseUrl: "https://llm.studymind.local/v1",
       model: "study-model", encryptedApiKey: "ciphertext", apiKeyLast4: "mind", timeoutSeconds: 60,
     }, now);
-    expect(await store.getLlmConfig()).toBe(config);
+    expect(await store.getLlmConfig()).toEqual(config);
   });
 });

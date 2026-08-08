@@ -45,83 +45,113 @@ export class MemoryStore implements Store {
     return { state: this.state, atomic: this.atomic, allocateId: () => this.createId() };
   }
 
-  upsertUserByEmail(email: string, now: Date): ReturnType<Store["upsertUserByEmail"]> {
-    return auth.upsertUserByEmail(this.context(), email, now);
+  private clone<Value>(value: Value): Value {
+    return structuredClone(value);
   }
-  getUserById(userId: string): ReturnType<Store["getUserById"]> { return auth.getUserById(this.context(), userId); }
+
+  private async detach<Result>(operation: Promise<Result>): Promise<Result> {
+    return this.clone(await operation);
+  }
+
+  upsertUserByEmail(email: string, now: Date): ReturnType<Store["upsertUserByEmail"]> {
+    return this.detach(auth.upsertUserByEmail(this.context(), email, this.clone(now)));
+  }
+  getUserById(userId: string): ReturnType<Store["getUserById"]> {
+    return this.detach(auth.getUserById(this.context(), userId));
+  }
   issueEmailOtp(input: Parameters<Store["issueEmailOtp"]>[0]): ReturnType<Store["issueEmailOtp"]> {
-    return auth.issueEmailOtp(this.context(), input);
+    return this.detach(auth.issueEmailOtp(this.context(), this.clone(input)));
   }
   invalidateIssuedOtpAfterDeliveryFailure(otpId: string, now: Date): ReturnType<Store["invalidateIssuedOtpAfterDeliveryFailure"]> {
-    return auth.invalidateIssuedOtpAfterDeliveryFailure(this.context(), otpId, now);
+    return this.detach(auth.invalidateIssuedOtpAfterDeliveryFailure(this.context(), otpId, this.clone(now)));
   }
   verifyDesktopOtpAndCreateTicket(input: Parameters<Store["verifyDesktopOtpAndCreateTicket"]>[0]): ReturnType<Store["verifyDesktopOtpAndCreateTicket"]> {
-    return auth.verifyDesktopOtpAndCreateTicket(this.context(), input);
+    return this.detach(auth.verifyDesktopOtpAndCreateTicket(this.context(), this.clone(input)));
   }
   verifyDesktopOtpAndCreateTicketAndWebSession(input: Parameters<Store["verifyDesktopOtpAndCreateTicketAndWebSession"]>[0]): ReturnType<Store["verifyDesktopOtpAndCreateTicketAndWebSession"]> {
-    return userSession.verifyDesktopOtpAndCreateTicketAndWebSession(this.context(), input);
+    return this.detach(userSession.verifyDesktopOtpAndCreateTicketAndWebSession(this.context(), this.clone(input)));
   }
   verifyAdminOtpAndCreateSession(input: Parameters<Store["verifyAdminOtpAndCreateSession"]>[0]): ReturnType<Store["verifyAdminOtpAndCreateSession"]> {
-    return auth.verifyAdminOtpAndCreateSession(this.context(), input);
+    return this.detach(auth.verifyAdminOtpAndCreateSession(this.context(), this.clone(input)));
   }
   verifyUserOtpAndCreateWebSession(input: Parameters<Store["verifyUserOtpAndCreateWebSession"]>[0]): ReturnType<Store["verifyUserOtpAndCreateWebSession"]> {
-    return userSession.verifyUserOtpAndCreateWebSession(this.context(), input);
+    return this.detach(userSession.verifyUserOtpAndCreateWebSession(this.context(), this.clone(input)));
   }
   exchangeDesktopTicketAndCreateSession(input: Parameters<Store["exchangeDesktopTicketAndCreateSession"]>[0]): ReturnType<Store["exchangeDesktopTicketAndCreateSession"]> {
-    return auth.exchangeDesktopTicketAndCreateSession(this.context(), input);
+    return this.detach(auth.exchangeDesktopTicketAndCreateSession(this.context(), this.clone(input)));
   }
-  createSession(input: Parameters<Store["createSession"]>[0]): ReturnType<Store["createSession"]> { return auth.createSession(this.context(), input); }
+  createSession(input: Parameters<Store["createSession"]>[0]): ReturnType<Store["createSession"]> {
+    return this.detach(auth.createSession(this.context(), this.clone(input)));
+  }
   findSessionByTokenHash(tokenHash: string, now: Date): ReturnType<Store["findSessionByTokenHash"]> {
-    return auth.findSessionByTokenHash(this.context(), tokenHash, now);
+    return this.detach(auth.findSessionByTokenHash(this.context(), tokenHash, this.clone(now)));
   }
-  revokeSession(tokenHash: string, now: Date): ReturnType<Store["revokeSession"]> { return auth.revokeSession(this.context(), tokenHash, now); }
-  createOrder(input: Parameters<Store["createOrder"]>[0]): ReturnType<Store["createOrder"]> { return billing.createOrder(this.context(), input); }
-  findOrderByOutTradeNo(outTradeNo: string): ReturnType<Store["findOrderByOutTradeNo"]> { return billing.findOrderByOutTradeNo(this.context(), outTradeNo); }
-  settlePaidOrder(input: Parameters<Store["settlePaidOrder"]>[0]): ReturnType<Store["settlePaidOrder"]> { return billing.settlePaidOrder(this.context(), input); }
-  getEntitlement(userId: string): ReturnType<Store["getEntitlement"]> { return entitlements.getEntitlement(this.context(), userId); }
+  revokeSession(tokenHash: string, now: Date): ReturnType<Store["revokeSession"]> {
+    return this.detach(auth.revokeSession(this.context(), tokenHash, this.clone(now)));
+  }
+  createOrder(input: Parameters<Store["createOrder"]>[0]): ReturnType<Store["createOrder"]> {
+    return this.detach(billing.createOrder(this.context(), this.clone(input)));
+  }
+  findOrderByOutTradeNo(outTradeNo: string): ReturnType<Store["findOrderByOutTradeNo"]> {
+    return this.detach(billing.findOrderByOutTradeNo(this.context(), outTradeNo));
+  }
+  settlePaidOrder(input: Parameters<Store["settlePaidOrder"]>[0]): ReturnType<Store["settlePaidOrder"]> {
+    return this.detach(billing.settlePaidOrder(this.context(), this.clone(input)));
+  }
+  getEntitlement(userId: string): ReturnType<Store["getEntitlement"]> {
+    return this.detach(entitlements.getEntitlement(this.context(), userId));
+  }
   upsertEntitlement(userId: string, expiresAt: Date, now: Date, quota?: { llmQuotaLimit?: number; llmQuotaUsed?: number }): ReturnType<Store["upsertEntitlement"]> {
-    return entitlements.upsertEntitlement(this.context(), userId, expiresAt, now, quota);
+    return this.detach(entitlements.upsertEntitlement(
+      this.context(), userId, this.clone(expiresAt), this.clone(now), this.clone(quota),
+    ));
   }
   consumeLlmQuota(userId: string, requestId: string, now: Date): ReturnType<Store["consumeLlmQuota"]> {
-    return entitlements.consumeLlmQuota(this.context(), userId, requestId, now);
+    return this.detach(entitlements.consumeLlmQuota(this.context(), userId, requestId, this.clone(now)));
   }
-  getLlmConfig(): ReturnType<Store["getLlmConfig"]> { return llmConfig.getLlmConfig(this.context()); }
+  getLlmConfig(): ReturnType<Store["getLlmConfig"]> {
+    return this.detach(llmConfig.getLlmConfig(this.context()));
+  }
   upsertLlmConfig(input: Parameters<Store["upsertLlmConfig"]>[0], now: Date): ReturnType<Store["upsertLlmConfig"]> {
-    return llmConfig.upsertLlmConfig(this.context(), input, now);
+    return this.detach(llmConfig.upsertLlmConfig(this.context(), this.clone(input), this.clone(now)));
   }
   createActivationCode(input: Parameters<Store["createActivationCode"]>[0]): ReturnType<Store["createActivationCode"]> {
-    return entitlements.createActivationCode(this.context(), input);
+    return this.detach(entitlements.createActivationCode(this.context(), this.clone(input)));
   }
   findActivationCodeByHash(codeHash: string): ReturnType<Store["findActivationCodeByHash"]> {
-    return entitlements.findActivationCodeByHash(this.context(), codeHash);
+    return this.detach(entitlements.findActivationCodeByHash(this.context(), codeHash));
   }
   redeemActivationCodeAndGrantEntitlement(input: Parameters<Store["redeemActivationCodeAndGrantEntitlement"]>[0]): ReturnType<Store["redeemActivationCodeAndGrantEntitlement"]> {
-    return entitlements.redeemActivationCodeAndGrantEntitlement(this.context(), input);
+    return this.detach(entitlements.redeemActivationCodeAndGrantEntitlement(this.context(), this.clone(input)));
   }
-  listActivationCodes(): ReturnType<Store["listActivationCodes"]> { return entitlements.listActivationCodes(this.context()); }
-  listUsers(): ReturnType<Store["listUsers"]> { return auth.listUsers(this.context()); }
+  listActivationCodes(): ReturnType<Store["listActivationCodes"]> {
+    return this.detach(entitlements.listActivationCodes(this.context()));
+  }
+  listUsers(): ReturnType<Store["listUsers"]> {
+    return this.detach(auth.listUsers(this.context()));
+  }
   createAdminSession(input: Parameters<Store["createAdminSession"]>[0]): ReturnType<Store["createAdminSession"]> {
-    return auth.createAdminSession(this.context(), input);
+    return this.detach(auth.createAdminSession(this.context(), this.clone(input)));
   }
   findAdminSessionByTokenHash(tokenHash: string, now: Date): ReturnType<Store["findAdminSessionByTokenHash"]> {
-    return auth.findAdminSessionByTokenHash(this.context(), tokenHash, now);
+    return this.detach(auth.findAdminSessionByTokenHash(this.context(), tokenHash, this.clone(now)));
   }
   revokeAdminSession(tokenHash: string, now: Date): ReturnType<Store["revokeAdminSession"]> {
-    return auth.revokeAdminSession(this.context(), tokenHash, now);
+    return this.detach(auth.revokeAdminSession(this.context(), tokenHash, this.clone(now)));
   }
   createUserSession(input: Parameters<Store["createUserSession"]>[0]): ReturnType<Store["createUserSession"]> {
-    return userSession.createUserSession(this.context(), input);
+    return this.detach(userSession.createUserSession(this.context(), this.clone(input)));
   }
   findUserSessionByTokenHash(tokenHash: string, now: Date): ReturnType<Store["findUserSessionByTokenHash"]> {
-    return userSession.findUserSessionByTokenHash(this.context(), tokenHash, now);
+    return this.detach(userSession.findUserSessionByTokenHash(this.context(), tokenHash, this.clone(now)));
   }
   revokeUserSession(tokenHash: string, now: Date): ReturnType<Store["revokeUserSession"]> {
-    return userSession.revokeUserSession(this.context(), tokenHash, now);
+    return this.detach(userSession.revokeUserSession(this.context(), tokenHash, this.clone(now)));
   }
   applyEntitlementAdjustmentWithAudit(input: Parameters<Store["applyEntitlementAdjustmentWithAudit"]>[0]): ReturnType<Store["applyEntitlementAdjustmentWithAudit"]> {
-    return entitlements.applyEntitlementAdjustmentWithAudit(this.context(), input);
+    return this.detach(entitlements.applyEntitlementAdjustmentWithAudit(this.context(), this.clone(input)));
   }
   listAdminEntitlementAdjustments(limit?: number): ReturnType<Store["listAdminEntitlementAdjustments"]> {
-    return entitlements.listAdminEntitlementAdjustments(this.context(), limit);
+    return this.detach(entitlements.listAdminEntitlementAdjustments(this.context(), limit));
   }
 }
