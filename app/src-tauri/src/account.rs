@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::future::Future;
 use std::path::Path;
 use tauri::AppHandle;
 use url::Url;
@@ -204,15 +205,39 @@ pub(crate) async fn get_account_status(app: AppHandle) -> Result<AccountStatusVi
 #[tauri::command]
 pub(crate) async fn logout_account(app: AppHandle) -> Result<(), String> {
     let paths = resolve_runtime_paths(&app)?;
-    if let Some(session) = read_account_session(&account_session_path(&paths))? {
-        let server_url = server_base_url()?;
-        let _ = reqwest::Client::new()
-            .post(format!("{server_url}/api/desktop/logout"))
-            .bearer_auth(session.session_token)
-            .send()
-            .await;
+    logout_account_session(
+        &account_session_path(&paths),
+        server_base_url,
+        |server_url, session_token| async move {
+            reqwest::Client::new()
+                .post(format!("{server_url}/api/desktop/logout"))
+                .bearer_auth(session_token)
+                .send()
+                .await
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+        },
+    )
+    .await
+}
+
+pub(crate) async fn logout_account_session<ResolveServer, Revoke, RevokeFuture>(
+    session_path: &Path,
+    resolve_server: ResolveServer,
+    revoke: Revoke,
+) -> Result<(), String>
+where
+    ResolveServer: FnOnce() -> Result<String, String>,
+    Revoke: FnOnce(String, String) -> RevokeFuture,
+    RevokeFuture: Future<Output = Result<(), String>>,
+{
+    let Some(session) = read_account_session(session_path)? else {
+        return Ok(());
+    };
+    fs::remove_file(session_path).map_err(|error| error.to_string())?;
+    if let Ok(server_url) = resolve_server() {
+        let _ = revoke(server_url, session.session_token).await;
     }
-    let _ = fs::remove_file(account_session_path(&paths));
     Ok(())
 }
 
@@ -247,10 +272,7 @@ pub(crate) async fn create_wechat_checkout(app: AppHandle) -> Result<WechatCheck
     let session = require_account_session(&paths)?;
     let server_url = server_base_url()?;
     let response = reqwest::Client::new()
-        .post(format!(
-            "{}/api/desktop/billing/wechat-native",
-            server_url
-        ))
+        .post(format!("{}/api/desktop/billing/wechat-native", server_url))
         .bearer_auth(session.session_token)
         .send()
         .await
@@ -336,9 +358,8 @@ fn account_pending_state_path(paths: &RuntimePaths) -> std::path::PathBuf {
 }
 
 pub(crate) fn server_base_url() -> Result<String, String> {
-    let pairs = std::env::vars_os().filter_map(|(key, value)| {
-        Some((key.into_string().ok()?, value.into_string().ok()?))
-    });
+    let pairs = std::env::vars_os()
+        .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)));
     server_base_url_from_env(pairs)
 }
 
@@ -593,8 +614,95 @@ fn guest_account_status() -> AccountStatusView {
 
 #[cfg(test)]
 mod tests {
-    use super::{account_status_view_from_server, guest_account_status, ServerAccountStatus};
+    use super::{
+        account_status_view_from_server, guest_account_status, logout_account_session,
+        AccountSessionFile, ServerAccountStatus,
+    };
     use serde_json::json;
+    use std::fs;
+    use std::sync::{Arc, Mutex};
+    use uuid::Uuid;
+
+    fn logout_fixture() -> (std::path::PathBuf, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!("studymind-logout-test-{}", Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("create logout fixture");
+        let session_path = dir.join("session.json");
+        fs::write(
+            &session_path,
+            serde_json::to_string(&AccountSessionFile {
+                session_token: "smds_secret-token".to_string(),
+                email: "student@example.com".to_string(),
+                expires_at: "2026-12-01T00:00:00.000Z".to_string(),
+            })
+            .expect("serialize session"),
+        )
+        .expect("write session");
+        (dir, session_path)
+    }
+
+    #[test]
+    fn logout_deletes_local_session_when_server_config_is_missing_or_invalid() {
+        tauri::async_runtime::block_on(async {
+            for config_error in ["missing configuration", "invalid configuration"] {
+                let (dir, session_path) = logout_fixture();
+                let remote_calls = Arc::new(Mutex::new(0));
+                let calls = Arc::clone(&remote_calls);
+                logout_account_session(
+                    &session_path,
+                    || Err(config_error.to_string()),
+                    move |_, _| async move {
+                        *calls.lock().expect("remote calls") += 1;
+                        Ok(())
+                    },
+                )
+                .await
+                .expect("local logout succeeds");
+                assert!(!session_path.exists());
+                assert_eq!(*remote_calls.lock().expect("remote calls"), 0);
+                fs::remove_dir_all(dir).expect("remove logout fixture");
+            }
+        });
+    }
+
+    #[test]
+    fn logout_ignores_remote_failure_after_deleting_local_session() {
+        tauri::async_runtime::block_on(async {
+            let (dir, session_path) = logout_fixture();
+            logout_account_session(
+                &session_path,
+                || Ok("https://api.studymind.invalid".to_string()),
+                |_, _| async { Err("network unavailable".to_string()) },
+            )
+            .await
+            .expect("local logout succeeds");
+            assert!(!session_path.exists());
+            fs::remove_dir_all(dir).expect("remove logout fixture");
+        });
+    }
+
+    #[test]
+    fn logout_without_session_is_idempotent_and_does_not_read_server_config() {
+        tauri::async_runtime::block_on(async {
+            let dir =
+                std::env::temp_dir().join(format!("studymind-logout-empty-{}", Uuid::new_v4()));
+            fs::create_dir_all(&dir).expect("create logout fixture");
+            let session_path = dir.join("session.json");
+            let config_reads = Arc::new(Mutex::new(0));
+            let reads = Arc::clone(&config_reads);
+            logout_account_session(
+                &session_path,
+                move || {
+                    *reads.lock().expect("config reads") += 1;
+                    Err("missing configuration".to_string())
+                },
+                |_, _| async { Ok(()) },
+            )
+            .await
+            .expect("idempotent logout succeeds");
+            assert_eq!(*config_reads.lock().expect("config reads"), 0);
+            fs::remove_dir_all(dir).expect("remove logout fixture");
+        });
+    }
 
     #[test]
     fn account_status_view_preserves_separate_processing_and_ai_gates() {

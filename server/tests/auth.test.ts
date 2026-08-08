@@ -114,11 +114,19 @@ describe("StudyMind desktop authentication", () => {
     expect(store.authRateLimits.filter(({ scope }) => scope === "ip_hour")).toMatchObject([{ count: 2 }]);
   });
 
-  test("does not disclose whether an administrator email is authorized", async () => {
-    let sends = 0;
-    const auth = new AdminAuthService({ store: new MemoryStore(), otpHmacKey: OTP_KEY, adminEmail: "admin@example.com", now: () => NOW, sendOtp: async () => { sends += 1; } });
-    await expect(auth.startEmailLogin({ email: "unknown@example.com", state: "state-123456", ip: "203.0.113.10" })).resolves.toEqual({ accepted: true });
-    expect(sends).toBe(0);
+  test("always sends administrator login codes to the configured destination", async () => {
+    let clock = NOW;
+    const destinations: string[] = [];
+    const store = new MemoryStore();
+    const auth = new AdminAuthService({ store, otpHmacKey: OTP_KEY, adminEmail: "admin@example.com", now: () => clock, sendOtp: async (email) => { destinations.push(email); } });
+    await expect(auth.startEmailLogin({ state: "state-123456", ip: "203.0.113.10" })).resolves.toEqual({ accepted: true });
+    clock = new Date(NOW.getTime() + 61_000);
+    await expect(auth.startEmailLogin({ state: "state-654321", ip: "203.0.113.11" })).resolves.toEqual({ accepted: true });
+    expect(destinations).toEqual(["admin@example.com", "admin@example.com"]);
+    expect(store.emailOtps.map(({ email, purpose }) => ({ email, purpose }))).toEqual([
+      { email: "admin@example.com", purpose: "admin_login" },
+      { email: "admin@example.com", purpose: "admin_login" },
+    ]);
   });
 
   test("keeps user and admin delivery errors fixed when OTP invalidation also fails", async () => {
@@ -129,7 +137,7 @@ describe("StudyMind desktop authentication", () => {
     const user = new UserAuthService({ store: new FailingInvalidationStore(), otpHmacKey: OTP_KEY, now: () => NOW, sendOtp: deliveryFailure });
     const admin = new AdminAuthService({ store: new FailingInvalidationStore(), otpHmacKey: OTP_KEY, adminEmail: "admin@example.com", now: () => NOW, sendOtp: deliveryFailure });
     await expect(user.startEmailLogin({ email: "user@example.com", state: "state-123456", ip: "203.0.113.1" })).rejects.toThrow("SERVER_TEMPORARILY_UNAVAILABLE");
-    await expect(admin.startEmailLogin({ email: "admin@example.com", state: "state-123456", ip: "203.0.113.2" })).rejects.toThrow("SERVER_TEMPORARILY_UNAVAILABLE");
+    await expect(admin.startEmailLogin({ state: "state-123456", ip: "203.0.113.2" })).rejects.toThrow("SERVER_TEMPORARILY_UNAVAILABLE");
   });
 
   test("uses the same keyed OTP contract for user and administrator verification", async () => {
@@ -140,7 +148,7 @@ describe("StudyMind desktop authentication", () => {
 
     let adminCode = ""; const adminStore = new MemoryStore();
     const admin = new AdminAuthService({ store: adminStore, otpHmacKey: OTP_KEY, adminEmail: "admin@example.com", now: () => NOW, sendOtp: async (_email, code) => { adminCode = code; } });
-    await admin.startEmailLogin({ email: "admin@example.com", state: "state-123456", ip: "203.0.113.2" });
-    await expect(admin.verifyEmailCode({ email: "admin@example.com", state: "state-123456", code: adminCode })).resolves.toMatchObject({ sessionToken: expect.stringMatching(/^smas_/), csrfToken: expect.stringMatching(/^smac_/) });
+    await admin.startEmailLogin({ state: "state-123456", ip: "203.0.113.2" });
+    await expect(admin.verifyEmailCode({ state: "state-123456", code: adminCode })).resolves.toMatchObject({ sessionToken: expect.stringMatching(/^smas_/), csrfToken: expect.stringMatching(/^smac_/) });
   });
 });
