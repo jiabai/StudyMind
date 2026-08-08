@@ -9,7 +9,13 @@ describe("StudyMind baseline migration", () => {
       const database = new DatabaseSync(fixture.databasePath);
       try {
         const tables = database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name <> '_prisma_migrations' ORDER BY name").all();
-        expect(tables).toHaveLength(14);
+        expect(tables).toEqual([
+          { name: "ActivationCode" }, { name: "AdminEntitlementAdjustment" },
+          { name: "AdminSession" }, { name: "AuthRateLimit" }, { name: "DesktopLoginTicket" },
+          { name: "EmailOtp" }, { name: "Entitlement" }, { name: "LlmConfig" },
+          { name: "LlmUsageEvent" }, { name: "Order" }, { name: "Session" },
+          { name: "User" }, { name: "UserSession" }, { name: "WebhookEvent" },
+        ]);
         expect(database.prepare("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
         expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
         expect(database.prepare('SELECT migration_name FROM "_prisma_migrations"').all()).toEqual([

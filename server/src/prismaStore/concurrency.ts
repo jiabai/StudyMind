@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import type { AuthRateLimitScope, OtpPurpose, Store } from "../store/contracts.js";
 
 type Reservation = { id: string; keyHash: string; purpose: OtpPurpose; scope: AuthRateLimitScope; windowStartedAt: Date; nextAllowedAt: Date; maxCount: number };
-export class RateLimitExceededError extends Error { constructor(readonly retryAt: Date) { super("AUTH_RATE_LIMITED"); } }
+export class StoreOperationError extends Error { readonly name = "StoreOperationError"; constructor() { super("Store operation failed."); } }
 
 export function rateLimitReservations(input: Parameters<Store["issueEmailOtp"]>[0]): Reservation[] {
   const hour = new Date(Math.floor(input.createdAt.getTime() / 3_600_000) * 3_600_000);
@@ -15,7 +15,7 @@ export function rateLimitReservations(input: Parameters<Store["issueEmailOtp"]>[
   return [make("email_minute", input.email, input.createdAt, new Date(input.createdAt.getTime() + 60_000), 1), make("email_hour", input.email, hour, end, 5), make("ip_hour", input.ip, hour, end, 20)];
 }
 
-export async function reserveRateLimit(tx: Prisma.TransactionClient, value: Reservation, now: Date): Promise<void> {
+export async function reserveRateLimit(tx: Prisma.TransactionClient, value: Reservation, now: Date): Promise<Date | null> {
   const rows = await tx.$queryRaw<Array<{ nextAllowedAt: Date }>>(Prisma.sql`
     INSERT INTO "AuthRateLimit" ("id","keyHash","purpose","scope","windowStartedAt","count","nextAllowedAt","updatedAt")
     VALUES (${value.id},${value.keyHash},${value.purpose},${value.scope},${value.windowStartedAt},1,${value.nextAllowedAt},${now})
@@ -27,10 +27,9 @@ export async function reserveRateLimit(tx: Prisma.TransactionClient, value: Rese
        OR (excluded."scope"<>'email_minute' AND ("AuthRateLimit"."windowStartedAt"<>excluded."windowStartedAt" OR "AuthRateLimit"."count"<${value.maxCount}))
     RETURNING "nextAllowedAt"
   `);
-  if (rows.length === 0) {
-    const current = await tx.authRateLimit.findUnique({ where: { keyHash: value.keyHash } });
-    throw new RateLimitExceededError(current?.nextAllowedAt ?? value.nextAllowedAt);
-  }
+  if (rows.length > 0) return null;
+  const current = await tx.authRateLimit.findUnique({ where: { keyHash: value.keyHash } });
+  return current?.nextAllowedAt ?? value.nextAllowedAt;
 }
 
 export async function withConflictRetry<T>(operation: () => Promise<T>): Promise<{ status: "completed"; value: T } | { status: "exhausted" }> {
@@ -46,6 +45,16 @@ export async function withConflictRetry<T>(operation: () => Promise<T>): Promise
 }
 
 export function isUnique(error: unknown): boolean { return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002"; }
+export function sanitizeStoreError(error: unknown): never {
+  if (error instanceof StoreOperationError) throw error;
+  if (
+    error instanceof Prisma.PrismaClientKnownRequestError ||
+    error instanceof Prisma.PrismaClientUnknownRequestError ||
+    error instanceof Prisma.PrismaClientInitializationError ||
+    error instanceof Prisma.PrismaClientValidationError
+  ) throw new StoreOperationError();
+  throw error;
+}
 function isRetryable(error: unknown): boolean {
   if (error instanceof Prisma.PrismaClientKnownRequestError) {
     if (error.code === "P2034" || error.code === "P1008") return true;
