@@ -1,11 +1,74 @@
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import { describe, expect, test } from "vitest";
 import { PrismaStore } from "../src/prismaStore.js";
+import { StoreOperationError, withConflictRetry } from "../src/prismaStore/concurrency.js";
 import { createPrismaTestHarness } from "./prismaTestHarness.js";
 
 const now = new Date("2026-08-08T08:00:00.000Z");
 const later = (ms: number) => new Date(now.getTime() + ms);
 
 describe("PrismaStore transaction safety", () => {
+  async function expectSanitized(operation: Promise<unknown>): Promise<void> {
+    try {
+      await operation;
+      throw new Error("expected store operation to reject");
+    } catch (error) {
+      expect(error).toBeInstanceOf(StoreOperationError);
+      expect(error).not.toBeInstanceOf(Prisma.PrismaClientKnownRequestError);
+      expect(error).not.toBeInstanceOf(Prisma.PrismaClientUnknownRequestError);
+      expect(error).toMatchObject({ name: "StoreOperationError", message: "Store operation failed." });
+      expect(String((error as Error).message)).not.toMatch(/Prisma|SQLite|connector|CHECK|prismaStore|[A-Z]:\\/i);
+      expect(Object.prototype.hasOwnProperty.call(error, "cause")).toBe(false);
+    }
+  }
+
+  test("routes all thirty-three public facade methods through one call boundary", () => {
+    const source = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), "../src/prismaStore.ts"), "utf8");
+    const publicMethods = [...source.matchAll(/^  (?!constructor|private)([a-zA-Z][a-zA-Z0-9]*)\([^\n]+\{ return [^\n]+$/gm)];
+    expect(publicMethods.map((match) => match[1])).toHaveLength(33);
+    expect(publicMethods.every((match) => match[0].includes("return this.call("))).toBe(true);
+  });
+
+  test("sanitizes database failures from every module while preserving conflicts and programmer errors", async () => {
+    const fixture = await createPrismaTestHarness();
+    try {
+      const store = new PrismaStore(fixture.prisma);
+      await expectSanitized(store.createSession({ userId: "missing-auth-user", tokenHash: "auth-fk", createdAt: now, expiresAt: later(60_000) }));
+      await expectSanitized(store.createUserSession({ userId: "missing-web-user", email: "missing@studymind.local", tokenHash: "web-fk", csrfTokenHash: "csrf", createdAt: now, expiresAt: later(60_000) }));
+      await expectSanitized(store.upsertEntitlement("missing-entitlement-user", later(60_000), now));
+      await expectSanitized(store.createOrder({ userId: "missing-order-user", outTradeNo: "billing-fk", amountFen: 1, status: "pending", codeUrl: "pay", expiresAt: later(60_000), createdAt: now, providerPayload: "{}" }));
+      await fixture.prisma.$executeRawUnsafe('CREATE TRIGGER "reject_llm_config" BEFORE INSERT ON "LlmConfig" BEGIN SELECT RAISE(ABORT, \'CHECK SQLite connector source path\'); END');
+      await expectSanitized(store.upsertLlmConfig({ provider: "test", baseUrl: "https://llm.invalid", model: "test", encryptedApiKey: "cipher", apiKeyLast4: "last", timeoutSeconds: 1 }, now));
+
+      const user = await store.upsertUserByEmail("stable-conflict@studymind.local", now);
+      const order = { userId: user.id, outTradeNo: "stable-conflict", amountFen: 1, status: "pending" as const, codeUrl: "pay", expiresAt: later(60_000), createdAt: now, providerPayload: "{}" };
+      await store.createOrder(order);
+      await expect(store.createOrder(order)).rejects.toMatchObject({ name: "StoreConflictError", constraint: "Order.outTradeNo" });
+
+      const programmerError = new Error("programmer invariant failed");
+      const fakeClient = new Proxy(fixture.prisma, {
+        get(target, property, receiver) {
+          if (property === "user") return { findUnique: async () => { throw programmerError; } };
+          const value = Reflect.get(target, property, receiver);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      }) as PrismaClient;
+      await expect(new PrismaStore(fakeClient).getUserById("irrelevant")).rejects.toBe(programmerError);
+    } finally { await fixture.close(); }
+  });
+
+  test("retries recognized conflicts exactly three times then throws a domain error", async () => {
+    let attempts = 0;
+    const operation = withConflictRetry(async () => {
+      attempts += 1;
+      throw new Prisma.PrismaClientKnownRequestError("database is locked", { code: "P2034", clientVersion: "6.19.3" });
+    });
+    await expectSanitized(operation);
+    expect(attempts).toBe(3);
+  });
   test("redeems an activation once and writes entitlement atomically", async () => {
     const fixture = await createPrismaTestHarness();
     try {

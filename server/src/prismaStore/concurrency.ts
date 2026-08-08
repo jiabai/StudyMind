@@ -32,16 +32,16 @@ export async function reserveRateLimit(tx: Prisma.TransactionClient, value: Rese
   return current?.nextAllowedAt ?? value.nextAllowedAt;
 }
 
-export async function withConflictRetry<T>(operation: () => Promise<T>): Promise<{ status: "completed"; value: T } | { status: "exhausted" }> {
+export async function withConflictRetry<T>(operation: () => Promise<T>): Promise<T> {
   for (let attempt = 1; attempt <= 3; attempt += 1) {
-    try { return { status: "completed", value: await operation() }; }
+    try { return await operation(); }
     catch (error) {
       if (!isRetryable(error)) throw error;
-      if (attempt === 3) return { status: "exhausted" };
+      if (attempt === 3) throw new StoreOperationError();
       await new Promise<void>((resolve) => setTimeout(resolve, attempt * 10));
     }
   }
-  return { status: "exhausted" };
+  throw new StoreOperationError();
 }
 
 export function isUnique(error: unknown): boolean { return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002"; }

@@ -28,5 +28,5 @@ export async function settlePaidOrder(prisma: PrismaClient, input: Input): Retur
     try { await tx.order.update({ where: { id: order.id }, data: { status: "paid", transactionId: input.transactionId, paidAt: input.paidAt } }); } catch (error) { if (isUnique(error)) return { status: "transaction_mismatch" } as const; throw error; }
     return { status: "settled", entitlement: await grant(tx, order.userId, input) } as const;
   }));
-  return result.status === "exhausted" ? { status: "order_state_conflict" } : result.value;
+  return result;
 }

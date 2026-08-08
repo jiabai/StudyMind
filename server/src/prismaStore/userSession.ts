@@ -17,7 +17,7 @@ async function verifiedUser(prisma: PrismaClient, input: Parameters<Store["verif
     const session = await tx.userSession.create({ data: { id: randomUUID(), userId: user.id, email: input.email, tokenHash: input.sessionTokenHash, csrfTokenHash: input.csrfTokenHash, createdAt: input.now, expiresAt: input.sessionExpiresAt, revokedAt: null } });
     return { status: "verified", user: user as UserRecord, session: session as UserSessionRecord, ...(ticket ? { ticket: ticket as DesktopLoginTicketRecord } : {}) } as const;
   }));
-  return result.status === "exhausted" ? { status: "temporarily_unavailable" } : result.value;
+  return result;
   } catch (error) { if (isUnique(error)) return { status: "temporarily_unavailable" }; throw error; }
 }
 export const verifyUserOtpAndCreateWebSession = (prisma: PrismaClient, input: Parameters<Store["verifyUserOtpAndCreateWebSession"]>[0]): ReturnType<Store["verifyUserOtpAndCreateWebSession"]> => verifiedUser(prisma, input);

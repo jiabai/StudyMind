@@ -24,7 +24,7 @@ export async function issueEmailOtp(prisma: PrismaClient, input: Parameters<Stor
         return { status: "issued", otpId } as const;
       }); } catch (error) { if (error instanceof BlockedRateLimitsError) return { status: "rate_limited", retryAt: error.retryAt } as const; throw error; }
   });
-  return result.status === "exhausted" ? { status: "temporarily_unavailable" } : result.value;
+  return result;
 }
 export async function invalidateIssuedOtpAfterDeliveryFailure(prisma: PrismaClient, otpId: string, now: Date): Promise<void> { await prisma.emailOtp.updateMany({ where: { id: otpId, consumedAt: null }, data: { consumedAt: now } }); }
 
@@ -49,7 +49,7 @@ export async function verifyDesktopOtpAndCreateTicket(prisma: PrismaClient, inpu
     const user = await tx.user.upsert({ where: { email: input.email }, update: { updatedAt: input.now }, create: { id: randomUUID(), email: input.email, createdAt: input.now, updatedAt: input.now } });
     const ticket = await tx.desktopLoginTicket.create({ data: { id: randomUUID(), ticketHash: input.ticketHash, state: input.state, userId: user.id, expiresAt: input.ticketExpiresAt, consumedAt: null, createdAt: input.now } }); return { status: "verified", user: user as UserRecord, ticket: ticket as DesktopLoginTicketRecord } as const;
   }));
-  return result.status === "exhausted" ? { status: "temporarily_unavailable" } : result.value;
+  return result;
   } catch (error) { if (isUnique(error)) return { status: "temporarily_unavailable" }; throw error; }
 }
 
@@ -62,7 +62,7 @@ export async function verifyAdminOtpAndCreateSession(prisma: PrismaClient, input
     const session = await tx.adminSession.create({ data: { id: randomUUID(), email: input.email, tokenHash: input.sessionTokenHash, csrfTokenHash: input.csrfTokenHash, createdAt: input.now, expiresAt: input.sessionExpiresAt, revokedAt: null } });
     return { status: "verified", session: session as AdminSessionRecord } as const;
   }));
-  return result.status === "exhausted" ? { status: "temporarily_unavailable" } : result.value;
+  return result;
   } catch (error) { if (isUnique(error)) return { status: "temporarily_unavailable" }; throw error; }
 }
 
@@ -78,7 +78,7 @@ export async function exchangeDesktopTicketAndCreateSession(prisma: PrismaClient
     const session = await tx.session.create({ data: { id: randomUUID(), userId: user.id, tokenHash: input.sessionTokenHash, createdAt: input.now, expiresAt: input.sessionExpiresAt, revokedAt: null } });
     return { status: "exchanged", user: user as UserRecord, session: session as SessionRecord } as const;
   }));
-  return result.status === "exhausted" ? { status: "temporarily_unavailable" } : result.value;
+  return result;
   } catch (error) { if (isUnique(error)) return { status: "temporarily_unavailable" }; throw error; }
 }
 

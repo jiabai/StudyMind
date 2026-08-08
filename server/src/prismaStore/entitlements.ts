@@ -26,12 +26,7 @@ export async function consumeLlmQuota(prisma: PrismaClient, userId: string, requ
     }
     return { status: "consumed", entitlement: updated as EntitlementRecord } as const;
   }));
-  if (result.status === "exhausted") {
-    const event = await prisma.llmUsageEvent.findUnique({ where: { userId_requestId: { userId, requestId } } });
-    const entitlement = await prisma.entitlement.findUnique({ where: { userId } });
-    return event && entitlement ? { status: "reused", entitlement: entitlement as EntitlementRecord } : { status: "temporarily_unavailable" };
-  }
-  return result.value;
+  return result;
 }
 
 export async function createActivationCode(prisma: PrismaClient, input: Parameters<Store["createActivationCode"]>[0]): ReturnType<Store["createActivationCode"]> { try { return await prisma.activationCode.create({ data: { ...input, id: randomUUID() } }) as ActivationCodeRecord; } catch (error) { if (isUnique(error)) throw new StoreConflictError("ActivationCode.codeHash"); throw error; } }
@@ -49,7 +44,7 @@ export async function redeemActivationCodeAndGrantEntitlement(prisma: PrismaClie
     const entitlement = await tx.entitlement.upsert({ where: { userId: session.userId }, update: { status: "active", expiresAt: new Date(base.getTime() + code.entitlementDays * 86_400_000), llmQuotaLimit: active && before ? before.llmQuotaLimit + input.llmQuotaPerActivation : input.llmQuotaPerActivation, llmQuotaUsed: active && before ? before.llmQuotaUsed : 0, updatedAt: input.now }, create: { id: randomUUID(), userId: session.userId, status: "active", expiresAt: new Date(base.getTime() + code.entitlementDays * 86_400_000), llmQuotaLimit: input.llmQuotaPerActivation, llmQuotaUsed: 0, updatedAt: input.now } });
     return { status: "redeemed", entitlement: entitlement as EntitlementRecord } as const;
   }));
-  return result.status === "exhausted" ? { status: "code_invalid" } : result.value;
+  return result;
 }
 export async function listActivationCodes(prisma: PrismaClient): ReturnType<Store["listActivationCodes"]> { return await prisma.activationCode.findMany({ orderBy: { createdAt: "desc" } }) as ActivationCodeRecord[]; }
 
