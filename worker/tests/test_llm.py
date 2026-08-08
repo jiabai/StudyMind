@@ -46,7 +46,22 @@ def test_parse_managed_checkout_response_validates_the_exact_contract() -> None:
         checkout_payload(timeout_seconds=0),
         checkout_payload(timeout_seconds=601),
         checkout_payload(timeout_seconds="45"),
+        checkout_payload(provider=1),
+        checkout_payload(base_url=["https://llm.example/v1"]),
+        checkout_payload(model={"name": "study-model"}),
+        checkout_payload(api_key=True),
+        checkout_payload(extra_field="not-allowed"),
+        json.dumps(["not", "an", "object"]).encode(),
         json.dumps({"provider": "openai"}).encode(),
+        json.dumps(
+            {
+                "provider": "openai_compatible",
+                "base_url": "https://llm.example/v1",
+                "model": "study-model",
+                "api_key": "managed-secret",
+                "timeout_seconds": 45,
+            }
+        ).encode(),
     ],
 )
 def test_parse_managed_checkout_response_rejects_malformed_or_missing_values(raw: bytes) -> None:

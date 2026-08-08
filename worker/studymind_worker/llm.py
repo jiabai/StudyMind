@@ -186,17 +186,30 @@ def build_insight_client_from_env(env: Mapping[str, str]) -> InsightClient | Non
 def parse_managed_checkout_response(raw_response: bytes) -> dict[str, str | int]:
     try:
         payload = json.loads(raw_response.decode("utf-8"))
-        provider = str(payload["provider"]).strip().lower()
-        base_url = str(payload["base_url"]).strip()
-        model = str(payload["model"]).strip()
-        api_key = str(payload["api_key"]).strip()
-        timeout_seconds = payload["timeout_seconds"]
-        quota_remaining = payload["quota_remaining"]
-    except (KeyError, TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise InsightGenerationError(
-            "INSIGHTFLOW_LLM_CHECKOUT_INVALID_RESPONSE",
-            "StudyMind LLM checkout did not return usable configuration.",
-        ) from exc
+    except (TypeError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise _invalid_managed_checkout_response() from exc
+
+    expected_fields = {
+        "provider",
+        "base_url",
+        "model",
+        "api_key",
+        "timeout_seconds",
+        "quota_remaining",
+    }
+    if not isinstance(payload, dict) or set(payload) != expected_fields:
+        raise _invalid_managed_checkout_response()
+    if not all(
+        isinstance(payload[field], str)
+        for field in ("provider", "base_url", "model", "api_key")
+    ):
+        raise _invalid_managed_checkout_response()
+    provider = payload["provider"].strip().lower()
+    base_url = payload["base_url"].strip()
+    model = payload["model"].strip()
+    api_key = payload["api_key"].strip()
+    timeout_seconds = payload["timeout_seconds"]
+    quota_remaining = payload["quota_remaining"]
 
     if (
         provider not in {"openai", "openai_compatible"}
@@ -210,10 +223,7 @@ def parse_managed_checkout_response(raw_response: bytes) -> dict[str, str | int]
         or not isinstance(quota_remaining, int)
         or quota_remaining < 0
     ):
-        raise InsightGenerationError(
-            "INSIGHTFLOW_LLM_CHECKOUT_INVALID_RESPONSE",
-            "StudyMind LLM checkout did not return usable configuration.",
-        )
+        raise _invalid_managed_checkout_response()
     return {
         "provider": provider,
         "base_url": base_url,
@@ -222,6 +232,13 @@ def parse_managed_checkout_response(raw_response: bytes) -> dict[str, str | int]
         "timeout_seconds": timeout_seconds,
         "quota_remaining": quota_remaining,
     }
+
+
+def _invalid_managed_checkout_response() -> InsightGenerationError:
+    return InsightGenerationError(
+        "INSIGHTFLOW_LLM_CHECKOUT_INVALID_RESPONSE",
+        "StudyMind LLM checkout did not return usable configuration.",
+    )
 
 
 def _managed_checkout_http_error(error: urllib.error.HTTPError) -> InsightGenerationError:

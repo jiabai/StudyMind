@@ -33,7 +33,8 @@ describe("managed LLM configuration encryption", () => {
     const firstCiphertext = store.llmConfig?.encryptedApiKey;
     await service.save({ provider: "openai", baseUrl: "https://api.openai.com/v1", model: "gpt-study", apiKey: "top-secret-value", timeoutSeconds: 60 });
     const secondCiphertext = store.llmConfig?.encryptedApiKey;
-    expect(publicConfig).toEqual({ provider: "openai", baseUrl: "https://api.openai.com/v1", model: "gpt-study", timeoutSeconds: 60, configured: true, apiKeyLast4: "alue" });
+    expect(publicConfig).toEqual({ configured: true, apiKeyLast4: "alue" });
+    expect(Object.keys(publicConfig).sort()).toEqual(["apiKeyLast4", "configured"]);
     expect(firstCiphertext).toMatch(/^v1:/);
     expect(secondCiphertext).not.toBe(firstCiphertext);
     expect(JSON.stringify(store)).not.toContain("top-secret-value");
@@ -50,7 +51,9 @@ describe("managed LLM configuration encryption", () => {
       }, NOW);
     }
     await expect(service.getDecrypted()).rejects.toThrow("LLM_CONFIG_UNAVAILABLE");
-    await expect(service.getPublic()).resolves.toMatchObject({ configured: false, apiKeyLast4: "alue" });
+    const tamperedPublic = await service.getPublic();
+    expect(tamperedPublic).toEqual({ configured: false, apiKeyLast4: "alue" });
+    expect(Object.keys(tamperedPublic ?? {}).sort()).toEqual(["apiKeyLast4", "configured"]);
   });
 
   test("validates provider, URL credentials, model, API key, timeout, and lengths", async () => {

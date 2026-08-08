@@ -7,7 +7,6 @@ const CONFIG_KEY_ERROR = "STUDYMIND_LLM_CONFIG_ENCRYPTION_KEY is required.";
 const DOMAIN = "studymind:llm-config-encryption:v1";
 
 export type PublicLlmConfig = {
-  provider: string; baseUrl: string; model: string; timeoutSeconds: number;
   configured: boolean; apiKeyLast4: string;
 };
 export type DecryptedLlmConfig = {
@@ -85,7 +84,7 @@ function validateConfig(input: { provider: string; baseUrl: string; model: strin
 }
 
 function toPublic(config: LlmConfigRecord, configured: boolean): PublicLlmConfig {
-  return { provider: config.provider, baseUrl: config.baseUrl, model: config.model, timeoutSeconds: config.timeoutSeconds, configured, apiKeyLast4: config.apiKeyLast4 };
+  return { configured, apiKeyLast4: config.apiKeyLast4 };
 }
 
 function deriveEncryptionKey(secret: string | undefined): Buffer {
