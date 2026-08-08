@@ -368,16 +368,23 @@ pub(crate) fn parse_auth_callback_url(
 ) -> Result<AuthCallback, String> {
     validate_auth_state(expected_state)?;
     let url = Url::parse(callback_url).map_err(|_| "Auth callback URL is invalid.".to_string())?;
-    if url.scheme() != "studymind" || url.host_str() != Some("auth") || url.path() != "/callback" {
+    if url.scheme() != "studymind"
+        || url.host_str() != Some("auth")
+        || url.path() != "/callback"
+        || url.port().is_some()
+        || url.fragment().is_some()
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
         return Err("Auth callback URL target is invalid.".to_string());
     }
     let mut ticket: Option<String> = None;
     let mut state: Option<String> = None;
     for (key, value) in url.query_pairs() {
         match key.as_ref() {
-            "ticket" => ticket = Some(value.to_string()),
-            "state" => state = Some(value.to_string()),
-            _ => {}
+            "ticket" if ticket.is_none() => ticket = Some(value.to_string()),
+            "state" if state.is_none() => state = Some(value.to_string()),
+            _ => return Err("Auth callback query is invalid.".to_string()),
         }
     }
     let Some(ticket) = ticket else {
@@ -389,7 +396,8 @@ pub(crate) fn parse_auth_callback_url(
     if state != expected_state {
         return Err("Auth callback state does not match this device.".to_string());
     }
-    if !ticket.starts_with("smlt_")
+    if ticket.len() <= 5
+        || !ticket.starts_with("smlt_")
         || ticket.len() > 256
         || !ticket[5..]
             .chars()

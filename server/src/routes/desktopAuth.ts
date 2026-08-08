@@ -10,12 +10,13 @@ import { bearerToken, isServerTemporarilyUnavailable, publicAuthError } from "./
 
 type Dependencies = {
   store: Pick<Store, "issueEmailOtp" | "invalidateIssuedOtpAfterDeliveryFailure" | "verifyDesktopOtpAndCreateTicketAndWebSession" | "exchangeDesktopTicketAndCreateSession" | "revokeSession">;
-  auth?: AuthService; sendOtp?: (email: string, code: string) => Promise<void>; now?: () => Date; secureCookies?: boolean;
+  auth?: AuthService; sendOtp: (email: string, code: string) => Promise<void>; now?: () => Date; secureCookies?: boolean;
 };
 
 export function registerDesktopAuthRoutes(app: FastifyInstance, dependencies: Dependencies): void {
+  if (typeof dependencies.sendOtp !== "function") throw new Error("OTP sender is required.");
   const now = dependencies.now ?? (() => new Date());
-  const auth = dependencies.auth ?? new AuthService({ store: dependencies.store, sendOtp: dependencies.sendOtp ?? (async () => undefined), now });
+  const auth = dependencies.auth ?? new AuthService({ store: dependencies.store, sendOtp: dependencies.sendOtp, now });
   const secure = dependencies.secureCookies ?? true;
   app.get("/login", async (request, reply) => {
     const query = request.query as Record<string, unknown>;

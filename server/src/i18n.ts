@@ -17,7 +17,7 @@ export function resolveLocale(value: unknown): Locale {
 export function t(locale: Locale, key: string): string { return strings[locale][key] ?? strings[DEFAULT_LOCALE][key] ?? key; }
 export function extractQueryLang(query: unknown): string | null { const value = (query as Record<string, unknown> | undefined)?.lang; return typeof value === "string" ? value : null; }
 export function resolveCookieLocale(header: string | null | undefined): Locale | null {
-  const raw = header?.match(/(?:^|;\s*)lang=([^;]+)/)?.[1];
+  const raw = header?.match(/(?:^|;\s*)studymind_locale=([^;]+)/)?.[1];
   if (!raw) return null;
   try { const decoded = decodeURIComponent(raw); return (SUPPORTED_LOCALES as readonly string[]).includes(decoded) ? decoded as Locale : null; }
   catch { return null; }
@@ -35,7 +35,7 @@ export function detectLocale(input: { cookie?: string | null; queryLang?: string
 }
 export function renderLangSwitcher(locale: Locale): string {
   const options = SUPPORTED_LOCALES.map((value) => `<option value="${value}"${value === locale ? " selected" : ""}>${LOCALE_LABELS[value]}</option>`).join("");
-  return `<select class="lang-switch" aria-label="${t(locale, "lang.select")}">${options}</select>`;
+  return `<select class="lang-switch" aria-label="${t(locale, "lang.select")}">${options}</select><script>(function(){var selector=document.currentScript.previousElementSibling;if(!selector)return;selector.addEventListener("change",function(){var target=selector.value;document.cookie = "studymind_locale=" + encodeURIComponent(target) + "; Path=/; Max-Age=${LANG_COOKIE_MAX_AGE}; SameSite=Lax";window.location.reload()})})()</script>`;
 }
 export function langSwitcherStyles(): string { return ".lang-switch{min-height:34px;padding:6px 12px}"; }
 export function dateLocale(locale: Locale): string { return locale; }

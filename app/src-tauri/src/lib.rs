@@ -235,6 +235,27 @@ mod tests {
     }
 
     #[test]
+    fn auth_callback_parser_rejects_noncanonical_urls_and_query_shapes() {
+        let invalid_urls = [
+            "studymind://auth:443/callback?ticket=smlt_abc123&state=state-123456",
+            "studymind://auth/callback?ticket=smlt_abc123&state=state-123456#fragment",
+            "studymind://auth/callback?ticket=smlt_abc123&state=state-123456&extra=1",
+            "studymind://auth/callback?ticket=smlt_first&ticket=smlt_second&state=state-123456",
+            "studymind://auth/callback?ticket=smlt_abc123&state=state-123456&state=state-123456",
+            "studymind://auth/callback?state=state-123456",
+            "studymind://auth/callback?ticket=smlt_abc123",
+            "studymind://auth/callback?ticket=&state=state-123456",
+            "studymind://auth/callback?ticket=smlt_abc123&state=",
+        ];
+        for callback_url in invalid_urls {
+            assert!(
+                parse_auth_callback_url(callback_url, "state-123456").is_err(),
+                "accepted invalid callback: {callback_url}"
+            );
+        }
+    }
+
+    #[test]
     fn load_llm_config_reads_only_local_app_settings() {
         let env_path = temp_env_path("load_llm_config_reads_only_local_app_settings");
         fs::write(

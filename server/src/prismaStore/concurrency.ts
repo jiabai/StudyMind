@@ -1,6 +1,7 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import type { AuthRateLimitScope, OtpPurpose, Store } from "../store/contracts.js";
+import { authRateLimitKey } from "../security.js";
 
 type Reservation = { id: string; keyHash: string; purpose: OtpPurpose; scope: AuthRateLimitScope; windowStartedAt: Date; nextAllowedAt: Date; maxCount: number };
 export class StoreOperationError extends Error { readonly name = "StoreOperationError"; constructor() { super("Store operation failed."); } }
@@ -9,7 +10,7 @@ export function rateLimitReservations(input: Parameters<Store["issueEmailOtp"]>[
   const hour = new Date(Math.floor(input.createdAt.getTime() / 3_600_000) * 3_600_000);
   const end = new Date(hour.getTime() + 3_600_000);
   const make = (scope: AuthRateLimitScope, value: string, start: Date, next: Date, maxCount: number): Reservation => ({
-    id: randomUUID(), keyHash: createHash("sha256").update(`${scope}\0${input.purpose}\0${value}`).digest("hex"),
+    id: randomUUID(), keyHash: authRateLimitKey(scope, input.purpose, value),
     purpose: input.purpose, scope, windowStartedAt: start, nextAllowedAt: next, maxCount,
   });
   return [make("email_minute", input.email, input.createdAt, new Date(input.createdAt.getTime() + 60_000), 1), make("email_hour", input.email, hour, end, 5), make("ip_hour", input.ip, hour, end, 20)];

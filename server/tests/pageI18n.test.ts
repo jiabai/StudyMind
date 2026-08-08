@@ -24,9 +24,19 @@ describe("StudyMind login page", () => {
   test("detects an explicit locale cookie before Accept-Language", async () => {
     const app = Fastify();
     registerDesktopAuthRoutes(app, { store: new MemoryStore(), sendOtp: async () => undefined });
-    const cookie = await app.inject({ method: "GET", url: "/login", headers: { cookie: "lang=en", "accept-language": "zh-TW" } });
+    const cookie = await app.inject({ method: "GET", url: "/login", headers: { cookie: "studymind_locale=en", "accept-language": "zh-TW" } });
     expect(cookie.body).toContain('<html lang="en">');
     const header = await app.inject({ method: "GET", url: "/login", headers: { "accept-language": "zh-Hant-TW,zh;q=0.8" } });
     expect(header.body).toContain('<html lang="zh-TW">');
+  });
+
+  test("language selector persists the StudyMind locale cookie and reloads", () => {
+    const html = renderLoginPage({ locale: "en", desktop: false, state: "", redirectUri: "" });
+    expect(html).toContain('document.cookie = "studymind_locale="');
+    expect(html).toContain("Path=/");
+    expect(html).toContain("SameSite=Lax");
+    expect(html).toContain("Max-Age=31536000");
+    expect(html).toContain("window.location.reload()");
+    expect(html).not.toContain('document.cookie = "lang="');
   });
 });

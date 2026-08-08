@@ -10,6 +10,18 @@ function buildApp(sendOtp: (email: string, code: string) => Promise<void> = asyn
 }
 
 describe("desktop auth routes", () => {
+  test("requires an explicitly configured OTP sender", () => {
+    const app = Fastify();
+    expect(() => registerDesktopAuthRoutes(app, { store: new MemoryStore() } as never))
+      .toThrow("OTP sender is required.");
+  });
+
+  if (false) {
+    const app = Fastify();
+    // @ts-expect-error sendOtp is a required delivery dependency.
+    registerDesktopAuthRoutes(app, { store: new MemoryStore() });
+  }
+
   test("serves only a valid StudyMind callback request", async () => {
     const app = buildApp();
     const valid = await app.inject({ method: "GET", url: "/login?desktop=1&state=state-123456&redirect_uri=studymind%3A%2F%2Fauth%2Fcallback" });
@@ -65,5 +77,40 @@ describe("desktop auth routes", () => {
     expect(response.statusCode).toBe(500);
     expect(response.json()).toEqual({ error: "INTERNAL_SERVER_ERROR" });
     expect(response.body).not.toContain("Prisma");
+  });
+
+  test("returns a fixed temporarily-unavailable response when OTP delivery fails", async () => {
+    const store = new MemoryStore();
+    const app = Fastify();
+    registerDesktopAuthRoutes(app, { store, sendOtp: async () => { throw new Error("SMTP credentials and OTP 123456"); } });
+    const response = await app.inject({
+      method: "POST", url: "/auth/email/start",
+      payload: { email: "user@example.com", state: "state-123456" },
+    });
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toEqual({ error: "SERVER_TEMPORARILY_UNAVAILABLE" });
+    expect(response.body).not.toContain("SMTP");
+    expect(response.body).not.toContain("123456");
+    expect(store.emailOtps[0]?.consumedAt).not.toBeNull();
+  });
+
+  test("does not accept an email start until delivery succeeds", async () => {
+    let releaseDelivery: (() => void) | undefined;
+    let markDeliveryStarted: (() => void) | undefined;
+    const delivery = new Promise<void>((resolve) => { releaseDelivery = resolve; });
+    const deliveryStarted = new Promise<void>((resolve) => { markDeliveryStarted = resolve; });
+    const app = buildApp(async () => { markDeliveryStarted?.(); await delivery; });
+    let settled = false;
+    const responsePromise = app.inject({
+      method: "POST", url: "/auth/email/start",
+      payload: { email: "user@example.com", state: "state-123456" },
+    }).then((response) => { settled = true; return response; });
+    await deliveryStarted;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(settled).toBe(false);
+    releaseDelivery?.();
+    const response = await responsePromise;
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ ok: true });
   });
 });

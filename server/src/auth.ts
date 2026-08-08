@@ -53,7 +53,7 @@ export class AuthService {
     } catch {
       try { await this.options.store.invalidateIssuedOtpAfterDeliveryFailure(issued.otpId, now); }
       catch { throw unavailable(); }
-      throw new Error("Could not send verification code. Please try again later.");
+      throw unavailable();
     }
   }
 

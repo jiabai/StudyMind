@@ -5,7 +5,7 @@ export function sha256(value: string): string {
 }
 
 export function authRateLimitKey(scope: string, purpose: string, value: string): string {
-  return sha256(`studymind:auth-rate-limit:v1|${scope}|${purpose}|${value}`);
+  return sha256(`studymind:auth-rate-limit:v1:${scope}:${purpose}:${value}`);
 }
 
 export function secureToken(prefix = ""): string {

@@ -3,11 +3,27 @@ import { PrismaStore } from "../src/prismaStore.js";
 import { MemoryStore } from "../src/store/memory.js";
 import type { Store } from "../src/store/contracts.js";
 import { createPrismaTestHarness } from "./prismaTestHarness.js";
+import { authRateLimitKey, sha256 } from "../src/security.js";
 
 const now = new Date("2026-08-08T08:00:00.000Z");
 const later = (ms: number) => new Date(now.getTime() + ms);
 
 describe("PrismaStore database concurrency", () => {
+  test("persists the versioned StudyMind rate keys identically to MemoryStore", async () => {
+    const fixture = await createPrismaTestHarness();
+    try {
+      const input = { purpose: "desktop_login" as const, email: "key@studymind.local", state: "rate-key", codeHash: "code", ip: "203.0.113.44", expiresAt: later(600_000), createdAt: now };
+      const memory = new MemoryStore();
+      await memory.issueEmailOtp(input);
+      await new PrismaStore(fixture.prisma).issueEmailOtp(input);
+      const prismaKeys = (await fixture.prisma.authRateLimit.findMany()).map(({ keyHash }) => keyHash).sort();
+      const memoryKeys = memory.authRateLimits.map(({ keyHash }) => keyHash).sort();
+      expect(prismaKeys).toEqual(memoryKeys);
+      expect(prismaKeys).toContain(authRateLimitKey("email_minute", input.purpose, input.email));
+      expect(prismaKeys).not.toContain(sha256(`email_minute\0${input.purpose}\0${input.email}`));
+    } finally { await fixture.close(); }
+  });
+
   async function wrongOtpWithDuplicateArtifacts(store: Store): Promise<string> {
     const user = await store.upsertUserByEmail("ordering@studymind.local", now);
     await store.createUserSession({ userId: user.id, email: user.email, tokenHash: "duplicate-web", csrfTokenHash: "csrf", createdAt: now, expiresAt: later(600_000) });
