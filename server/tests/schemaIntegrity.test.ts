@@ -27,17 +27,15 @@ describe("account schema integrity", () => {
 
   test("relates login tickets and LLM usage events to their owners", () => {
     expect(modelBlock("User")).toMatch(/^\s*desktopLoginTickets\s+DesktopLoginTicket\[\]/m);
-    expect(modelBlock("User")).toMatch(/^\s*llmUsageEvents\s+LlmUsageEvent\[\]/m);
+    expect(modelBlock("User")).not.toMatch(/^\s*llmUsageEvents\s+LlmUsageEvent\[\]/m);
     expect(modelBlock("DesktopLoginTicket")).toMatch(
       /^\s*user\s+User\s+@relation\(fields: \[userId\], references: \[id\]\)/m,
     );
     expect(modelBlock("Entitlement")).toMatch(/^\s*llmUsageEvents\s+LlmUsageEvent\[\]/m);
     expect(modelBlock("LlmUsageEvent")).toMatch(
-      /^\s*user\s+User\s+@relation\(fields: \[userId\], references: \[id\]\)/m,
+      /^\s*entitlement\s+Entitlement\s+@relation\(fields: \[entitlementId, userId\], references: \[id, userId\]\)/m,
     );
-    expect(modelBlock("LlmUsageEvent")).toMatch(
-      /^\s*entitlement\s+Entitlement\s+@relation\(fields: \[entitlementId\], references: \[id\]\)/m,
-    );
+    expect(modelBlock("Entitlement")).toMatch(/@@unique\(\[id, userId\]\)/);
     expect(modelBlock("LlmUsageEvent")).toMatch(/@@index\(\[entitlementId\]\)/);
   });
 
@@ -53,11 +51,9 @@ describe("account schema integrity", () => {
       'CONSTRAINT "DesktopLoginTicket_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE',
     );
     expect(migration).toContain(
-      'CONSTRAINT "LlmUsageEvent_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE',
+      'CONSTRAINT "LlmUsageEvent_entitlementId_userId_fkey" FOREIGN KEY ("entitlementId", "userId") REFERENCES "Entitlement" ("id", "userId") ON DELETE RESTRICT ON UPDATE CASCADE',
     );
-    expect(migration).toContain(
-      'CONSTRAINT "LlmUsageEvent_entitlementId_fkey" FOREIGN KEY ("entitlementId") REFERENCES "Entitlement" ("id") ON DELETE RESTRICT ON UPDATE CASCADE',
-    );
+    expect(migration).toContain('CREATE UNIQUE INDEX "Entitlement_id_userId_key" ON "Entitlement"("id", "userId");');
     expect(migration).toContain(
       'CREATE INDEX "LlmUsageEvent_entitlementId_idx" ON "LlmUsageEvent"("entitlementId");',
     );

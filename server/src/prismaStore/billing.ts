@@ -24,7 +24,7 @@ export async function settlePaidOrder(prisma: PrismaClient, input: Input): Retur
       return { status: "settled", entitlement: await grant(tx, order.userId, input) } as const;
     }
     if (order.status !== "pending" || order.transactionId || order.paidAt) return { status: "order_state_conflict" } as const;
-    await tx.webhookEvent.create({ data: { id: randomUUID(), provider: input.provider, eventId: input.eventId, outTradeNo: input.outTradeNo, payload: payload(input), createdAt: input.now } });
+    if (!event) await tx.webhookEvent.create({ data: { id: randomUUID(), provider: input.provider, eventId: input.eventId, outTradeNo: input.outTradeNo, payload: payload(input), createdAt: input.now } });
     try { await tx.order.update({ where: { id: order.id }, data: { status: "paid", transactionId: input.transactionId, paidAt: input.paidAt } }); } catch (error) { if (isUnique(error)) return { status: "transaction_mismatch" } as const; throw error; }
     return { status: "settled", entitlement: await grant(tx, order.userId, input) } as const;
   }));

@@ -105,8 +105,7 @@ CREATE TABLE "LlmUsageEvent" (
     "entitlementId" TEXT NOT NULL,
     "requestId" TEXT NOT NULL,
     "createdAt" DATETIME NOT NULL,
-    CONSTRAINT "LlmUsageEvent_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
-    CONSTRAINT "LlmUsageEvent_entitlementId_fkey" FOREIGN KEY ("entitlementId") REFERENCES "Entitlement" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+    CONSTRAINT "LlmUsageEvent_entitlementId_userId_fkey" FOREIGN KEY ("entitlementId", "userId") REFERENCES "Entitlement" ("id", "userId") ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
 CREATE TABLE "ActivationCode" (
@@ -181,6 +180,7 @@ CREATE UNIQUE INDEX "Order_outTradeNo_key" ON "Order"("outTradeNo");
 CREATE UNIQUE INDEX "Order_transactionId_key" ON "Order"("transactionId");
 CREATE INDEX "Order_userId_idx" ON "Order"("userId");
 CREATE UNIQUE INDEX "Entitlement_userId_key" ON "Entitlement"("userId");
+CREATE UNIQUE INDEX "Entitlement_id_userId_key" ON "Entitlement"("id", "userId");
 CREATE INDEX "LlmUsageEvent_userId_idx" ON "LlmUsageEvent"("userId");
 CREATE INDEX "LlmUsageEvent_entitlementId_idx" ON "LlmUsageEvent"("entitlementId");
 CREATE UNIQUE INDEX "LlmUsageEvent_userId_requestId_key" ON "LlmUsageEvent"("userId", "requestId");

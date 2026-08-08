@@ -16,7 +16,6 @@ model User {
   orders                          Order[]
   entitlement                     Entitlement?
   desktopLoginTickets             DesktopLoginTicket[]
-  llmUsageEvents                  LlmUsageEvent[]
   redeemedCodes                   ActivationCode[]
   adminEntitlementAdjustments     AdminEntitlementAdjustment[]
   userSessions                    UserSession[]
@@ -104,6 +103,7 @@ model Entitlement {
   llmUsageEvents LlmUsageEvent[]
 
   @@unique([userId])
+  @@unique([id, userId])
 }
 
 model LlmConfig {
@@ -124,8 +124,7 @@ model LlmUsageEvent {
   entitlementId String
   requestId     String
   createdAt     DateTime
-  user          User        @relation(fields: [userId], references: [id])
-  entitlement   Entitlement @relation(fields: [entitlementId], references: [id])
+  entitlement   Entitlement @relation(fields: [entitlementId, userId], references: [id, userId])
 
   @@unique([userId, requestId])
   @@index([userId])

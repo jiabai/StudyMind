@@ -116,8 +116,6 @@ describe("PrismaStore transaction safety", () => {
       expect(await store.findOrderByOutTradeNo("two")).toMatchObject({ status: "pending" });
     } finally { await fixture.close(); }
   }, 30_000);
-  });
-
   test("uses event-first canonical replay semantics independent of passDays and order existence", async () => {
     const fixture = await createPrismaTestHarness();
     try {
@@ -130,6 +128,27 @@ describe("PrismaStore transaction safety", () => {
       expect((await store.settlePaidOrder({ ...event, outTradeNo: "missing-order" })).status).toBe("webhook_order_mismatch");
       expect(await fixture.prisma.webhookEvent.count()).toBe(1);
       expect((await fixture.prisma.webhookEvent.findFirstOrThrow()).payload).toBe(JSON.stringify({ outTradeNo: event.outTradeNo, transactionId: event.transactionId, paidAt: event.paidAt.toISOString() }));
+    } finally { await fixture.close(); }
+  });
+
+  test("settles a pending order from a preclaimed matching canonical event without duplicating it", async () => {
+    const fixture = await createPrismaTestHarness();
+    try {
+      const store = new PrismaStore(fixture.prisma);
+      const user = await store.upsertUserByEmail("preclaimed@studymind.local", now);
+      await store.createOrder({ userId: user.id, outTradeNo: "preclaimed-order", amountFen: 1, status: "pending", codeUrl: "pay", expiresAt: later(60_000), createdAt: now, providerPayload: "{}" });
+      const input = { provider: "wechat", eventId: "preclaimed-event", outTradeNo: "preclaimed-order", transactionId: "preclaimed-tx", paidAt: later(1_000), now: later(1_000), passDays: 30 };
+      await fixture.prisma.webhookEvent.create({ data: { id: "preclaimed-row", provider: input.provider, eventId: input.eventId, outTradeNo: input.outTradeNo, payload: JSON.stringify({ outTradeNo: input.outTradeNo, transactionId: input.transactionId, paidAt: input.paidAt.toISOString() }), createdAt: input.now } });
+
+      await expect(store.settlePaidOrder(input)).resolves.toMatchObject({ status: "settled" });
+      await expect(store.findOrderByOutTradeNo(input.outTradeNo)).resolves.toMatchObject({ status: "paid", transactionId: input.transactionId });
+      expect(await fixture.prisma.webhookEvent.count()).toBe(1);
+      expect(await fixture.prisma.entitlement.count({ where: { userId: user.id } })).toBe(1);
+
+      await fixture.prisma.order.update({ where: { outTradeNo: input.outTradeNo }, data: { status: "pending", transactionId: null, paidAt: null } });
+      const mismatch = await store.settlePaidOrder({ ...input, transactionId: "different-tx" });
+      expect(mismatch.status).toBe("webhook_payload_conflict");
+      await expect(store.findOrderByOutTradeNo(input.outTradeNo)).resolves.toMatchObject({ status: "pending", transactionId: null });
     } finally { await fixture.close(); }
   });
 
@@ -184,3 +203,4 @@ describe("PrismaStore transaction safety", () => {
       expect(await fixture.prisma.entitlement.count({ where: { userId: user.id } })).toBe(0);
     } finally { await fixture.close(); }
   });
+});

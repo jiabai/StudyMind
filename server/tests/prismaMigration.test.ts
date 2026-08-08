@@ -37,4 +37,16 @@ describe("StudyMind baseline migration", () => {
       await expect(fixture.prisma.order.create({ data: { id: "o2", outTradeNo: "two", ...base } })).rejects.toThrow();
     } finally { await fixture.close(); }
   }, 30_000);
+
+  test("enforces that usage user ownership matches its entitlement", async () => {
+    const fixture = await createPrismaTestHarness();
+    try {
+      const first = await fixture.prisma.user.create({ data: { id: "usage-u1", email: "usage-u1@studymind.local", createdAt: new Date(), updatedAt: new Date() } });
+      const second = await fixture.prisma.user.create({ data: { id: "usage-u2", email: "usage-u2@studymind.local", createdAt: new Date(), updatedAt: new Date() } });
+      const entitlement = await fixture.prisma.entitlement.create({ data: { id: "usage-entitlement", userId: second.id, status: "active", expiresAt: new Date(Date.now() + 60_000), llmQuotaLimit: 2, llmQuotaUsed: 0, updatedAt: new Date() } });
+      await expect(fixture.prisma.llmUsageEvent.create({ data: { id: "usage-invalid", userId: first.id, entitlementId: entitlement.id, requestId: "invalid", createdAt: new Date() } })).rejects.toThrow();
+      await expect(fixture.prisma.llmUsageEvent.create({ data: { id: "usage-valid", userId: second.id, entitlementId: entitlement.id, requestId: "valid", createdAt: new Date() } })).resolves.toMatchObject({ userId: second.id, entitlementId: entitlement.id });
+      expect(await fixture.prisma.$queryRawUnsafe("PRAGMA foreign_key_check")).toEqual([]);
+    } finally { await fixture.close(); }
+  }, 30_000);
 });
