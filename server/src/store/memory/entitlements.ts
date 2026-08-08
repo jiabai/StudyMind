@@ -1,4 +1,5 @@
 import type { AdminEntitlementAdjustmentRecord, EntitlementRecord, Store } from "../contracts.js";
+import { assertEntitlementAdjustmentResult } from "../../entitlementAdjustment.js";
 import type { MemoryAuthContext } from "./auth.js";
 import { assertUnique } from "./atomic.js";
 
@@ -133,8 +134,10 @@ export async function applyEntitlementAdjustmentWithAudit(
     const extended = input.extendDays === undefined ? null : new Date(base.getTime() + input.extendDays * 86_400_000);
     const afterExpiresAt = input.expiresAt ?? extended ?? beforeExpiresAt;
     if (!afterExpiresAt) return { status: "expiry_required" };
+    const afterLlmQuotaLimit = beforeLlmQuotaLimit + (input.quotaAdd ?? 0);
+    assertEntitlementAdjustmentResult({ afterExpiresAt, afterLlmQuotaLimit, beforeLlmQuotaUsed });
     const entitlement = await upsertEntitlement(context, input.userId, afterExpiresAt, input.now, {
-      llmQuotaLimit: beforeLlmQuotaLimit + (input.quotaAdd ?? 0), llmQuotaUsed: beforeLlmQuotaUsed,
+      llmQuotaLimit: afterLlmQuotaLimit, llmQuotaUsed: beforeLlmQuotaUsed,
     });
     const adjustment: AdminEntitlementAdjustmentRecord = {
       id: `adj_${context.allocateId()}`, adminEmail: input.adminEmail, userId: input.userId,

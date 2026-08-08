@@ -131,6 +131,19 @@ describe("PrismaStore transaction safety", () => {
     } finally { await fixture.close(); }
   });
 
+  test("rejects Int32 quota overflow without changing entitlement or writing an audit", async () => {
+    const fixture = await createPrismaTestHarness();
+    try {
+      const store = new PrismaStore(fixture.prisma);
+      const user = await store.upsertUserByEmail("adjustment-overflow@studymind.local", now);
+      await store.upsertEntitlement(user.id, later(60_000), now, { llmQuotaLimit: 2_147_483_647, llmQuotaUsed: 0 });
+      await expect(store.applyEntitlementAdjustmentWithAudit({ adminEmail: "admin@studymind.local", userId: user.id, reason: "overflow", note: null, quotaAdd: 1, now }))
+        .rejects.toThrow("ENTITLEMENT_ADJUSTMENT_OUT_OF_RANGE");
+      await expect(store.getEntitlement(user.id)).resolves.toMatchObject({ llmQuotaLimit: 2_147_483_647, llmQuotaUsed: 0 });
+      expect(await fixture.prisma.adminEntitlementAdjustment.count()).toBe(0);
+    } finally { await fixture.close(); }
+  });
+
   test("settles a pending order from a preclaimed matching canonical event without duplicating it", async () => {
     const fixture = await createPrismaTestHarness();
     try {

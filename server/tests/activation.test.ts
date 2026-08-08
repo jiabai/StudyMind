@@ -4,6 +4,7 @@ import { ActivationCodeService } from "../src/activation.js";
 import { EntitlementAdjustmentService } from "../src/entitlementAdjustment.js";
 import { LlmConfigService } from "../src/llmConfig.js";
 import { registerDesktopAccountRoutes } from "../src/routes/desktopAccount.js";
+import { StoreOperationError } from "../src/prismaStore/concurrency.js";
 import { sha256 } from "../src/security.js";
 import { MemoryStore } from "../src/store.js";
 
@@ -87,6 +88,19 @@ describe("entitlement adjustment service", () => {
     });
     await expect(service.apply({ adminEmail: "a@b.c", userId: user.id, extendDays: 1.5, reason: "bad" })).rejects.toThrow("INVALID_ENTITLEMENT_ADJUSTMENT");
     await expect(service.apply({ adminEmail: "a@b.c", userId: user.id, quotaAdd: -21, reason: "bad" })).rejects.toThrow("INVALID_ENTITLEMENT_ADJUSTMENT");
+    await expect(service.apply({ adminEmail: "a@b.c", userId: user.id, extendDays: 36_501, reason: "bad" })).rejects.toThrow("INVALID_ENTITLEMENT_ADJUSTMENT");
+    await expect(service.apply({ adminEmail: "a@b.c", userId: user.id, quotaAdd: 1_000_001, reason: "bad" })).rejects.toThrow("INVALID_ENTITLEMENT_ADJUSTMENT");
+    await expect(service.apply({ adminEmail: "a@b.c", userId: user.id, expiresAt: new Date(Number.NaN), reason: "bad" })).rejects.toThrow("INVALID_ENTITLEMENT_ADJUSTMENT");
+  });
+
+  test("rejects an adjustment whose resulting credit limit exceeds Int32 without an audit write", async () => {
+    const store = new MemoryStore();
+    const { user } = await authorized(store);
+    await store.upsertEntitlement(user.id, new Date("2026-09-01T08:00:00.000Z"), NOW, { llmQuotaLimit: 2_147_483_647, llmQuotaUsed: 0 });
+    await expect(store.applyEntitlementAdjustmentWithAudit({ adminEmail: "admin@studymind.local", userId: user.id, reason: "overflow", note: null, quotaAdd: 1, now: NOW }))
+      .rejects.toThrow("ENTITLEMENT_ADJUSTMENT_OUT_OF_RANGE");
+    expect(store.adminEntitlementAdjustments).toHaveLength(0);
+    await expect(store.getEntitlement(user.id)).resolves.toMatchObject({ llmQuotaLimit: 2_147_483_647 });
   });
 });
 
@@ -140,5 +154,18 @@ describe("desktop account and redemption routes", () => {
 
     const response = await app.inject({ method: "GET", url: "/api/desktop/account", headers: { authorization: `Bearer ${token}` } });
     expect(response.json()).toMatchObject({ llm_configured: false, can_process: true, can_generate_ai: false });
+  });
+
+  test("returns server unavailable when account LLM config storage fails", async () => {
+    class ConfigFailureStore extends MemoryStore {
+      override async getLlmConfig(): ReturnType<MemoryStore["getLlmConfig"]> { throw new StoreOperationError(); }
+    }
+    const store = new ConfigFailureStore();
+    const { token } = await authorized(store);
+    const app = Fastify();
+    registerDesktopAccountRoutes(app, { store, activationCodes: new ActivationCodeService({ store }), llmConfig: new LlmConfigService({ store, encryptionKey: LLM_KEY }), now: () => NOW });
+    const response = await app.inject({ method: "GET", url: "/api/desktop/account", headers: { authorization: `Bearer ${token}` } });
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toEqual({ error: "SERVER_TEMPORARILY_UNAVAILABLE" });
   });
 });

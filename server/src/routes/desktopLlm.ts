@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import type { LlmConfigService } from "../llmConfig.js";
+import { LlmConfigInvalidError, LlmConfigMissingError, type LlmConfigService } from "../llmConfig.js";
 import type { Store } from "../store.js";
 import { authenticateDesktop } from "./shared.js";
 
@@ -21,8 +21,11 @@ export function registerDesktopLlmRoutes(app: FastifyInstance, dependencies: {
 
     let config;
     try { config = await dependencies.llmConfig.getDecrypted(); }
-    catch { return reply.code(503).send({ error: "LLM_CONFIG_MISSING" }); }
-    if (!config) return reply.code(503).send({ error: "LLM_CONFIG_MISSING" });
+    catch (error) {
+      if (error instanceof LlmConfigMissingError || error instanceof LlmConfigInvalidError)
+        return reply.code(503).send({ error: "LLM_CONFIG_MISSING" });
+      return reply.code(503).send({ error: "SERVER_TEMPORARILY_UNAVAILABLE" });
+    }
 
     let checkout: Awaited<ReturnType<CheckoutStore["consumeLlmQuota"]>>;
     try { checkout = await dependencies.store.consumeLlmQuota(session.userId, parsed.data.request_id, now()); }

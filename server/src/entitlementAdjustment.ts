@@ -1,6 +1,9 @@
 import type { Store } from "./store.js";
 
 type AdjustmentStore = Pick<Store, "applyEntitlementAdjustmentWithAudit">;
+const MAX_EXTEND_DAYS = 36_500;
+const MAX_QUOTA_ADD = 1_000_000;
+const MAX_INT32 = 2_147_483_647;
 
 export class EntitlementAdjustmentService {
   private readonly now: () => Date;
@@ -15,9 +18,9 @@ export class EntitlementAdjustmentService {
   }) {
     const now = this.now();
     const reason = input.reason.trim();
-    const validDays = input.extendDays === undefined || (Number.isInteger(input.extendDays) && input.extendDays > 0);
-    const validCredits = input.quotaAdd === undefined || (Number.isInteger(input.quotaAdd) && input.quotaAdd > 0);
-    const validExpiry = input.expiresAt === undefined || (!Number.isNaN(input.expiresAt.getTime()) && input.expiresAt > now);
+    const validDays = input.extendDays === undefined || (Number.isInteger(input.extendDays) && input.extendDays > 0 && input.extendDays <= MAX_EXTEND_DAYS);
+    const validCredits = input.quotaAdd === undefined || (Number.isInteger(input.quotaAdd) && input.quotaAdd > 0 && input.quotaAdd <= MAX_QUOTA_ADD);
+    const validExpiry = input.expiresAt === undefined || (input.expiresAt instanceof Date && Number.isFinite(input.expiresAt.getTime()) && input.expiresAt > now);
     const hasExpiryAdjustment = input.extendDays !== undefined || input.expiresAt !== undefined;
     if (!input.adminEmail.trim() || !input.userId.trim() || !reason || reason.length > 160 ||
       !validDays || !validCredits || !validExpiry || (!hasExpiryAdjustment && input.quotaAdd === undefined) ||
@@ -30,4 +33,12 @@ export class EntitlementAdjustmentService {
       expiresAt: input.expiresAt, quotaAdd: input.quotaAdd, now,
     });
   }
+}
+
+export function assertEntitlementAdjustmentResult(input: {
+  afterExpiresAt: Date; afterLlmQuotaLimit: number; beforeLlmQuotaUsed: number;
+}): void {
+  if (!Number.isFinite(input.afterExpiresAt.getTime()) || !Number.isInteger(input.afterLlmQuotaLimit) ||
+    input.afterLlmQuotaLimit < input.beforeLlmQuotaUsed || input.afterLlmQuotaLimit < 0 ||
+    input.afterLlmQuotaLimit > MAX_INT32) throw new Error("ENTITLEMENT_ADJUSTMENT_OUT_OF_RANGE");
 }

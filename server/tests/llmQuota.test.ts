@@ -1,6 +1,7 @@
 import Fastify from "fastify";
 import { describe, expect, test } from "vitest";
-import { LlmConfigService } from "../src/llmConfig.js";
+import { LlmConfigInvalidError, LlmConfigMissingError, LlmConfigService } from "../src/llmConfig.js";
+import { StoreOperationError } from "../src/prismaStore/concurrency.js";
 import { registerDesktopLlmRoutes } from "../src/routes/desktopLlm.js";
 import { sha256 } from "../src/security.js";
 import { MemoryStore } from "../src/store.js";
@@ -26,6 +27,20 @@ describe("managed LLM configuration encryption", () => {
     expect(() => new LlmConfigService({ store: new MemoryStore(), encryptionKey: "short", now: () => NOW })).toThrow("STUDYMIND_LLM_CONFIG_ENCRYPTION_KEY is required.");
   });
 
+  test("distinguishes missing and invalid config without swallowing store failures", async () => {
+    const missing = new LlmConfigService({ store: new MemoryStore(), encryptionKey: KEY });
+    await expect(missing.getDecrypted()).rejects.toBeInstanceOf(LlmConfigMissingError);
+    await expect(missing.getPublic()).resolves.toEqual({ configured: false, apiKeyLast4: "" });
+
+    class OperationalFailureStore extends MemoryStore {
+      override async getLlmConfig(): ReturnType<MemoryStore["getLlmConfig"]> { throw new StoreOperationError(); }
+    }
+    const operational = new LlmConfigService({ store: new OperationalFailureStore(), encryptionKey: KEY });
+    await expect(operational.getDecrypted()).rejects.toBeInstanceOf(StoreOperationError);
+    await expect(operational.getPublic()).rejects.toBeInstanceOf(StoreOperationError);
+    await expect(operational.isConfigured()).rejects.toBeInstanceOf(StoreOperationError);
+  });
+
   test("encrypts with random nonces, exposes only last4, and fails closed on wrong key or tampering", async () => {
     const store = new MemoryStore();
     const service = new LlmConfigService({ store, encryptionKey: KEY, now: () => NOW });
@@ -38,7 +53,7 @@ describe("managed LLM configuration encryption", () => {
     expect(firstCiphertext).toMatch(/^v1:/);
     expect(secondCiphertext).not.toBe(firstCiphertext);
     expect(JSON.stringify(store)).not.toContain("top-secret-value");
-    await expect(new LlmConfigService({ store, encryptionKey: "different-key-material-32-bytes!!" }).getDecrypted()).rejects.toThrow("LLM_CONFIG_UNAVAILABLE");
+    await expect(new LlmConfigService({ store, encryptionKey: "different-key-material-32-bytes!!" }).getDecrypted()).rejects.toBeInstanceOf(LlmConfigInvalidError);
     const stored = await store.getLlmConfig();
     if (stored) {
       const parts = stored.encryptedApiKey.split(":");
@@ -50,7 +65,7 @@ describe("managed LLM configuration encryption", () => {
         timeoutSeconds: stored.timeoutSeconds,
       }, NOW);
     }
-    await expect(service.getDecrypted()).rejects.toThrow("LLM_CONFIG_UNAVAILABLE");
+    await expect(service.getDecrypted()).rejects.toBeInstanceOf(LlmConfigInvalidError);
     const tamperedPublic = await service.getPublic();
     expect(tamperedPublic).toEqual({ configured: false, apiKeyLast4: "alue" });
     expect(Object.keys(tamperedPublic ?? {}).sort()).toEqual(["apiKeyLast4", "configured"]);
@@ -61,8 +76,13 @@ describe("managed LLM configuration encryption", () => {
     const base = { provider: "openai" as const, baseUrl: "https://api.openai.com/v1", model: "model", apiKey: "key", timeoutSeconds: 60 };
     for (const invalid of [
       { ...base, provider: "anthropic" }, { ...base, baseUrl: "ftp://example.com" }, { ...base, baseUrl: "https://user:pass@example.com" },
-      { ...base, model: "" }, { ...base, apiKey: "" }, { ...base, timeoutSeconds: 0 }, { ...base, timeoutSeconds: 601 }, { ...base, timeoutSeconds: 1.5 },
+      { ...base, baseUrl: "https://example.com/v1?tenant=secret" }, { ...base, baseUrl: "https://example.com/v1#fragment" },
+      { ...base, model: "" }, { ...base, apiKey: "1234567" }, { ...base, apiKey: "x".repeat(4097) },
+      { ...base, timeoutSeconds: 0 }, { ...base, timeoutSeconds: 601 }, { ...base, timeoutSeconds: 1.5 },
     ]) await expect(service.save(invalid as never)).rejects.toThrow("INVALID_LLM_CONFIG");
+    await expect(service.save({ ...base, baseUrl: "https://example.com/v1///", apiKey: "12345678" }))
+      .resolves.toEqual({ configured: true, apiKeyLast4: "5678" });
+    await expect(service.getDecrypted()).resolves.toMatchObject({ baseUrl: "https://example.com/v1", apiKey: "12345678" });
   });
 });
 
@@ -104,5 +124,13 @@ describe("desktop managed LLM checkout", () => {
     const failing = await fixture(new FailingStore());
     const failed = await failing.app.inject({ method: "POST", url: "/api/desktop/llm/checkouts", headers: { authorization: `Bearer ${failing.token}` }, payload: { request_id: "valid-request-id" } });
     expect(failed.statusCode).toBe(503); expect(failed.json()).toEqual({ error: "SERVER_TEMPORARILY_UNAVAILABLE" }); expect(failed.body).not.toContain("SQLITE");
+
+    class ConfigFailureStore extends MemoryStore {
+      override async getLlmConfig(): ReturnType<MemoryStore["getLlmConfig"]> { throw new StoreOperationError(); }
+    }
+    const configFailure = await fixture(new ConfigFailureStore());
+    const operational = await configFailure.app.inject({ method: "POST", url: "/api/desktop/llm/checkouts", headers: { authorization: `Bearer ${configFailure.token}` }, payload: { request_id: "valid-request-id" } });
+    expect(operational.statusCode).toBe(503);
+    expect(operational.json()).toEqual({ error: "SERVER_TEMPORARILY_UNAVAILABLE" });
   });
 });

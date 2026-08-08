@@ -136,4 +136,24 @@ describe("PrismaStore database concurrency", () => {
       expect(await fixture.prisma.llmUsageEvent.count({ where: { userId: user2.id } })).toBe(1);
     } finally { await fixture.close(); }
   }, 30_000);
+
+  test("stacks two distinct activation redemptions for one user across independent clients", async () => {
+    const fixture = await createPrismaTestHarness();
+    try {
+      const first = new PrismaStore(fixture.prisma);
+      const second = new PrismaStore(await fixture.createClient());
+      const user = await first.upsertUserByEmail("activation-stack@studymind.local", now);
+      await first.createSession({ userId: user.id, tokenHash: "activation-stack-session", createdAt: now, expiresAt: later(600_000) });
+      for (const codeHash of ["activation-stack-a", "activation-stack-b"]) {
+        await first.createActivationCode({ codeHash, codePrefix: "SM-STACK", status: "active", entitlementDays: 31, redeemBy: later(600_000), createdAt: now, redeemedAt: null, redeemedByUserId: null });
+      }
+      const results = await Promise.all([
+        first.redeemActivationCodeAndGrantEntitlement({ sessionTokenHash: "activation-stack-session", codeHash: "activation-stack-a", now, llmQuotaPerActivation: 20 }),
+        second.redeemActivationCodeAndGrantEntitlement({ sessionTokenHash: "activation-stack-session", codeHash: "activation-stack-b", now, llmQuotaPerActivation: 20 }),
+      ]);
+      expect(results.map(({ status }) => status)).toEqual(["redeemed", "redeemed"]);
+      await expect(first.getEntitlement(user.id)).resolves.toMatchObject({ expiresAt: later(62 * 86_400_000), llmQuotaLimit: 40, llmQuotaUsed: 0 });
+      expect(await fixture.prisma.activationCode.count({ where: { status: "redeemed", redeemedByUserId: user.id } })).toBe(2);
+    } finally { await fixture.close(); }
+  }, 30_000);
 });

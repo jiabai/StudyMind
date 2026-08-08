@@ -5,6 +5,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from urllib.parse import urlsplit, urlunsplit
 from urllib.request import Request
 
 from studymind_worker.insightflow import InsightClient, InsightGenerationError
@@ -42,7 +43,7 @@ class OpenAICompatibleInsightClient:
             "temperature": self.temperature,
         }
         request = Request(
-            url=f"{self.base_url.rstrip('/')}/chat/completions",
+            url=_chat_completions_url(self.base_url),
             data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
             headers={
                 "Authorization": f"Bearer {self.api_key}",
@@ -211,9 +212,20 @@ def parse_managed_checkout_response(raw_response: bytes) -> dict[str, str | int]
     timeout_seconds = payload["timeout_seconds"]
     quota_remaining = payload["quota_remaining"]
 
+    try:
+        parsed_base_url = urlsplit(base_url)
+        _ = parsed_base_url.port
+    except ValueError:
+        raise _invalid_managed_checkout_response() from None
     if (
         provider not in {"openai", "openai_compatible"}
         or not base_url
+        or parsed_base_url.scheme not in {"http", "https"}
+        or not parsed_base_url.hostname
+        or parsed_base_url.username is not None
+        or parsed_base_url.password is not None
+        or bool(parsed_base_url.query)
+        or bool(parsed_base_url.fragment)
         or not model
         or not api_key
         or isinstance(timeout_seconds, bool)
@@ -239,6 +251,12 @@ def _invalid_managed_checkout_response() -> InsightGenerationError:
         "INSIGHTFLOW_LLM_CHECKOUT_INVALID_RESPONSE",
         "StudyMind LLM checkout did not return usable configuration.",
     )
+
+
+def _chat_completions_url(base_url: str) -> str:
+    parsed = urlsplit(base_url)
+    path = f"{parsed.path.rstrip('/')}/chat/completions"
+    return urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
 
 
 def _managed_checkout_http_error(error: urllib.error.HTTPError) -> InsightGenerationError:

@@ -51,6 +51,8 @@ def test_parse_managed_checkout_response_validates_the_exact_contract() -> None:
         checkout_payload(model={"name": "study-model"}),
         checkout_payload(api_key=True),
         checkout_payload(extra_field="not-allowed"),
+        checkout_payload(base_url="https://llm.example/v1?tenant=secret"),
+        checkout_payload(base_url="https://llm.example/v1#fragment"),
         json.dumps(["not", "an", "object"]).encode(),
         json.dumps({"provider": "openai"}).encode(),
         json.dumps(
@@ -109,3 +111,4 @@ def test_managed_client_uses_per_call_request_ids_and_keeps_session_auth_off_pro
     assert all(call[1] == "Bearer session-secret" for call in checkout_calls)
     assert all(call[1] == "Bearer managed-secret" for call in provider_calls)
     assert all("session-secret" not in json.dumps(call) for call in provider_calls)
+    assert all(call[0] == "https://llm.example/v1/chat/completions" for call in provider_calls)

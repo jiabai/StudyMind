@@ -13,6 +13,16 @@ export type DecryptedLlmConfig = {
   provider: string; baseUrl: string; model: string; apiKey: string; timeoutSeconds: number;
 };
 
+export class LlmConfigMissingError extends Error {
+  readonly name = "LlmConfigMissingError";
+  constructor() { super("LLM configuration is missing."); }
+}
+
+export class LlmConfigInvalidError extends Error {
+  readonly name = "LlmConfigInvalidError";
+  constructor() { super("Stored LLM configuration is invalid."); }
+}
+
 export class LlmConfigService {
   private readonly key: Buffer;
   private readonly now: () => Date;
@@ -32,9 +42,9 @@ export class LlmConfigService {
     return toPublic(saved, true);
   }
 
-  async getPublic(): Promise<PublicLlmConfig | null> {
+  async getPublic(): Promise<PublicLlmConfig> {
     const config = await this.options.store.getLlmConfig();
-    return config ? toPublic(config, this.isUsable(config)) : null;
+    return config ? toPublic(config, this.isUsable(config)) : { configured: false, apiKeyLast4: "" };
   }
 
   async isConfigured(): Promise<boolean> {
@@ -42,11 +52,12 @@ export class LlmConfigService {
     return config ? this.isUsable(config) : false;
   }
 
-  async getDecrypted(): Promise<DecryptedLlmConfig | null> {
+  async getDecrypted(): Promise<DecryptedLlmConfig> {
     const config = await this.options.store.getLlmConfig();
-    if (!config || !config.encryptedApiKey || !config.baseUrl || !config.model) return null;
+    if (!config) throw new LlmConfigMissingError();
+    if (!config.encryptedApiKey || !config.baseUrl || !config.model) throw new LlmConfigInvalidError();
     try { return this.decryptAndValidate(config); }
-    catch { throw new Error("LLM_CONFIG_UNAVAILABLE"); }
+    catch { throw new LlmConfigInvalidError(); }
   }
 
   // Compatibility aliases for route/admin callers without exposing plaintext.
@@ -73,13 +84,13 @@ function validateConfig(input: { provider: string; baseUrl: string; model: strin
   const model = input.model?.trim();
   const apiKey = input.apiKey?.trim();
   if (!(["openai", "openai_compatible"] as string[]).includes(provider) || !model || model.length > 256 ||
-    !apiKey || apiKey.length > 8192 || !Number.isInteger(input.timeoutSeconds) || input.timeoutSeconds < 1 || input.timeoutSeconds > 600) {
+    !apiKey || apiKey.length < 8 || apiKey.length > 4096 || !Number.isInteger(input.timeoutSeconds) || input.timeoutSeconds < 1 || input.timeoutSeconds > 600) {
     throw new Error("INVALID_LLM_CONFIG");
   }
   let url: URL;
   try { url = new URL(input.baseUrl.trim()); } catch { throw new Error("INVALID_LLM_CONFIG"); }
   if (!(["http:", "https:"] as string[]).includes(url.protocol) || !url.hostname || url.username || url.password ||
-    input.baseUrl.length > 2048 || url.hash) throw new Error("INVALID_LLM_CONFIG");
+    input.baseUrl.length > 2048 || url.search || url.hash) throw new Error("INVALID_LLM_CONFIG");
   return { provider, baseUrl: input.baseUrl.trim().replace(/\/+$/, ""), model, apiKey, timeoutSeconds: input.timeoutSeconds };
 }
 

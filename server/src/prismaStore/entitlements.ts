@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import type { ActivationCodeRecord, AdminEntitlementAdjustmentRecord, EntitlementRecord, Store } from "../store/contracts.js";
 import { StoreConflictError } from "../store/contracts.js";
+import { assertEntitlementAdjustmentResult } from "../entitlementAdjustment.js";
 import { isUnique, withConflictRetry } from "./concurrency.js";
 
 export async function getEntitlement(prisma: PrismaClient, userId: string): ReturnType<Store["getEntitlement"]> { return await prisma.entitlement.findUnique({ where: { userId } }) as EntitlementRecord | null; }
@@ -56,7 +57,9 @@ export async function applyEntitlementAdjustmentWithAudit(prisma: PrismaClient, 
     const afterExpiresAt = input.expiresAt ?? (input.extendDays !== undefined ? new Date(base.getTime() + input.extendDays * 86_400_000) : beforeExpiresAt);
     if (!afterExpiresAt) return { status: "expiry_required" };
     const beforeLimit = before?.llmQuotaLimit ?? 0; const beforeUsed = before?.llmQuotaUsed ?? 0;
-    const entitlement = await tx.entitlement.upsert({ where: { userId: input.userId }, update: { status: afterExpiresAt > input.now ? "active" : "inactive", expiresAt: afterExpiresAt, llmQuotaLimit: beforeLimit + (input.quotaAdd ?? 0), llmQuotaUsed: beforeUsed, updatedAt: input.now }, create: { id: randomUUID(), userId: input.userId, status: afterExpiresAt > input.now ? "active" : "inactive", expiresAt: afterExpiresAt, llmQuotaLimit: beforeLimit + (input.quotaAdd ?? 0), llmQuotaUsed: beforeUsed, updatedAt: input.now } });
+    const afterLimit = beforeLimit + (input.quotaAdd ?? 0);
+    assertEntitlementAdjustmentResult({ afterExpiresAt, afterLlmQuotaLimit: afterLimit, beforeLlmQuotaUsed: beforeUsed });
+    const entitlement = await tx.entitlement.upsert({ where: { userId: input.userId }, update: { status: afterExpiresAt > input.now ? "active" : "inactive", expiresAt: afterExpiresAt, llmQuotaLimit: afterLimit, llmQuotaUsed: beforeUsed, updatedAt: input.now }, create: { id: randomUUID(), userId: input.userId, status: afterExpiresAt > input.now ? "active" : "inactive", expiresAt: afterExpiresAt, llmQuotaLimit: afterLimit, llmQuotaUsed: beforeUsed, updatedAt: input.now } });
     const adjustment = await tx.adminEntitlementAdjustment.create({ data: { id: randomUUID(), adminEmail: input.adminEmail, userId: input.userId, reason: input.reason, note: input.note, beforeExpiresAt, afterExpiresAt, beforeLlmQuotaLimit: beforeLimit, afterLlmQuotaLimit: entitlement.llmQuotaLimit, beforeLlmQuotaUsed: beforeUsed, afterLlmQuotaUsed: entitlement.llmQuotaUsed, createdAt: input.now } });
     return { status: "applied", entitlement: entitlement as EntitlementRecord, adjustment: adjustment as AdminEntitlementAdjustmentRecord };
   });
