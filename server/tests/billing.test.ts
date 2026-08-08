@@ -1,6 +1,6 @@
 import Fastify from "fastify";
 import { describe, expect, test } from "vitest";
-import { BillingService } from "../src/billing.js";
+import { BillingAuthRequiredError, BillingService } from "../src/billing.js";
 import { registerBillingRoutes } from "../src/routes/billing.js";
 import { sha256 } from "../src/security.js";
 import { MemoryStore } from "../src/store.js";
@@ -85,6 +85,20 @@ describe("StudyMind billing", () => {
     await expectPrivate503(await statusApp.inject({ method: "GET", url: "/api/desktop/billing/orders/sm_private1", headers: { authorization: "Bearer smds_owner-token" } }), detail);
     const webhookApp = Fastify(); webhookApp.addHook("onRequest", async (request) => { (request as typeof request & { rawBody: Buffer }).rawBody = Buffer.from("raw"); }); registerBillingRoutes(webhookApp, { store, billing, notificationParser: async () => { throw new Error(detail); }, now: () => now });
     await expectPrivate503(await webhookApp.inject({ method: "POST", url: "/api/wechat/notify", payload: {} }), detail);
+  });
+
+  test("uses a typed, secret-free error when the service session check expires", async () => {
+    const store = new MemoryStore(); const billing = new BillingService({ store, createNativePayment: async () => { throw new Error("unused"); } });
+    try { await billing.createWechatNativeOrder({ sessionTokenHash: "private-session-token-hash" }); throw new Error("expected auth failure"); }
+    catch (error) { expect(error).toBeInstanceOf(BillingAuthRequiredError); expect(error).toMatchObject({ name: "BillingAuthRequiredError", message: "Billing authentication is required." }); expect(Object.prototype.hasOwnProperty.call(error, "cause")).toBe(false); expect(JSON.stringify(error)).not.toContain("private-session-token-hash"); }
+  });
+
+  test("returns 401 when route authentication succeeds but the service recheck expires", async () => {
+    const store = new MemoryStore(); const user = await userFixture(store, "race@example.com", "smds_race-token"); const original = store.findSessionByTokenHash.bind(store); let checks = 0;
+    store.findSessionByTokenHash = async (tokenHash, at) => { checks += 1; return checks === 1 ? original(tokenHash, at) : null; };
+    const billing = new BillingService({ store, now: () => now, randomId: () => "unused12", createNativePayment: async () => { throw new Error("must not reach provider"); } }); const app = Fastify(); registerBillingRoutes(app, { store, billing, notificationParser: async () => { throw new Error("unused"); }, now: () => now });
+    const response = await app.inject({ method: "POST", url: "/api/desktop/billing/wechat-native", headers: { authorization: "Bearer smds_race-token" } });
+    expect(user.email).toBe("race@example.com"); expect(checks).toBe(2); expect(response.statusCode).toBe(401); expect(response.json()).toEqual({ error: "AUTH_REQUIRED" });
   });
 });
 

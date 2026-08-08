@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import type { BillingService } from "../billing.js";
+import { BillingAuthRequiredError, type BillingService } from "../billing.js";
 import type { Store } from "../store.js";
 import type { WechatNotificationParser } from "../wechat.js";
 import { authenticateDesktop } from "./shared.js";
@@ -14,7 +14,7 @@ export function registerBillingRoutes(app: FastifyInstance, dependencies: Depend
     let session; try { session = await authenticateDesktop(dependencies.store, request.headers.authorization, now()); } catch { return reply.code(503).send({ error: "SERVER_TEMPORARILY_UNAVAILABLE" }); }
     if (!session) return reply.code(401).send({ error: "AUTH_REQUIRED" });
     try { const order = await dependencies.billing!.createWechatNativeOrder({ sessionTokenHash: session.tokenHash }); return { order_id: order.outTradeNo, amount_fen: order.amountFen, currency: "CNY", code_url: order.codeUrl, expires_at: order.expiresAt.toISOString(), status: order.status }; }
-    catch { return reply.code(503).send({ error: "SERVER_TEMPORARILY_UNAVAILABLE" }); }
+    catch (error) { return error instanceof BillingAuthRequiredError ? reply.code(401).send({ error: "AUTH_REQUIRED" }) : reply.code(503).send({ error: "SERVER_TEMPORARILY_UNAVAILABLE" }); }
   });
   app.get("/api/desktop/billing/orders/:orderId", async (request, reply) => {
     if (!enabled()) return reply.code(404).send({ error: "BILLING_DISABLED" });

@@ -6,6 +6,11 @@ export type NativePaymentInput = { outTradeNo: string; amountFen: number; descri
 export type NativePaymentResult = { codeUrl: string; providerPayload: unknown };
 const AMOUNT_FEN = 990; const PASS_DAYS = 31; const TTL_MS = 30 * 60_000;
 
+export class BillingAuthRequiredError extends Error {
+  readonly name = "BillingAuthRequiredError";
+  constructor() { super("Billing authentication is required."); }
+}
+
 export class BillingService {
   private readonly now: () => Date; private readonly randomId: () => string;
   constructor(private readonly options: { store: BillingStore; now?: () => Date; randomId?: () => string; createNativePayment: (input: NativePaymentInput) => Promise<NativePaymentResult> }) {
@@ -13,7 +18,7 @@ export class BillingService {
   }
   async createWechatNativeOrder(input: { sessionTokenHash: string }): Promise<OrderRecord & { currency: "CNY" }> {
     const at = this.now(); const session = await this.options.store.findSessionByTokenHash(input.sessionTokenHash, at);
-    if (!session) throw new Error("AUTH_REQUIRED");
+    if (!session) throw new BillingAuthRequiredError();
     const suffix = this.randomId();
     if (!/^[A-Za-z0-9_-]{6,48}$/.test(suffix)) throw new Error("INVALID_ORDER_ID_SOURCE");
     const outTradeNo = `sm_${suffix}`;
