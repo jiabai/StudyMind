@@ -71,6 +71,7 @@ function createHistoryItem(overrides: Partial<HistoryListItem> = {}): HistoryLis
     error: null,
     textPreview: "demo transcript",
     insightsCount: 0,
+    title: null,
     ...overrides,
   };
 }
@@ -89,6 +90,7 @@ function createHistoryDetail(taskId = "task-1"): HistoryItem {
     insights: [],
     dissection: null,
     dissectionStale: false,
+    title: null,
   };
 }
 

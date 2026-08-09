@@ -27,6 +27,7 @@ function createHistoryItem(overrides: Partial<HistoryListItem> = {}): HistoryLis
     error: null,
     textPreview: "history preview",
     insightsCount: 0,
+    title: null,
     ...overrides,
   };
 }
@@ -44,6 +45,7 @@ function createHistoryController(
     historyDeleting: false,
     closeHistory: vi.fn(),
     openHistory: vi.fn(),
+    loadHistory: vi.fn(async () => undefined),
     openHistoryItem: vi.fn(),
     requestHistoryItemDeletion: vi.fn(),
     cancelHistoryItemDeletion: vi.fn(),

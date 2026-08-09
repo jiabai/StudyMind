@@ -232,6 +232,9 @@ export function useTaskProcessingController({
         {
           selectionToken: prepared.submission.selectionToken,
           asrModel,
+          ...(prepared.submission.title
+            ? { title: prepared.submission.title }
+            : {}),
         },
         undefined,
         onProgress,

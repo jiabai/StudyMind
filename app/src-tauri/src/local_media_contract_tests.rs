@@ -104,6 +104,54 @@ fn local_media_ipc_parser_accepts_only_one_canonical_uuid_token() {
 
     assert_eq!(request.selection_token, SELECTION_TOKEN);
     assert_eq!(request.asr_model, "iic/SenseVoiceSmall-onnx");
+    assert_eq!(request.title, None);
+}
+
+#[test]
+fn local_media_ipc_parser_accepts_optional_title_and_normalizes_blank() {
+    let request = parse_process_local_media_ipc_request(json!({
+        "selectionToken": SELECTION_TOKEN,
+        "asrModel": "iic/SenseVoiceSmall-onnx",
+        "title": "  离散数学·第3讲  ",
+    }))
+    .expect("valid request with title");
+    assert_eq!(request.title.as_deref(), Some("离散数学·第3讲"));
+
+    let blank = parse_process_local_media_ipc_request(json!({
+        "selectionToken": SELECTION_TOKEN,
+        "asrModel": "iic/SenseVoiceSmall-onnx",
+        "title": "   ",
+    }))
+    .expect("blank title normalizes to none");
+    assert_eq!(blank.title, None);
+
+    let empty = parse_process_local_media_ipc_request(json!({
+        "selectionToken": SELECTION_TOKEN,
+        "asrModel": "iic/SenseVoiceSmall-onnx",
+        "title": "",
+    }))
+    .expect("empty title normalizes to none");
+    assert_eq!(empty.title, None);
+}
+
+#[test]
+fn local_media_ipc_parser_rejects_oversized_and_control_char_titles() {
+    let long_title = "a".repeat(81);
+    let error = parse_process_local_media_ipc_request(json!({
+        "selectionToken": SELECTION_TOKEN,
+        "asrModel": "iic/SenseVoiceSmall-onnx",
+        "title": long_title,
+    }))
+    .expect_err("oversized title must be rejected");
+    assert_eq!(error, INVALID_LOCAL_MEDIA_SELECTION_CODE);
+
+    let error = parse_process_local_media_ipc_request(json!({
+        "selectionToken": SELECTION_TOKEN,
+        "asrModel": "iic/SenseVoiceSmall-onnx",
+        "title": "a\u{0000}b",
+    }))
+    .expect_err("control char title must be rejected");
+    assert_eq!(error, INVALID_LOCAL_MEDIA_SELECTION_CODE);
 }
 
 #[test]

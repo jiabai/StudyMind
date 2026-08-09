@@ -127,6 +127,10 @@ impl SupportedTask {
             .expect("supported task source must remain valid")
     }
 
+    pub(crate) fn title(&self) -> Option<&str> {
+        self.manifest.title.as_deref()
+    }
+
     pub(crate) fn transcript_metadata(&self) -> Option<TranscriptMetadata> {
         self.manifest.transcript_metadata()
     }
@@ -332,11 +336,14 @@ impl TaskEditSession {
         self.manifest.text_preview = text_preview;
     }
 
+    pub(crate) fn set_title(&mut self, title: Option<String>) {
+        self.manifest.title = title;
+    }
+
     pub(crate) fn declared_artifacts(&self) -> HashMap<String, String> {
         self.manifest.safe_artifacts()
     }
 
-    #[allow(dead_code)]
     pub(crate) fn save(&self) -> Result<(), String> {
         write_task_manifest(&self.task_dir, &self.manifest)
     }

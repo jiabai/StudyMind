@@ -3,9 +3,11 @@ use crate::local_media::LocalMediaSelectionState;
 use crate::local_media_contract::{
     parse_process_local_media_ipc_request, serialize_process_local_media_worker_request,
 };
+use crate::task_rename::rename_task_title_from_root;
 use crate::worker_runtime::{TaskTerminalResult, WorkerJob};
 use crate::{
-    ensure_runtime_dirs, resolve_runtime_paths, run_blocking_worker_command, ProcessSupervisors,
+    append_desktop_log, ensure_runtime_dirs, resolve_runtime_paths, run_blocking_worker_command,
+    task_manifest, ProcessSupervisors,
 };
 use serde_json::Value;
 use std::fmt;
@@ -31,6 +33,7 @@ const RESELECTION_ERROR_CODES: &[&str] = &[
 struct ResolvedLocalMediaWorkerRequest {
     selection_token: String,
     worker_payload: String,
+    title: Option<String>,
 }
 
 impl fmt::Debug for ResolvedLocalMediaWorkerRequest {
@@ -98,6 +101,23 @@ fn process_local_media_blocking(
     if should_clear_selection_after_result(&result) {
         let _ = selection_state.clear(&prepared.selection_token);
     }
+    // 新建课题时若用户指定了标题，在 worker 落盘 manifest 后由 Rust 端后置写入 title。
+    // 复用 rename_task_title_from_root 逻辑，失败仅记日志，不阻断主流程。
+    if let (Some(task_id), Some(title)) = (result.task_id.as_deref(), prepared.title.as_deref()) {
+        if let Ok(output_root) = task_manifest::configured_output_root(&paths) {
+            if let Err(error) = rename_task_title_from_root(
+                &output_root,
+                task_id,
+                Some(title.to_string()),
+            ) {
+                let _ = append_desktop_log(
+                    &paths,
+                    "task.process_local_media.title",
+                    &format!("outcome={} task_id={}", error.public_code(), task_id),
+                );
+            }
+        }
+    }
     Ok(result)
 }
 
@@ -113,6 +133,7 @@ fn resolve_local_media_worker_request(
     })?;
     let selection_token = request.selection_token;
     let asr_model = request.asr_model;
+    let title = request.title;
     let selected =
         selection_state
             .resolve(&selection_token)
@@ -135,6 +156,7 @@ fn resolve_local_media_worker_request(
     Ok(ResolvedLocalMediaWorkerRequest {
         selection_token,
         worker_payload,
+        title,
     })
 }
 

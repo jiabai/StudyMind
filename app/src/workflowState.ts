@@ -90,7 +90,7 @@ export type TranscriptDissection = {
 };
 
 export type TaskSubmission =
-  | { kind: "local_media"; selectionToken: string };
+  | { kind: "local_media"; selectionToken: string; title?: string | null };
 
 export type TaskSourceSummary =
   | { kind: "url"; url: string }

@@ -55,6 +55,7 @@ export function HeroUploadZone({
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [picking, setPicking] = useState(false);
   const [removing, setRemoving] = useState(false);
+  const [topicTitle, setTopicTitle] = useState<string>("");
 
   const selection = source.kind === "local_media" ? source.selection : null;
 
@@ -63,6 +64,7 @@ export function HeroUploadZone({
       setState("has-selection");
     } else {
       setState((prev) => (prev === "has-selection" || prev === "loading" ? "idle" : prev));
+      setTopicTitle("");
     }
   }, [selection]);
 
@@ -154,11 +156,13 @@ export function HeroUploadZone({
   const handleSubmit = useCallback((e: MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
     if (!selection) return;
+    const trimmedTitle = topicTitle.trim();
     onSubmit({
       kind: "local_media",
       selectionToken: selection.selectionToken,
+      ...(trimmedTitle ? { title: trimmedTitle } : {}),
     });
-  }, [selection, onSubmit]);
+  }, [selection, onSubmit, topicTitle]);
 
   const zoneClasses = [
     "hero-upload-zone",
@@ -237,6 +241,19 @@ export function HeroUploadZone({
                 {selection.mediaKind === "audio" ? t("input.attachment.kind.audio") : t("input.attachment.kind.video")} · {formatBytes(selection.sizeBytes, resolvedLocale)}
               </span>
             </div>
+            <label className="hero-upload-title-field">
+              <span className="hero-upload-title-label">{t("input.hero.titleLabel")}</span>
+              <input
+                className="hero-upload-title-input"
+                type="text"
+                value={topicTitle}
+                maxLength={80}
+                placeholder={t("input.hero.titlePlaceholder")}
+                aria-label={t("input.hero.titleAriaLabel")}
+                onChange={(e) => setTopicTitle(e.target.value)}
+                onKeyDown={(e) => e.stopPropagation()}
+              />
+            </label>
             <div className="hero-upload-actions">
               <button
                 className="hero-upload-remove"

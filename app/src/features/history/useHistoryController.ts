@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   deleteHistoryTask,
@@ -29,6 +29,7 @@ export function useHistoryController({
   const listRequestIdRef = useRef(0);
   const detailRequestIdRef = useRef(0);
   const deleteRequestPendingRef = useRef(false);
+  const sidebarMountedRef = useRef(false);
 
   const closeHistory = useCallback(() => {
     listRequestIdRef.current += 1;
@@ -39,15 +40,11 @@ export function useHistoryController({
     }
   }, []);
 
-  const openHistory = useCallback(async () => {
+  // 抽屉常驻加载：只加载数据，不打开 sheet。供抽屉 mount 与刷新使用。
+  const loadHistory = useCallback(async () => {
     const requestId = listRequestIdRef.current + 1;
     listRequestIdRef.current = requestId;
-    detailRequestIdRef.current += 1;
-    setHistoryDeleteCandidate(null);
-    setHistoryOpen(true);
     setHistoryLoading(true);
-    setHistoryItems([]);
-    setHistoryNotice(uiMessage("history.notice.loading"));
     try {
       const items = await getHistory();
       if (listRequestIdRef.current !== requestId) {
@@ -65,6 +62,21 @@ export function useHistoryController({
       }
     }
   }, []);
+
+  // 抽屉 mount 时自动加载一次历史列表（常驻展示）。
+  useEffect(() => {
+    if (sidebarMountedRef.current) {
+      return;
+    }
+    sidebarMountedRef.current = true;
+    void loadHistory();
+  }, [loadHistory]);
+
+  const openHistory = useCallback(async () => {
+    setHistoryDeleteCandidate(null);
+    setHistoryOpen(true);
+    await loadHistory();
+  }, [loadHistory]);
 
   const openHistoryItem = useCallback(
     async (item: HistoryListItem) => {
@@ -162,6 +174,7 @@ export function useHistoryController({
     historyDeleting,
     closeHistory,
     openHistory,
+    loadHistory,
     openHistoryItem,
     requestHistoryItemDeletion,
     cancelHistoryItemDeletion,

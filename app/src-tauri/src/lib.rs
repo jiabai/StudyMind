@@ -17,6 +17,7 @@ mod progress_event;
 mod runtime;
 mod settings;
 mod task_manifest;
+mod task_rename;
 mod transcript_detail;
 mod ui_preferences;
 mod updates;
@@ -102,6 +103,7 @@ pub fn run() {
             history::get_history,
             history::get_history_detail,
             history_deletion::delete_history_task,
+            task_rename::rename_task_title,
             transcript_detail::load_transcript_detail,
             transcript_detail::save_transcript_edit,
             annotation_storage::load_annotations,
@@ -134,7 +136,7 @@ pub fn run() {
 mod tests {
     use super::account::{
         build_activation_redeem_url, build_auth_login_url, parse_auth_callback_url,
-        server_base_url_from_env, AuthCallback,
+        server_base_url_from_dotenv, server_base_url_from_env, AuthCallback,
     };
     use super::path_to_env_string;
     use super::settings::{load_llm_config_from_file, save_llm_config_to_file, LlmConfigInput};
@@ -173,6 +175,22 @@ mod tests {
         ] {
             assert!(server_base_url_from_env([("STUDYMIND_SERVER_BASE_URL", invalid)]).is_err());
         }
+    }
+
+    #[test]
+    fn server_base_url_reads_the_app_local_dotenv_when_requested() {
+        let env_path = temp_env_path("server_base_url_reads_the_app_local_dotenv");
+        fs::write(
+            &env_path,
+            "STUDYMIND_SERVER_BASE_URL= http://127.0.0.1:8788/\nSTUDYMIND_ASR_MODEL=iic/SenseVoiceSmall\n",
+        )
+        .expect("write test env");
+
+        assert_eq!(
+            server_base_url_from_dotenv(&env_path).expect("read server URL"),
+            "http://127.0.0.1:8788"
+        );
+        fs::remove_file(env_path).expect("remove test env");
     }
 
     #[test]
@@ -304,6 +322,7 @@ mod tests {
         assert_eq!(config.config_path, path_to_env_string(&env_path));
         assert_eq!(config.asr_model, "iic/SenseVoiceSmall");
         assert!(saved.contains("StudyMind desktop local settings"));
+        assert!(saved.contains("STUDYMIND_SERVER_BASE_URL=http://127.0.0.1:8788"));
         assert!(saved.contains("StudyMind_OUTPUT_DIR="));
         assert!(saved.contains("StudyMind_ASR_MODEL=iic/SenseVoiceSmall"));
         assert!(!saved.contains("StudyMind_LLM_API_KEY"));

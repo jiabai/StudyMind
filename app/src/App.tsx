@@ -2,10 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link";
 import {
   Download,
-  History as HistoryIcon,
   ListChecks,
   LoaderCircle,
-  RotateCcw,
   Settings,
   ShieldCheck,
   UserRound,
@@ -31,7 +29,6 @@ import { useAppUpdateController } from "./features/updates/useAppUpdateControlle
 import { getAiCreditsCostHint } from "./aiCreditsCopy";
 import { ModelGuideSheet } from "./features/asrModel/ModelGuideSheet";
 import { useAsrModelDownload } from "./features/asrModel/useAsrModelDownload";
-import { HistorySheet } from "./features/history/HistorySheet";
 import { useHistoryController } from "./features/history/useHistoryController";
 import { InsightPreferenceFlow } from "./features/insightPreferences/InsightPreferenceFlow";
 import { OutputLanguageField } from "./features/insightPreferences/OutputLanguageField";
@@ -43,6 +40,7 @@ import { AiResultDetailSheet } from "./features/results/AiResultDetailSheet";
 import { TaskStatusBanner } from "./features/results/TaskStatusBanner";
 import { AnnotationListPanel } from "./features/results/AnnotationListPanel";
 import { useAnnotationsController } from "./hooks/useAnnotationsController";
+import { AppSidebar } from "./features/sidebar/AppSidebar";
 import { SettingsSheet } from "./features/settings/SettingsSheet";
 import { useSettingsController } from "./features/settings/useSettingsController";
 import { LocalTranscriptWorkspace } from "./features/transcript/LocalTranscriptWorkspace";
@@ -53,7 +51,7 @@ import { HeroUploadZone } from "./features/workflow/HeroUploadZone";
 import { useTaskProcessingController } from "./features/workflow/useTaskProcessingController";
 import { useLocale } from "./i18n/LocaleProvider";
 import { countTextUnits, formatWordCount } from "./i18n/formatters";
-import { renderUiMessage, uiMessage, type UiMessage } from "./i18n/uiMessage";
+import { uiMessage, type UiMessage } from "./i18n/uiMessage";
 
 const asrModelLabels: Record<string, string> = {
   "Qwen/Qwen3-ASR-0.6B": "Qwen3-ASR 0.6B",
@@ -158,7 +156,6 @@ function App() {
     workflow,
     canSubmit,
     canRestoreHistory,
-    historyRestoreUnavailableMessage,
     toolbarNewTaskButtonState,
     cancelCurrentProcessing,
     resetWorkflow,
@@ -323,10 +320,6 @@ function App() {
     onPrepareHistoryItemDeletion: prepareTranscriptForTaskDeletion,
   });
   const canDeleteHistory = canRestoreHistory && !transcriptSaving;
-  const historyDeleteUnavailableMessage = transcriptSaving
-    ? uiMessage("history.disabled.deletionWhileTranscriptSaving")
-    : uiMessage("history.disabled.deletionWhileProcessing");
-  const { historyOpen, closeHistory, openHistory } = historyController;
   const {
     handleToolbarMouseDown,
     closeWindow,
@@ -361,11 +354,6 @@ function App() {
         return;
       }
 
-      if (historyOpen) {
-        closeHistory();
-        return;
-      }
-
       if (summaryConfirmOpen) {
         closeSummaryConfirmation();
         return;
@@ -391,8 +379,6 @@ function App() {
   }, [
     detailTab,
     closeDetail,
-    historyOpen,
-    closeHistory,
     summaryConfirmOpen,
     closeSummaryConfirmation,
     insightPreferenceFlow,
@@ -464,18 +450,21 @@ function App() {
     () => countTextUnits(workflow.text, resolvedLocale),
     [resolvedLocale, workflow.text],
   );
-  const toolbarNewTaskAriaLabel = renderUiMessage(
-    resolvedLocale,
-    toolbarNewTaskButtonState.ariaLabel,
-  );
-  const toolbarNewTaskTitle = renderUiMessage(
-    resolvedLocale,
-    toolbarNewTaskButtonState.title,
-  );
 
   return (
     <main className="app-shell">
       <section className="desktop-window" aria-label={tCommon("window.ariaLabel")}>
+        <AppSidebar
+          controller={historyController}
+          workflow={workflow}
+          selectionDisabled={!canRestoreHistory}
+          deletionDisabled={!canDeleteHistory}
+          newTopicDisabled={toolbarNewTaskButtonState.disabled}
+          onNewTopic={startNewTaskFromToolbar}
+          onOpenSettings={openSettings}
+          onOpenAccount={() => openAccountPanel()}
+          accountChipLabel={accountChipLabel}
+        />
         <header className="app-toolbar topbar" data-tauri-drag-region="" onMouseDown={handleToolbarMouseDown}>
           <div className="traffic-lights" role="group" aria-label={tCommon("window.controls")}>
             <button
@@ -527,24 +516,9 @@ function App() {
                 <span>{updateToolbarText}</span>
               </button>
             ) : null}
-            <div className="toolbar-tool-group" role="group" aria-label={tCommon("toolbar.taskTools")}>
-              <button className="icon-button" type="button" onClick={openHistory} aria-label={tCommon("toolbar.history")}>
-                <HistoryIcon size={17} />
-              </button>
-              <button className="icon-button" type="button" onClick={openSettings} aria-label={tCommon("toolbar.settings")}>
-                <Settings size={17} />
-              </button>
-              <button
-                className="icon-button"
-                type="button"
-                onClick={startNewTaskFromToolbar}
-                aria-label={toolbarNewTaskAriaLabel}
-                title={toolbarNewTaskTitle}
-                disabled={toolbarNewTaskButtonState.disabled}
-              >
-                <RotateCcw size={17} />
-              </button>
-            </div>
+            <button className="icon-button" type="button" onClick={openSettings} aria-label={tCommon("toolbar.settings")}>
+              <Settings size={17} />
+            </button>
           </div>
         </header>
 
@@ -767,14 +741,6 @@ function App() {
         onOpenDirectionEditor={openDirectionEditorFromDetail}
         onOpenDissectionConfirmation={dissectionController.openConfirmation}
         onAnnotationInteraction={() => setActiveAnnotationId(null)}
-      />
-
-      <HistorySheet
-        controller={historyController}
-        selectionDisabled={!canRestoreHistory}
-        selectionDisabledReason={historyRestoreUnavailableMessage}
-        deletionDisabled={!canDeleteHistory}
-        deletionDisabledReason={historyDeleteUnavailableMessage}
       />
 
       <SettingsSheet

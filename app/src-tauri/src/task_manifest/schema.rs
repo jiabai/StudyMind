@@ -174,6 +174,8 @@ pub(super) struct TaskManifest {
     pub(super) text_preview: String,
     #[serde(default)]
     pub(super) insights_count: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) title: Option<String>,
     #[serde(flatten)]
     pub(super) extra: HashMap<String, serde_json::Value>,
 }

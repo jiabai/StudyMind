@@ -7,6 +7,7 @@ use url::Url;
 use uuid::Uuid;
 
 use crate::{ensure_runtime_dirs, resolve_runtime_paths, RuntimePaths};
+use crate::settings::{env_path, parse_dotenv_values};
 
 const ACCOUNT_SESSION_FILE_NAME: &str = "session.json";
 const ACCOUNT_PENDING_STATE_FILE_NAME: &str = "pending_auth_state.txt";
@@ -129,7 +130,7 @@ pub(crate) fn begin_auth_flow(app: AppHandle) -> Result<BeginAuthFlowResult, Str
     let state = generate_auth_state();
     fs::create_dir_all(account_auth_dir(&paths)).map_err(|error| error.to_string())?;
     fs::write(account_pending_state_path(&paths), &state).map_err(|error| error.to_string())?;
-    let server_url = server_base_url()?;
+    let server_url = server_base_url_from_paths(&paths)?;
     Ok(BeginAuthFlowResult {
         auth_url: build_auth_login_url(&server_url, &state)?,
         state,
@@ -146,7 +147,7 @@ pub(crate) async fn complete_auth_flow(
     let pending_state = fs::read_to_string(account_pending_state_path(&paths))
         .map_err(|_| "No pending login state was found.".to_string())?;
     let callback = parse_auth_callback_url(&callback_url, pending_state.trim())?;
-    let server_url = server_base_url()?;
+    let server_url = server_base_url_from_paths(&paths)?;
     let exchange = exchange_auth_ticket(&server_url, &callback).await?;
     fs::create_dir_all(account_auth_dir(&paths)).map_err(|error| error.to_string())?;
     write_account_session(&account_session_path(&paths), &exchange)?;
@@ -167,7 +168,7 @@ pub(crate) async fn get_account_status(app: AppHandle) -> Result<AccountStatusVi
     let Some(session) = read_account_session(&account_session_path(&paths))? else {
         return Ok(guest_account_status());
     };
-    let server_url = server_base_url()?;
+    let server_url = server_base_url_from_paths(&paths)?;
     match get_account_status_from_server(&server_url, &session.session_token).await {
         Ok(status) => Ok(AccountStatusView {
             authenticated: status.authenticated,
@@ -207,7 +208,7 @@ pub(crate) async fn logout_account(app: AppHandle) -> Result<(), String> {
     let paths = resolve_runtime_paths(&app)?;
     logout_account_session(
         &account_session_path(&paths),
-        server_base_url,
+        || server_base_url_from_paths(&paths),
         |server_url, session_token| async move {
             reqwest::Client::new()
                 .post(format!("{server_url}/api/desktop/logout"))
@@ -248,7 +249,7 @@ pub(crate) async fn redeem_activation_code(
 ) -> Result<AccountStatusView, String> {
     let paths = resolve_runtime_paths(&app)?;
     let session = require_account_session(&paths)?;
-    let server_url = server_base_url()?;
+    let server_url = server_base_url_from_paths(&paths)?;
     let response = reqwest::Client::new()
         .post(build_activation_redeem_url(&server_url))
         .bearer_auth(&session.session_token)
@@ -270,7 +271,7 @@ pub(crate) async fn redeem_activation_code(
 pub(crate) async fn create_wechat_checkout(app: AppHandle) -> Result<WechatCheckoutView, String> {
     let paths = resolve_runtime_paths(&app)?;
     let session = require_account_session(&paths)?;
-    let server_url = server_base_url()?;
+    let server_url = server_base_url_from_paths(&paths)?;
     let response = reqwest::Client::new()
         .post(format!("{}/api/desktop/billing/wechat-native", server_url))
         .bearer_auth(session.session_token)
@@ -304,7 +305,7 @@ pub(crate) async fn get_checkout_status(
 ) -> Result<CheckoutStatusView, String> {
     let paths = resolve_runtime_paths(&app)?;
     let session = require_account_session(&paths)?;
-    let server_url = server_base_url()?;
+    let server_url = server_base_url_from_paths(&paths)?;
     let response = reqwest::Client::new()
         .get(format!(
             "{}/api/desktop/billing/orders/{}",
@@ -339,7 +340,7 @@ pub(crate) fn server_managed_llm_invocation(
         return Ok(None);
     };
     Ok(Some(ServerManagedLlmInvocation {
-        server_base_url: server_base_url()?,
+        server_base_url: server_base_url_from_paths(paths)?,
         session_token: session.session_token,
         request_id: format!("llm-{}", Uuid::new_v4().simple()),
     }))
@@ -361,6 +362,21 @@ pub(crate) fn server_base_url() -> Result<String, String> {
     let pairs = std::env::vars_os()
         .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)));
     server_base_url_from_env(pairs)
+}
+
+pub(crate) fn server_base_url_from_dotenv(path: &Path) -> Result<String, String> {
+    let values = parse_dotenv_values(path)?;
+    let value = values
+        .get(SERVER_BASE_URL_ENV)
+        .ok_or_else(|| SERVER_CONFIG_ERROR.to_string())?;
+    server_base_url_from_env([(SERVER_BASE_URL_ENV, value.as_str())])
+}
+
+fn server_base_url_from_paths(paths: &RuntimePaths) -> Result<String, String> {
+    if std::env::var_os(SERVER_BASE_URL_ENV).is_some() {
+        return server_base_url();
+    }
+    server_base_url_from_dotenv(&env_path(paths))
 }
 
 pub(crate) fn server_base_url_from_env<I, K, V>(pairs: I) -> Result<String, String>

@@ -44,6 +44,9 @@ export const workflowResources = {
         errorValidationFailed: "文件验证失败，请重试。",
         errorPickerFailed: "打开文件对话框失败，请重试。",
         errorRemoveFailed: "移除文件失败，请重试。",
+        titleLabel: "课题标题（可选）",
+        titlePlaceholder: "留空则使用文件名",
+        titleAriaLabel: "为这个课题起一个标题（可选）",
       },
       attachment: {
         openAria: "添加本地媒体",
@@ -118,6 +121,9 @@ export const workflowResources = {
         errorValidationFailed: "檔案驗證失敗，請重試。",
         errorPickerFailed: "開啟檔案對話框失敗，請重試。",
         errorRemoveFailed: "移除檔案失敗，請重試。",
+        titleLabel: "課題標題（可選）",
+        titlePlaceholder: "留空則使用檔案名稱",
+        titleAriaLabel: "為這個課題命名（可選）",
       },
       attachment: {
         openAria: "加入本機媒體",
@@ -192,6 +198,9 @@ export const workflowResources = {
         errorValidationFailed: "File validation failed, please retry.",
         errorPickerFailed: "Failed to open file dialog, please retry.",
         errorRemoveFailed: "Failed to remove file, please retry.",
+        titleLabel: "Topic title (optional)",
+        titlePlaceholder: "Leave empty to use the file name",
+        titleAriaLabel: "Give this topic a title (optional)",
       },
       attachment: {
         openAria: "Add local media",

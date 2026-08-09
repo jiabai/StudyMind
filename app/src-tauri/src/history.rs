@@ -31,6 +31,8 @@ pub(crate) struct HistoryListItemView {
     pub(crate) error: Option<HistoryListErrorView>,
     pub(crate) text_preview: String,
     pub(crate) insights_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) title: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -53,6 +55,8 @@ pub(crate) struct HistoryDetailView {
     pub(crate) insights: Vec<task_manifest::InsightView>,
     pub(crate) dissection: Option<crate::worker_runtime::TaskDissection>,
     pub(crate) dissection_source_status: Option<task_manifest::DissectionSourceStatus>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) title: Option<String>,
 }
 
 #[tauri::command]
@@ -141,6 +145,7 @@ fn history_item_from_supported_task(
             .map(|error| HistoryListErrorView { code: error.code }),
         text_preview: task.text_preview().to_string(),
         insights_count: task.insights_count(),
+        title: task.title().map(str::to_string),
     }
 }
 
@@ -181,6 +186,7 @@ pub(crate) fn load_history_detail_from_output_root(
         insights,
         dissection: dissection.as_ref().map(|view| view.report.clone()),
         dissection_source_status: dissection.map(|view| view.source_status),
+        title: task.title().map(str::to_string),
     })
 }
 

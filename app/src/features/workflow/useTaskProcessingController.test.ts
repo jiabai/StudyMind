@@ -143,6 +143,7 @@ function createHistoryItem(overrides: Partial<HistoryItem> = {}): HistoryItem {
     ],
     dissection: dissection ?? null,
     dissectionStale: dissectionStale ?? false,
+    title: null,
     ...rest,
   };
 }

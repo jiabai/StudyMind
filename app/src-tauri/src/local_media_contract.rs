@@ -72,12 +72,36 @@ impl LocalMediaSelectionView {
 struct RawProcessLocalMediaIpcRequest {
     selection_token: String,
     asr_model: String,
+    #[serde(default)]
+    title: Option<String>,
 }
 
-#[derive(Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub(crate) struct ProcessLocalMediaIpcRequest {
     pub(crate) selection_token: String,
     pub(crate) asr_model: String,
+    pub(crate) title: Option<String>,
+}
+
+pub(crate) const TITLE_MAX_LEN: usize = 80;
+
+fn normalize_optional_title(raw: Option<String>) -> Result<Option<String>, &'static str> {
+    match raw {
+        None => Ok(None),
+        Some(value) => {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                return Ok(None);
+            }
+            if trimmed.chars().count() > TITLE_MAX_LEN {
+                return Err(INVALID_LOCAL_MEDIA_SELECTION_CODE);
+            }
+            if trimmed.chars().any(|ch| ch.is_control()) {
+                return Err(INVALID_LOCAL_MEDIA_SELECTION_CODE);
+            }
+            Ok(Some(trimmed.to_string()))
+        }
+    }
 }
 
 pub(crate) fn parse_process_local_media_ipc_request(
@@ -90,9 +114,11 @@ pub(crate) fn parse_process_local_media_ipc_request(
     {
         return Err(INVALID_LOCAL_MEDIA_SELECTION_CODE);
     }
+    let title = normalize_optional_title(raw.title)?;
     Ok(ProcessLocalMediaIpcRequest {
         selection_token: raw.selection_token,
         asr_model: raw.asr_model,
+        title,
     })
 }
 

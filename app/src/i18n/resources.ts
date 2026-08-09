@@ -7,6 +7,7 @@ import { errorResources } from "./errorResources";
 import { historyResources } from "./historyResources";
 import { preferenceResources } from "./preferenceResources";
 import { settingsFeatureResources } from "./settingsResources";
+import { sidebarResources } from "./sidebarResources";
 import { synthesisResources } from "./synthesisResources";
 import { transcriptResources } from "./transcriptResources";
 import { updatesResources } from "./updatesResources";
@@ -26,6 +27,7 @@ export const RESOURCE_NAMESPACES = [
   "synthesis",
   "updates",
   "errors",
+  "sidebar",
 ] as const;
 export type ResourceNamespace = (typeof RESOURCE_NAMESPACES)[number];
 type ResourceTree = { readonly [key: string]: string | ResourceTree };
@@ -138,6 +140,7 @@ export const resources = {
     synthesis: { ...synthesisResources["zh-CN"], ...dissectionResources["zh-CN"] },
     updates: updatesResources["zh-CN"],
     errors: errorResources["zh-CN"],
+    sidebar: sidebarResources["zh-CN"],
   },
   "zh-TW": {
     common: {
@@ -246,6 +249,7 @@ export const resources = {
     synthesis: { ...synthesisResources["zh-TW"], ...dissectionResources["zh-TW"] },
     updates: updatesResources["zh-TW"],
     errors: errorResources["zh-TW"],
+    sidebar: sidebarResources["zh-TW"],
   },
   "en-US": {
     common: {
@@ -354,5 +358,6 @@ export const resources = {
     synthesis: { ...synthesisResources["en-US"], ...dissectionResources["en-US"] },
     updates: updatesResources["en-US"],
     errors: errorResources["en-US"],
+    sidebar: sidebarResources["en-US"],
   },
 } as const satisfies Record<SupportedLocale, Record<ResourceNamespace, ResourceTree>>;

@@ -41,6 +41,7 @@ export type HistoryItemResponse = {
   error: { code: string } | null;
   text_preview: string;
   insights_count: number;
+  title?: string | null;
 };
 
 export type HistoryDetailResponse = {
@@ -56,6 +57,7 @@ export type HistoryDetailResponse = {
   insights: Insight[];
   dissection: WorkerResult["dissection"];
   dissection_source_status: "current" | "stale" | null;
+  title?: string | null;
 };
 
 export type HistoryListItem = {
@@ -70,6 +72,7 @@ export type HistoryListItem = {
   error: { code: string } | null;
   textPreview: string;
   insightsCount: number;
+  title: string | null;
 };
 
 type HistoryDeleteResponse = {
@@ -95,6 +98,7 @@ export type HistoryItem = {
   insights: Insight[];
   dissection: WorkerResult["dissection"];
   dissectionStale: boolean;
+  title: string | null;
 };
 
 export type HistoryCommandRunner = (
@@ -147,6 +151,52 @@ export async function deleteHistoryTask(
   return { taskId: response.task_id, deleted: true };
 }
 
+export type TaskRenameResult = {
+  taskId: string;
+  title: string | null;
+};
+
+export async function renameTaskTitle(
+  taskId: string,
+  title: string | null,
+  runner: HistoryCommandRunner = defaultHistoryRunner,
+): Promise<TaskRenameResult> {
+  const response = parseTaskRenameResponse(
+    await runner("rename_task_title", {
+      request: { task_id: taskId, title: title ?? null },
+    }),
+    taskId,
+  );
+  return { taskId: response.task_id, title: response.title ?? null };
+}
+
+type TaskRenameResponse = {
+  task_id: string;
+  title: string | null;
+};
+
+function parseTaskRenameResponse(
+  value: unknown,
+  expectedTaskId: string,
+): TaskRenameResponse {
+  const response = readIpcDataObject(
+    value,
+    ["task_id", "title"],
+    [],
+    HISTORY_IPC_RESPONSE_INVALID,
+  );
+  if (response.task_id !== expectedTaskId) {
+    throwInvalidHistoryResponse();
+  }
+  if (response.title !== null && typeof response.title !== "string") {
+    throwInvalidHistoryResponse();
+  }
+  return {
+    task_id: expectedTaskId,
+    title: typeof response.title === "string" ? response.title : null,
+  };
+}
+
 function parseHistoryListResponse(value: unknown): HistoryItemResponse[] {
   return readIpcDataArray(value, HISTORY_IPC_RESPONSE_INVALID).map(
     parseHistoryListItemResponse,
@@ -169,7 +219,7 @@ function parseHistoryListItemResponse(value: unknown): HistoryItemResponse {
       "text_preview",
       "insights_count",
     ],
-    [],
+    ["title"],
     HISTORY_IPC_RESPONSE_INVALID,
   );
   const status = parseHistoryStatus(response.status);
@@ -182,7 +232,8 @@ function parseHistoryListItemResponse(value: unknown): HistoryItemResponse {
     typeof response.output_dir !== "string" ||
     typeof response.text_preview !== "string" ||
     !isSafeUnsignedInteger(response.insights_count) ||
-    !isCoherentHistoryError(status, error)
+    !isCoherentHistoryError(status, error) ||
+    (response.title !== undefined && response.title !== null && typeof response.title !== "string")
   ) {
     throwInvalidHistoryResponse();
   }
@@ -198,6 +249,7 @@ function parseHistoryListItemResponse(value: unknown): HistoryItemResponse {
     error,
     text_preview: response.text_preview,
     insights_count: response.insights_count,
+    title: typeof response.title === "string" ? response.title : null,
   };
 }
 
@@ -221,7 +273,7 @@ function parseHistoryDetailResponse(
       "dissection",
       "dissection_source_status",
     ],
-    [],
+    ["title"],
     HISTORY_IPC_RESPONSE_INVALID,
   );
   const status = parseHistoryStatus(response.status);
@@ -238,6 +290,7 @@ function parseHistoryDetailResponse(
       && response.dissection_source_status !== "current"
       && response.dissection_source_status !== "stale")
     || (dissection === null) !== (response.dissection_source_status === null)
+    || (response.title !== undefined && response.title !== null && typeof response.title !== "string")
   ) {
     throwInvalidHistoryResponse();
   }
@@ -254,6 +307,7 @@ function parseHistoryDetailResponse(
     insights: parseHistoryInsights(response.insights),
     dissection,
     dissection_source_status: response.dissection_source_status,
+    title: typeof response.title === "string" ? response.title : null,
   };
 }
 
@@ -491,6 +545,7 @@ function mapHistoryItemResponse(response: HistoryItemResponse): HistoryListItem 
     error: response.error ? { code: response.error.code } : null,
     textPreview: response.text_preview,
     insightsCount: response.insights_count,
+    title: response.title ?? null,
   };
 }
 
@@ -508,5 +563,6 @@ function mapHistoryDetailResponse(response: HistoryDetailResponse): HistoryItem 
     insights: response.insights,
     dissection: response.dissection,
     dissectionStale: response.dissection_source_status === "stale",
+    title: response.title ?? null,
   };
 }

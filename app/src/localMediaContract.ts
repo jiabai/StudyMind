@@ -18,6 +18,7 @@ export type LocalMediaSelectionView = {
 export type ProcessLocalMediaRequest = {
   selectionToken: string;
   asrModel: "iic/SenseVoiceSmall" | "iic/SenseVoiceSmall-onnx";
+  title?: string | null;
 };
 
 export type LocalMediaParseResult<T> =
@@ -121,23 +122,49 @@ export function parseLocalMediaSelectionView(
   };
 }
 
+const TITLE_MAX_LEN = 80;
+
+function isOptionalSafeTitle(value: unknown): boolean {
+  if (value === null || value === undefined) {
+    return true;
+  }
+  if (typeof value !== "string") {
+    return false;
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return true;
+  }
+  return (
+    Array.from(trimmed).length <= TITLE_MAX_LEN &&
+    !UNSAFE_BASENAME_CHARACTER_PATTERN.test(trimmed)
+  );
+}
+
 export function parseProcessLocalMediaRequest(
   value: unknown,
 ): LocalMediaParseResult<ProcessLocalMediaRequest> {
   if (
     !isRecord(value) ||
-    !hasExactFields(value, ["selectionToken", "asrModel"]) ||
     !isSelectionToken(value.selectionToken) ||
-    !DESKTOP_ASR_MODELS.includes(value.asrModel as (typeof DESKTOP_ASR_MODELS)[number])
+    !DESKTOP_ASR_MODELS.includes(value.asrModel as (typeof DESKTOP_ASR_MODELS)[number]) ||
+    !isOptionalSafeTitle("title" in value ? value.title : undefined)
   ) {
     return INVALID_SELECTION;
   }
+
+  const titleRaw = "title" in value ? value.title : undefined;
+  const title =
+    typeof titleRaw === "string" && titleRaw.trim().length > 0
+      ? titleRaw.trim()
+      : null;
 
   return {
     kind: "valid",
     value: {
       selectionToken: value.selectionToken,
       asrModel: value.asrModel as ProcessLocalMediaRequest["asrModel"],
+      ...(title ? { title } : {}),
     },
   };
 }

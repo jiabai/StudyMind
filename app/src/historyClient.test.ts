@@ -132,6 +132,7 @@ describe("history client", () => {
         error: null,
         textPreview: "这是一段转写预览",
         insightsCount: 2,
+        title: null,
       },
     ]);
   });
@@ -347,6 +348,7 @@ describe("history client", () => {
       insights: [],
       dissection: null,
       dissectionStale: false,
+      title: null,
     });
 
     expect(result).toEqual({

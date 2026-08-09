@@ -37,6 +37,9 @@ const APP_SETTINGS_DOTENV_TEMPLATE: &str = "# StudyMind desktop local settings.\
 # Insight LLM configuration is managed by the StudyMind server Admin Web.\n\
 # Do not put STUDYMIND_LLM_* keys here.\n\
 \n\
+# StudyMind server used for desktop account login and managed LLM checkout.\n\
+STUDYMIND_SERVER_BASE_URL=http://127.0.0.1:8788\n\
+\n\
 # Optional output directory for generated videos, transcripts, and insights.\n\
 # Leave blank to use app-local data outputs/.\n\
 STUDYMIND_OUTPUT_DIR=\n\

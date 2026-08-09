@@ -59,6 +59,50 @@ describe("local media frontend-safe contract", () => {
     ).toMatchObject({ kind: "valid" });
   });
 
+  test("accepts optional title and normalizes blank to absent", () => {
+    const withTitle = parseProcessLocalMediaRequest({
+      selectionToken: SELECTION_TOKEN,
+      asrModel: "iic/SenseVoiceSmall-onnx",
+      title: "  离散数学·第3讲  ",
+    });
+    expect(withTitle).toMatchObject({ kind: "valid" });
+    expect(withTitle.kind === "valid" && withTitle.value.title).toBe("离散数学·第3讲");
+
+    const blank = parseProcessLocalMediaRequest({
+      selectionToken: SELECTION_TOKEN,
+      asrModel: "iic/SenseVoiceSmall-onnx",
+      title: "   ",
+    });
+    expect(blank).toMatchObject({ kind: "valid" });
+    expect(blank.kind === "valid" && "title" in blank.value).toBe(false);
+
+    const omitted = parseProcessLocalMediaRequest({
+      selectionToken: SELECTION_TOKEN,
+      asrModel: "iic/SenseVoiceSmall-onnx",
+    });
+    expect(omitted).toMatchObject({ kind: "valid" });
+    expect(omitted.kind === "valid" && "title" in omitted.value).toBe(false);
+  });
+
+  test("rejects oversized and control-char titles", () => {
+    const longTitle = "a".repeat(81);
+    expect(
+      parseProcessLocalMediaRequest({
+        selectionToken: SELECTION_TOKEN,
+        asrModel: "iic/SenseVoiceSmall-onnx",
+        title: longTitle,
+      }),
+    ).toEqual({ kind: "invalid", errorCode: "LOCAL_MEDIA_SELECTION_INVALID" });
+
+    expect(
+      parseProcessLocalMediaRequest({
+        selectionToken: SELECTION_TOKEN,
+        asrModel: "iic/SenseVoiceSmall-onnx",
+        title: "a\u0000b",
+      }),
+    ).toEqual({ kind: "invalid", errorCode: "LOCAL_MEDIA_SELECTION_INVALID" });
+  });
+
   test("rejects missing, additional, wrong-type, wrong-kind, and unsafe values", () => {
     const cases: unknown[] = [
       null,
