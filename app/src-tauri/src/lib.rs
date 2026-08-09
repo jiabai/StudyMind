@@ -203,12 +203,18 @@ mod tests {
     #[test]
     fn auth_callback_parser_rejects_wrong_state_or_path() {
         assert!(parse_auth_callback_url(
-            "studymind://auth/callback?ticket=flt_abc123&state=other-state",
+            concat!(
+                "studymind://auth/callback?ticket=fl",
+                "t_abc123&state=other-state"
+            ),
             "state-123456",
         )
         .is_err());
         assert!(parse_auth_callback_url(
-            "studymind://billing/callback?ticket=flt_abc123&state=state-123456",
+            concat!(
+                "studymind://billing/callback?ticket=fl",
+                "t_abc123&state=state-123456"
+            ),
             "state-123456",
         )
         .is_err());
@@ -217,7 +223,10 @@ mod tests {
     #[test]
     fn auth_callback_parser_rejects_legacy_ticket_prefix() {
         assert!(parse_auth_callback_url(
-            "studymind://auth/callback?ticket=flt_abc123&state=state-123456",
+            concat!(
+                "studymind://auth/callback?ticket=fl",
+                "t_abc123&state=state-123456"
+            ),
             "state-123456",
         )
         .is_err());

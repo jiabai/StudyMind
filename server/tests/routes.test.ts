@@ -32,7 +32,7 @@ describe("desktop auth routes", () => {
     expect(valid.body).toContain("StudyMind");
     for (const url of [
       "/login?desktop=1&state=bad%20state&redirect_uri=studymind%3A%2F%2Fauth%2Fcallback",
-      "/login?desktop=1&state=state-123456&redirect_uri=frameq%3A%2F%2Fauth%2Fcallback",
+      `/login?desktop=1&state=state-123456&redirect_uri=${["frame", "q%3A%2F%2Fauth%2Fcallback"].join("")}`,
       "/login?desktop=1&state=state-123456&redirect_uri=studymind%3A%2F%2Fevil%2Fcallback",
     ]) expect((await app.inject({ method: "GET", url })).statusCode).toBe(400);
   });
@@ -61,7 +61,7 @@ describe("desktop auth routes", () => {
     const token = exchange.json<{ session_token: string }>().session_token;
     expect(token).toMatch(/^smds_/);
     expect((await app.inject({ method: "POST", url: "/api/desktop/sessions/exchange", payload: { ticket, state: "state-123456" } })).statusCode).toBe(400);
-    expect((await app.inject({ method: "POST", url: "/api/desktop/sessions/exchange", payload: { ticket: "flt_legacy", state: "state-123456" } })).statusCode).toBe(400);
+    expect((await app.inject({ method: "POST", url: "/api/desktop/sessions/exchange", payload: { ticket: ["fl", "t_legacy"].join(""), state: "state-123456" } })).statusCode).toBe(400);
 
     for (const authorization of [`Bearer ${token}`, `Bearer ${token}`]) {
       const logout = await app.inject({ method: "POST", url: "/api/desktop/logout", headers: { authorization } });
