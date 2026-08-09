@@ -67,9 +67,10 @@ export async function runServerLifecycle(options: {
   let receivedSignal: "SIGINT" | "SIGTERM" | undefined;
   let signalDeadline = 0;
   let signalHandling: Promise<void> | undefined;
-  let startupStoppedResolve: (() => void) | undefined;
-  const startupStopped = new Promise<void>((resolve) => { startupStoppedResolve = resolve; });
-  let interruptedCleanupStatus: CleanupStatus = "success";
+  let startupStoppedResolve: ((status: CleanupStatus) => void) | undefined;
+  const startupStopped = new Promise<CleanupStatus>((resolve) => { startupStoppedResolve = resolve; });
+  let startupStoppedSettled = false;
+  const settleStartupStopped = (status: CleanupStatus) => { if (!startupStoppedSettled) { startupStoppedSettled = true; startupStoppedResolve?.(status); } };
   let listenersRemoved = false;
   let removeSignalListeners: () => void = () => undefined;
   let forced = false;
@@ -78,8 +79,9 @@ export async function runServerLifecycle(options: {
     receivedSignal = signal; signalDeadline = Date.now() + (options.shutdownTimeoutMs ?? 15_000);
     if (startupFinished && shutdown) { const result = await shutdown(signal); process.exitCode = result.exitCode; return; }
     logger.info({ event: STUDYMIND_EVENTS.draining, code: STUDYMIND_CODES.draining, signal });
-    if (!await completesBy(startupStopped, signalDeadline)) forceOnce(1);
-    else process.exitCode = interruptedCleanupStatus === "success" ? 0 : 1;
+    const status = await completesBy(startupStopped, signalDeadline);
+    if (status === "timeout") forceOnce(1);
+    else process.exitCode = status === "success" ? 0 : 1;
   })().finally(() => { if (!listenersRemoved) { listenersRemoved = true; removeSignalListeners(); } });
   if (options.installSignalHandlers !== false) {
     const register = options.registerSignalHandlers ?? registerProcessSignalHandlers;
@@ -97,17 +99,23 @@ export async function runServerLifecycle(options: {
     logger.info({ event: STUDYMIND_EVENTS.ready, code: STUDYMIND_CODES.ready });
   } catch (error) {
     if (error instanceof StartupInterruptedError) {
-      interruptedCleanupStatus = await cleanupInterruptedStartup({ runtime, prisma, deadline: signalDeadline, forceOnce, logger });
-      startupStoppedResolve?.();
+      settleStartupStopped(await cleanupInterruptedStartup({ runtime, prisma, deadline: signalDeadline, forceOnce, logger }));
       throw error;
     }
     logger.error({ event: STUDYMIND_EVENTS.startupFailed, code: STUDYMIND_CODES.startupFailed });
-    await cleanupStartupFailure({ runtime, prisma, timeoutMs: options.shutdownTimeoutMs ?? 15_000, forceExit });
-    if (!listenersRemoved) { listenersRemoved = true; removeSignalListeners(); }
+    if (receivedSignal) {
+      const cleanup = await cleanupInterruptedStartup({ runtime, prisma, deadline: signalDeadline, forceOnce, logger });
+      settleStartupStopped(cleanup === "timeout" ? "timeout" : "failed");
+    } else {
+      const cleanup = await cleanupStartupFailure({ runtime, prisma, timeoutMs: options.shutdownTimeoutMs ?? 15_000, forceExit: forceOnce, logger });
+      settleStartupStopped(cleanup === "timeout" ? "timeout" : "failed");
+      if (!listenersRemoved) { listenersRemoved = true; removeSignalListeners(); }
+    }
     throw error;
   }
   shutdown = shutdownRuntime({ app: runtime.app, prisma, readiness: runtime.readiness, timeoutMs: options.shutdownTimeoutMs ?? 15_000, forceExit: forceOnce, logger });
   startupFinished = true;
+  settleStartupStopped("success");
   return { app: runtime.app, prisma, shutdown };
 }
 
@@ -146,13 +154,20 @@ function forceTimedOut(input: { forceExit?: (code: number) => void; logger?: Run
   return { exitCode: 1, signal };
 }
 
-async function cleanupStartupFailure(input: { runtime?: Runtime; prisma?: PrismaClient; timeoutMs: number; forceExit: (code: number) => void }): Promise<void> {
+async function cleanupStartupFailure(input: { runtime?: Runtime; prisma?: PrismaClient; timeoutMs: number; forceExit: (code: number) => void; logger: RuntimeLogger }): Promise<CleanupStatus> {
   const deadline = Date.now() + input.timeoutMs;
+  let status: CleanupStatus = "success";
   if (input.runtime) {
     input.runtime.readiness.beginDraining();
-    if (await settleBeforeDeadline(() => input.runtime!.app.close(), deadline) === "timeout") { input.forceExit(1); return; }
+    const closeStatus = await settleBeforeDeadline(() => input.runtime!.app.close(), deadline);
+    if (closeStatus === "timeout") { input.forceExit(1); return "timeout"; }
+    if (closeStatus === "failed") { status = "failed"; logCleanupFailure(input.logger, "application", "startup_failure"); }
   }
-  if (input.prisma && await settleBeforeDeadline(() => input.prisma!.$disconnect(), deadline) === "timeout") input.forceExit(1);
+  if (!input.prisma) return status;
+  const disconnectStatus = await settleBeforeDeadline(() => input.prisma!.$disconnect(), deadline);
+  if (disconnectStatus === "timeout") { input.forceExit(1); return "timeout"; }
+  if (disconnectStatus === "failed") { status = "failed"; logCleanupFailure(input.logger, "database", "startup_failure"); }
+  return status;
 }
 
 async function cleanupInterruptedStartup(input: { runtime?: Runtime; prisma?: PrismaClient; deadline: number; forceOnce(code: number): void; logger: RuntimeLogger }): Promise<CleanupStatus> {
@@ -161,31 +176,31 @@ async function cleanupInterruptedStartup(input: { runtime?: Runtime; prisma?: Pr
     input.runtime.readiness.beginDraining();
     const closeStatus = await settleBeforeDeadline(() => input.runtime!.app.close(), input.deadline);
     if (closeStatus === "timeout") { input.forceOnce(1); return "timeout"; }
-    if (closeStatus === "failed") { status = "failed"; logCleanupFailure(input.logger, "application"); }
+    if (closeStatus === "failed") { status = "failed"; logCleanupFailure(input.logger, "application", "startup_signal"); }
   }
   if (!input.prisma) return status;
   if (Date.now() >= input.deadline) { void input.prisma.$disconnect().catch(() => undefined); input.forceOnce(1); return "timeout"; }
   const disconnectStatus = await settleBeforeDeadline(() => input.prisma!.$disconnect(), input.deadline);
   if (disconnectStatus === "timeout") { input.forceOnce(1); return "timeout"; }
-  if (disconnectStatus === "failed") { status = "failed"; logCleanupFailure(input.logger, "database"); }
+  if (disconnectStatus === "failed") { status = "failed"; logCleanupFailure(input.logger, "database", "startup_signal"); }
   return status;
 }
 
-function logCleanupFailure(logger: RuntimeLogger, resource: "application" | "database"): void {
-  logger.error({ event: STUDYMIND_EVENTS.cleanupFailed, code: STUDYMIND_CODES.cleanupFailed, phase: "startup_signal", resource });
+function logCleanupFailure(logger: RuntimeLogger, resource: "application" | "database", phase: "startup_signal" | "startup_failure"): void {
+  logger.error({ event: STUDYMIND_EVENTS.cleanupFailed, code: STUDYMIND_CODES.cleanupFailed, phase, resource });
 }
 
-async function completesBy(operation: Promise<void>, deadline: number): Promise<boolean> {
+async function completesBy(operation: Promise<CleanupStatus>, deadline: number): Promise<CleanupStatus> {
   const remaining = deadline - Date.now();
-  if (remaining <= 0) return false;
+  if (remaining <= 0) return "timeout";
   let timer: NodeJS.Timeout | undefined;
-  try { return await Promise.race([operation.then(() => true), new Promise<false>((resolve) => { timer = setTimeout(() => resolve(false), remaining); })]); }
+  try { return await Promise.race([operation, new Promise<"timeout">((resolve) => { timer = setTimeout(() => resolve("timeout"), remaining); })]); }
   finally { if (timer) clearTimeout(timer); }
 }
 
 function registerProcessSignalHandlers(handler: (signal: "SIGINT" | "SIGTERM") => Promise<void>): () => void {
   const sigint = () => { void handler("SIGINT"); }; const sigterm = () => { void handler("SIGTERM"); };
-  process.once("SIGINT", sigint); process.once("SIGTERM", sigterm);
+  process.on("SIGINT", sigint); process.on("SIGTERM", sigterm);
   return () => { process.off("SIGINT", sigint); process.off("SIGTERM", sigterm); };
 }
 

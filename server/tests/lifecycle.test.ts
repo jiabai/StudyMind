@@ -190,4 +190,44 @@ describe("server lifecycle", () => {
       expect(JSON.stringify(records)).not.toContain("APP_CLOSE_SECRET");
     } finally { process.exitCode = originalExitCode; }
   });
+
+  test("keeps real repeated SIGTERM delivery active until blocked shutdown settles", async () => {
+    const baselineTerm = process.listenerCount("SIGTERM"); const baselineInt = process.listenerCount("SIGINT"); const calls: string[] = []; const forceExit = vi.fn(); let releaseClose: (() => void) | undefined;
+    const close = new Promise<void>((resolve) => { releaseClose = resolve; });
+    const runtime = await runServerLifecycle({ loadConfig: () => ({ host: "127.0.0.1", port: 8787 }) as never, connectDatabase: async () => ({ $disconnect: async () => { calls.push("disconnect"); } }) as never, buildRuntime: async () => ({ app: { listen: async () => undefined, close: () => { calls.push("close"); return close; } }, readiness: { beginDraining: () => calls.push("draining") } }) as never, shutdownTimeoutMs: 100, forceExit, logger: createRuntimeLogger({ info: () => undefined, error: () => undefined }) });
+    expect(process.listenerCount("SIGTERM")).toBe(baselineTerm + 1); expect(process.listenerCount("SIGINT")).toBe(baselineInt + 1);
+    process.emit("SIGTERM", "SIGTERM"); process.emit("SIGTERM", "SIGTERM");
+    const duringTerm = process.listenerCount("SIGTERM"); const duringInt = process.listenerCount("SIGINT");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    releaseClose?.(); await runtime.shutdown("SIGTERM"); await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(duringTerm).toBe(baselineTerm + 1); expect(duringInt).toBe(baselineInt + 1);
+    expect(process.listenerCount("SIGTERM")).toBe(baselineTerm); expect(process.listenerCount("SIGINT")).toBe(baselineInt);
+    expect(calls).toEqual(["draining", "close", "disconnect"]); expect(forceExit).not.toHaveBeenCalled();
+  });
+
+  test("settles signal handling when blocked connect rejects without timeout force", async () => {
+    const records: unknown[] = []; const forceExit = vi.fn(); const removeListeners = vi.fn(); const originalExitCode = process.exitCode; let handler: ((signal: "SIGINT" | "SIGTERM") => Promise<void>) | undefined; let rejectConnect: ((error: Error) => void) | undefined;
+    const connect = new Promise<never>((_resolve, reject) => { rejectConnect = reject; }); const original = new Error("CONNECT_STAGE_SECRET");
+    const operation = runServerLifecycle({ loadConfig: () => ({ host: "127.0.0.1", port: 8787 }) as never, connectDatabase: async () => await connect, buildRuntime: async () => { throw new Error("must not build"); }, registerSignalHandlers: (value) => { handler = value; return removeListeners; }, shutdownTimeoutMs: 100, forceExit, logger: createRuntimeLogger({ info: (record) => records.push(record), error: (record) => records.push(record) }) });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    try {
+      const handling = handler!("SIGTERM"); rejectConnect?.(original);
+      await expect(operation).rejects.toBe(original); await handling;
+      expect(process.exitCode).toBe(1); expect(forceExit).not.toHaveBeenCalled(); expect(removeListeners).toHaveBeenCalledOnce();
+      expect(records).toContainEqual({ event: STUDYMIND_EVENTS.startupFailed, code: STUDYMIND_CODES.startupFailed }); expect(JSON.stringify(records)).not.toContain("CONNECT_STAGE_SECRET");
+    } finally { process.exitCode = originalExitCode; }
+  });
+
+  test("cleans once and settles signal handling when listen rejects", async () => {
+    const records: unknown[] = []; const forceExit = vi.fn(); const disconnect = vi.fn(async () => undefined); const close = vi.fn(async () => undefined); const removeListeners = vi.fn(); const originalExitCode = process.exitCode; let handler: ((signal: "SIGINT" | "SIGTERM") => Promise<void>) | undefined; let rejectListen: ((error: Error) => void) | undefined;
+    const listen = new Promise<never>((_resolve, reject) => { rejectListen = reject; }); const original = new Error("LISTEN_STAGE_SECRET");
+    const operation = runServerLifecycle({ loadConfig: () => ({ host: "127.0.0.1", port: 8787 }) as never, connectDatabase: async () => ({ $disconnect: disconnect }) as never, buildRuntime: async () => ({ app: { listen: () => listen, close }, readiness: { beginDraining: () => undefined } }) as never, registerSignalHandlers: (value) => { handler = value; return removeListeners; }, shutdownTimeoutMs: 100, forceExit, logger: createRuntimeLogger({ info: (record) => records.push(record), error: (record) => records.push(record) }) });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    try {
+      const handling = handler!("SIGINT"); rejectListen?.(original);
+      await expect(operation).rejects.toBe(original); await handling;
+      expect(process.exitCode).toBe(1); expect(forceExit).not.toHaveBeenCalled(); expect(removeListeners).toHaveBeenCalledOnce(); expect(close).toHaveBeenCalledOnce(); expect(disconnect).toHaveBeenCalledOnce();
+      expect(records).toContainEqual({ event: STUDYMIND_EVENTS.startupFailed, code: STUDYMIND_CODES.startupFailed }); expect(JSON.stringify(records)).not.toContain("LISTEN_STAGE_SECRET");
+    } finally { process.exitCode = originalExitCode; }
+  });
 });
