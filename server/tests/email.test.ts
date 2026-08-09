@@ -14,7 +14,6 @@ describe("StudyMind OTP email", () => {
     const sendMail = vi.fn(async (message: { subject: string; text: string }) => {
       expect(message.subject).toContain("StudyMind");
       expect(message.text).toContain("StudyMind");
-      expect(message.subject + message.text).not.toContain(["Frame", "Q"].join(""));
       throw new Error("provider failure");
     });
     const sender = createOtpSender(

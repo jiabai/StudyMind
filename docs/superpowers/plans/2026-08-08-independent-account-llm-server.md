@@ -2,7 +2,7 @@
 
 **Status:** Implementation complete on 2026-08-09. All Server, migration, Rust account/callback, and Worker contract gates passed. The repository-wide Rust suite retains pre-existing desktop filesystem/watchdog failures and timeouts documented in `progress.md`; they are outside this Server correction scope.
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox syntax for tracking.
 
 **Goal:** 用 14 个账号/权益模型和完整认证、计费、LLM checkout 能力重建 StudyMind server，并消除 Task 域与所有 FrameQ 产品耦合。
 
@@ -86,7 +86,7 @@ Production code must not contain `taskRoutes.ts`、`progressRoutes.ts`、`worker
 - Modify: `server/tsconfig.json`
 - Create: `server/vitest.config.ts`
 
-- [ ] **Step 1: Write the boundary test before deleting the wrong domain**
+- [x] **Step 1: Write the boundary test before deleting the wrong domain**
 
 Create `server/tests/serverDomainBoundary.test.ts` with these assertions:
 
@@ -117,13 +117,13 @@ describe("StudyMind server domain boundary", () => {
 });
 ```
 
-- [ ] **Step 2: Run the boundary test and verify RED**
+- [x] **Step 2: Run the boundary test and verify RED**
 
 Run: `npm --prefix server test -- --run tests/serverDomainBoundary.test.ts`
 
 Expected: FAIL because the current schema contains Task models and not the 14 required models.
 
-- [ ] **Step 3: Replace package and TypeScript baselines**
+- [x] **Step 3: Replace package and TypeScript baselines**
 
 Set package identity to `studymind-server`; use `@prisma/client ^6.19.0`、`dotenv ^17.4.2`、`fastify ^5.6.2`、`nodemailer ^7.0.11`、`zod ^4.2.1` and matching TypeScript/Vitest/Prisma/types. Scripts must include:
 
@@ -143,7 +143,7 @@ Set package identity to `studymind-server`; use `@prisma/client ^6.19.0`、`dote
 
 Use NodeNext, strict, `noUncheckedIndexedAccess`, `resolveJsonModule`, and include `src/**/*.ts` + `tests/**/*.ts`.
 
-- [ ] **Step 4: Replace the Prisma schema and add one fresh baseline migration**
+- [x] **Step 4: Replace the Prisma schema and add one fresh baseline migration**
 
 Port the final 14-model shape from `D:\Github\FrameQ\server\prisma\schema.prisma`, preserving relations/indexes but using a new StudyMind baseline migration. The SQL migration must include these checks from the hardened reference:
 
@@ -159,11 +159,11 @@ CHECK ("llmQuotaUsed" <= "llmQuotaLimit")
 
 Do not include any migration that reads or transforms Task rows.
 
-- [ ] **Step 5: Delete the superseded files and tracked database**
+- [x] **Step 5: Delete the superseded files and tracked database**
 
 Verify each exact target is inside `D:\Github\StudyMind\server`, then remove only the files listed for deletion. Add `server/prisma/*.db` to `.gitignore`; runtime data remains under already-ignored `server/data/`.
 
-- [ ] **Step 6: Install dependencies and generate Prisma client**
+- [x] **Step 6: Install dependencies and generate Prisma client**
 
 Run: `npm --prefix server install`
 
@@ -171,7 +171,7 @@ Run: `$env:DATABASE_URL='file:../data/studymind.sqlite'; npm --prefix server run
 
 Expected: both exit 0 and package-lock resolves the StudyMind dependency set.
 
-- [ ] **Step 7: Verify GREEN and fresh migration**
+- [x] **Step 7: Verify GREEN and fresh migration**
 
 Run: `npm --prefix server test -- --run tests/serverDomainBoundary.test.ts`
 
@@ -187,7 +187,7 @@ Remove-Item -LiteralPath "$migrationDb-journal" -ErrorAction SilentlyContinue
 
 Expected: boundary tests pass and migration creates exactly 14 models.
 
-- [ ] **Step 8: Commit Task 1**
+- [x] **Step 8: Commit Task 1**
 
 Stage only Task 1 files and commit: `refactor(server): replace task domain with account schema`.
 
@@ -206,7 +206,7 @@ Stage only Task 1 files and commit: `refactor(server): replace task domain with 
 - Create: `server/tests/storeCompatibility.test.ts`
 - Create: `server/tests/transactionSafety.test.ts`
 
-- [ ] **Step 1: Write Store contract tests first**
+- [x] **Step 1: Write Store contract tests first**
 
 Port the MemoryStore cases from FrameQ `storeCompatibility.test.ts` and `transactionSafety.test.ts`, replacing every product identity with StudyMind. Required cases: OTP purpose isolation/replacement/limits; ticket single consumption; activation single redemption; request-ID quota reuse; webhook replay; admin adjustment audit.
 
@@ -219,27 +219,27 @@ expect(secondCheckout.status).toBe("reused");
 expect(store.llmUsageEvents).toHaveLength(1);
 ```
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `npm --prefix server test -- --run tests/storeCompatibility.test.ts tests/transactionSafety.test.ts`
 
 Expected: FAIL because Store/MemoryStore do not exist.
 
-- [ ] **Step 3: Port `Store` records and closed result unions**
+- [x] **Step 3: Port `Store` records and closed result unions**
 
 Port FrameQ `store/contracts.ts` completely because all 14 models are in scope. Preserve semantic operations such as `issueEmailOtp`、`verifyDesktopOtpAndCreateTicketAndWebSession`、`exchangeDesktopTicketAndCreateSession`、`consumeLlmQuota`、`redeemActivationCodeAndGrantEntitlement`、`settlePaidOrder` and `applyEntitlementAdjustmentWithAudit`.
 
-- [ ] **Step 4: Port MemoryStore as an independent StudyMind implementation**
+- [x] **Step 4: Port MemoryStore as an independent StudyMind implementation**
 
 Port FrameQ memory modules and keep atomic serialization inside the MemoryStore only. Change auth-rate key namespace to `studymind:auth-rate-limit:v1`. No source file may import outside StudyMind.
 
-- [ ] **Step 5: Run MemoryStore tests GREEN**
+- [x] **Step 5: Run MemoryStore tests GREEN**
 
 Run: `npm --prefix server test -- --run tests/storeCompatibility.test.ts tests/transactionSafety.test.ts`
 
 Expected: all MemoryStore contract and atomicity tests pass.
 
-- [ ] **Step 6: Commit Task 2**
+- [x] **Step 6: Commit Task 2**
 
 Commit: `feat(server): add semantic account store`.
 
@@ -259,7 +259,7 @@ Commit: `feat(server): add semantic account store`.
 - Create: `server/tests/prismaTransactionSafety.test.ts`
 - Create: `server/tests/prismaAuthQuotaConcurrency.test.ts`
 
-- [ ] **Step 1: Write independent-client concurrency tests before PrismaStore**
+- [x] **Step 1: Write independent-client concurrency tests before PrismaStore**
 
 Port the five FrameQ Prisma harness/migration/transaction/concurrency tests. The harness must create a temp SQLite file, deploy the StudyMind migration, generate/use the StudyMind client, and open at least two independent PrismaClient instances.
 
@@ -273,25 +273,25 @@ expect(await prisma.llmUsageEvent.count()).toBe(1);
 expect(await prisma.webhookEvent.count()).toBe(1);
 ```
 
-- [ ] **Step 2: Run Prisma tests and verify RED**
+- [x] **Step 2: Run Prisma tests and verify RED**
 
 Run: `npm --prefix server test -- --run tests/prisma*.test.ts`
 
 Expected: FAIL because PrismaStore modules do not exist.
 
-- [ ] **Step 3: Port concurrency primitives**
+- [x] **Step 3: Port concurrency primitives**
 
 Port parameterized SQL and bounded conflict retry. Change the rate-limit hash namespace to StudyMind. Retry only P2034/P1008/SQLite busy-lock classifications; maximum 3 attempts with bounded backoff. Do not retry validation or unknown errors.
 
-- [ ] **Step 4: Port auth, user-session, entitlement, LLM config and billing operations**
+- [x] **Step 4: Port auth, user-session, entitlement, LLM config and billing operations**
 
 Preserve the reference transaction shapes. Critical SQL must stay parameterized through `Prisma.sql`; no string-built values. Remove reference-only compatibility helpers not declared on StudyMind `Store`.
 
-- [ ] **Step 5: Implement the PrismaStore facade**
+- [x] **Step 5: Implement the PrismaStore facade**
 
 Every public method delegates to the focused module with typed `ReturnType<Store[...]>`. Do not use `any`; replace the reference `adminEntitlementAdjustment` cast with generated Prisma types.
 
-- [ ] **Step 6: Run Prisma tests GREEN twice**
+- [x] **Step 6: Run Prisma tests GREEN twice**
 
 Run: `npm --prefix server test -- --run tests/prisma*.test.ts`
 
@@ -299,7 +299,7 @@ Repeat the same command once.
 
 Expected: both runs pass with no temp database residue.
 
-- [ ] **Step 7: Commit Task 3**
+- [x] **Step 7: Commit Task 3**
 
 Commit: `feat(server): add transactional prisma store`.
 
@@ -325,7 +325,7 @@ Commit: `feat(server): add transactional prisma store`.
 - Modify: `app/src-tauri/src/account.rs`
 - Modify: `app/src-tauri/src/lib.rs`
 
-- [ ] **Step 1: Write StudyMind identity tests first**
+- [x] **Step 1: Write StudyMind identity tests first**
 
 Port relevant auth/routes/page tests and assert exact identities:
 
@@ -339,7 +339,7 @@ expect(loginPage.body).not.toContain("FrameQ");
 
 Add Rust tests for `STUDYMIND_SERVER_BASE_URL`、`studymind://auth/callback`、`smlt_` ticket acceptance and rejection of the legacy env spelling/prefix.
 
-- [ ] **Step 2: Run focused tests and verify RED**
+- [x] **Step 2: Run focused tests and verify RED**
 
 Run:
 
@@ -350,7 +350,7 @@ cargo test --manifest-path app/src-tauri/Cargo.toml account
 
 Expected failures: missing server modules and current Rust `flt_`/`StudyMind_SERVER_BASE_URL` values.
 
-- [ ] **Step 3: Port security/auth/email modules with StudyMind values**
+- [x] **Step 3: Port security/auth/email modules with StudyMind values**
 
 Use these exact prefixes:
 
@@ -365,19 +365,19 @@ const adminCsrf = secureToken("smac_");
 
 Email subject/body/log prefix must say StudyMind. `authRateLimitKey` must hash `studymind:auth-rate-limit:v1|...`.
 
-- [ ] **Step 4: Port login page and desktop auth routes**
+- [x] **Step 4: Port login page and desktop auth routes**
 
 Only accept `studymind://auth/callback`. Cookies set during desktop-mode verification use StudyMind web-cookie names. Public errors remain fixed and raw Store/Prisma errors are hidden.
 
-- [ ] **Step 5: Update Rust account contract**
+- [x] **Step 5: Update Rust account contract**
 
 Use `STUDYMIND_SERVER_BASE_URL`; validate `smlt_`; keep the production base URL owned by StudyMind; do not change account status/activation/billing JSON fields.
 
-- [ ] **Step 6: Run server and Rust auth tests GREEN**
+- [x] **Step 6: Run server and Rust auth tests GREEN**
 
 Run the focused commands from Step 2. Expected: all pass and no FrameQ identity occurs in runtime code.
 
-- [ ] **Step 7: Commit Task 4**
+- [x] **Step 7: Commit Task 4**
 
 Commit: `feat(server): add StudyMind desktop authentication`.
 
@@ -393,11 +393,11 @@ Commit: `feat(server): add StudyMind desktop authentication`.
 - Create: `server/tests/llmQuota.test.ts`
 - Create: `worker/tests/test_llm.py`
 
-- [ ] **Step 1: Write activation/account/LLM tests RED**
+- [x] **Step 1: Write activation/account/LLM tests RED**
 
 Assert `SM-` codes, 31 days, 20 Credits, account gate separation, AES-GCM round trip, wrong key failure, request-ID reuse and final-credit concurrency. Assert checkout response fields exactly match Worker parser: `provider/base_url/model/api_key/timeout_seconds/quota_remaining`.
 
-- [ ] **Step 2: Run focused server + Worker tests and verify RED**
+- [x] **Step 2: Run focused server + Worker tests and verify RED**
 
 Run:
 
@@ -408,19 +408,19 @@ uv run pytest worker/tests/test_llm.py -q
 
 Expected: missing service/route modules and the new Worker contract test proves the required checkout response fields.
 
-- [ ] **Step 3: Implement StudyMind activation and adjustment services**
+- [x] **Step 3: Implement StudyMind activation and adjustment services**
 
 Use `SM-XXXX-XXXX-XXXX-XXXX`, 31 entitlement days, 30-day redemption window and 20 Credits. Redemption calls only the Store atomic operation.
 
-- [ ] **Step 4: Implement LLM config encryption and account/checkout routes**
+- [x] **Step 4: Implement LLM config encryption and account/checkout routes**
 
 Rename the required key error to `STUDYMIND_LLM_CONFIG_ENCRYPTION_KEY is required.` Account `can_process` and `can_generate_ai` follow the confirmed rules. Checkout validates request IDs with `/^[A-Za-z0-9._~-]{8,160}$/` and returns key only after successful quota consumption.
 
-- [ ] **Step 5: Run focused tests GREEN**
+- [x] **Step 5: Run focused tests GREEN**
 
 Run the exact two commands from Step 2. Expected: all pass.
 
-- [ ] **Step 6: Commit Task 5**
+- [x] **Step 6: Commit Task 5**
 
 Commit: `feat(server): add entitlements and managed llm checkout`.
 
@@ -440,11 +440,11 @@ Commit: `feat(server): add entitlements and managed llm checkout`.
 - Create: `server/tests/webDashboard.test.ts`
 - Create: `server/tests/wechatConfig.test.ts`
 
-- [ ] **Step 1: Write billing/admin/web tests RED**
+- [x] **Step 1: Write billing/admin/web tests RED**
 
 Port tests with exact StudyMind identities: order prefix `sm_`, description `StudyMind monthly pass`, user/admin cookies, `x-studymind-csrf`, StudyMind page text. Cover disabled billing 404, order ownership, webhook replay/conflict, admin auth/CSRF, activation generation, LLM config save and audited entitlement adjustment.
 
-- [ ] **Step 2: Run focused tests and verify RED**
+- [x] **Step 2: Run focused tests and verify RED**
 
 Run:
 
@@ -454,19 +454,19 @@ npm.cmd --prefix server test -- --run tests/admin.test.ts tests/billing.test.ts 
 
 Expected: missing billing/admin/dashboard modules.
 
-- [ ] **Step 3: Implement billing and WeChat integration**
+- [x] **Step 3: Implement billing and WeChat integration**
 
 Use amount 990 fen and 31 days. All WeChat runtime keys use `STUDYMIND_WECHAT_*`. Preserve exact raw-body verification and atomic Store settlement.
 
-- [ ] **Step 4: Implement admin and web user surfaces**
+- [x] **Step 4: Implement admin and web user surfaces**
 
 Use StudyMind cookie names and CSRF header everywhere, including embedded page JavaScript. Admin routes are the eight specified in the design; web user routes are the five specified. No updates route is registered.
 
-- [ ] **Step 5: Run focused tests GREEN**
+- [x] **Step 5: Run focused tests GREEN**
 
 Run the exact command from Step 2. Expected: admin, billing, dashboard and WeChat tests all pass.
 
-- [ ] **Step 6: Commit Task 6**
+- [x] **Step 6: Commit Task 6**
 
 Commit: `feat(server): add billing and account administration`.
 
@@ -494,11 +494,11 @@ Commit: `feat(server): add billing and account administration`.
 - Create: `server/tests/runtimeConfig.test.ts`
 - Create: `server/tests/serverModuleBoundaries.test.ts`
 
-- [ ] **Step 1: Write runtime/operations tests RED**
+- [x] **Step 1: Write runtime/operations tests RED**
 
 Port the reference tests but use only `STUDYMIND_*`, `studymind.sqlite`, and StudyMind log events. Add a server assembly assertion that registers no desktop update/task/progress/worker routes.
 
-- [ ] **Step 2: Run runtime tests and verify RED**
+- [x] **Step 2: Run runtime tests and verify RED**
 
 Run:
 
@@ -508,7 +508,7 @@ npm.cmd --prefix server test -- --run tests/database.test.ts tests/deploymentCon
 
 Expected: missing runtime/readiness/lifecycle modules and old server assembly.
 
-- [ ] **Step 3: Implement fail-closed runtime config**
+- [x] **Step 3: Implement fail-closed runtime config**
 
 Allowed product variables are:
 
@@ -526,23 +526,23 @@ STUDYMIND_WECHAT_API_V3_KEY/PLATFORM_CERT_PEM/DEV_INSECURE_NOTIFY
 
 `NODE_ENV` and `DATABASE_URL` are the only generic configuration names. Production requires database, admin email, encryption key >=32 characters and complete SMTP; insecure/console modes are forbidden.
 
-- [ ] **Step 4: Implement database, readiness, observability and lifecycle**
+- [x] **Step 4: Implement database, readiness, observability and lifecycle**
 
 Default database is `server/data/studymind.sqlite`; connect with WAL + 5000ms busy timeout. Readiness verifies the 14-model schema and ping. Trust only loopback proxy. Redact auth/cookie/key/body fields. Shutdown is idempotent and bounded to 15 seconds.
 
-- [ ] **Step 5: Assemble the complete server**
+- [x] **Step 5: Assemble the complete server**
 
 Register health, desktop auth/account/LLM, billing, admin, user auth and dashboard. Do not import or register updates/task/progress/worker modules. Capture raw JSON body only for payment webhook verification.
 
-- [ ] **Step 6: Port preflight and restore smoke tools**
+- [x] **Step 6: Port preflight and restore smoke tools**
 
 Adapt all filenames, messages and expected tables to StudyMind. Tools must never print database contents or secret values.
 
-- [ ] **Step 7: Run runtime tests GREEN**
+- [x] **Step 7: Run runtime tests GREEN**
 
 Run the exact command from Step 2. Expected: pass with no secret fixture in logs.
 
-- [ ] **Step 8: Commit Task 7**
+- [x] **Step 8: Commit Task 7**
 
 Commit: `feat(server): add production runtime and lifecycle`.
 
@@ -557,7 +557,7 @@ Commit: `feat(server): add production runtime and lifecycle`.
 - Modify: `findings.md`
 - Modify: `progress.md`
 
-- [ ] **Step 1: Write the product identity boundary test RED**
+- [x] **Step 1: Write the product identity boundary test RED**
 
 Recursively scan `server/src`、`server/tests`、`server/scripts`、`server/prisma`、`server/.env.example` and the relevant Rust account files. Reject:
 
@@ -571,17 +571,17 @@ const forbidden = [
 
 Allow FrameQ only in ADR/spec prose outside the scanned production/test paths.
 
-- [ ] **Step 2: Run the identity test and verify RED if any residue exists**
+- [x] **Step 2: Run the identity test and verify RED if any residue exists**
 
 Run: `npm --prefix server test -- --run tests/productIdentityBoundary.test.ts`
 
 Expected before cleanup: FAIL with precise file/line residue, or PASS if prior tasks already removed every identity. If it passes immediately, temporarily insert one forbidden fixture into an in-memory test input to prove the scanner detects it, then remove the fixture.
 
-- [ ] **Step 3: Remove every residue and update docs**
+- [x] **Step 3: Remove every residue and update docs**
 
 README must describe only StudyMind account/auth/entitlement/billing/LLM service, exact routes, 14 models, migrations, env, local development, deployment limits, backup/restore and the fact that local media/tasks never reach server.
 
-- [ ] **Step 4: Run complete server gates**
+- [x] **Step 4: Run complete server gates**
 
 Run:
 
@@ -593,7 +593,7 @@ $env:DATABASE_URL='file:../data/studymind.sqlite'; npm.cmd --prefix server run d
 
 Expected: exit 0, zero failed tests, valid migrations.
 
-- [ ] **Step 5: Run client and Worker contract gates**
+- [x] **Step 5: Run client and Worker contract gates**
 
 Run:
 
@@ -611,7 +611,7 @@ uv run pytest worker/tests
 
 Expected: StudyMind endpoint/prefix/env and managed checkout tests pass.
 
-- [ ] **Step 6: Perform final diff and requirement audit**
+- [x] **Step 6: Perform final diff and requirement audit**
 
 Verify:
 
@@ -622,6 +622,6 @@ Verify:
 - no user pre-existing unrelated changes reverted;
 - `git diff --check` is clean.
 
-- [ ] **Step 7: Update work records and commit**
+- [x] **Step 7: Update work records and commit**
 
 Record exact test counts and residual operational risks in `progress.md`/`findings.md`; mark the corrective plan complete. Commit: `docs(server): document independent account service`.

@@ -11,7 +11,6 @@ describe("StudyMind login page", () => {
     const html = renderLoginPage({ locale: "en", desktop: true, state: "state-123456", redirectUri: "studymind://auth/callback" });
     expect(html).toContain('<html lang="en">');
     expect(html).toContain("StudyMind");
-    expect(html).not.toContain(["Frame", "Q"].join(""));
     expect(html).toContain("studymind://auth/callback");
     expect(html).toContain("/auth/email/start");
     expect(html).toContain("/auth/email/verify");

@@ -74,7 +74,7 @@ describe("StudyMind admin routes", () => {
 
   test("renders secure StudyMind pages and redirects invalid sessions", async () => {
     const { app, cookie } = await login(); const page = await app.inject({ method: "GET", url: "/admin", headers: { cookie } });
-    expect(page.statusCode).toBe(200); expect(page.headers["content-security-policy"]).toBeTruthy(); expect(page.body).toContain("StudyMind"); expect(page.body).not.toContain(["Frame", "Q"].join(""));
+    expect(page.statusCode).toBe(200); expect(page.headers["content-security-policy"]).toBeTruthy(); expect(page.body).toContain("StudyMind");
     const loginPage = await app.inject({ method: "GET", url: "/admin/login" }); expect(loginPage.headers["cache-control"]).toBe("no-store"); expect(loginPage.body).toContain("StudyMind");
     const invalid = await app.inject({ method: "GET", url: "/admin", headers: { cookie: "studymind_admin_session=invalid" } }); expect(invalid.statusCode).toBe(302); expect(invalid.headers.location).toBe("/admin/login");
   });

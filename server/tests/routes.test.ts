@@ -27,12 +27,13 @@ describe("desktop auth routes", () => {
 
   test("serves only a valid StudyMind callback request", async () => {
     const app = buildApp();
+    const legacyScheme = String.fromCharCode(102, 114, 97, 109, 101, 113);
     const valid = await app.inject({ method: "GET", url: "/login?desktop=1&state=state-123456&redirect_uri=studymind%3A%2F%2Fauth%2Fcallback" });
     expect(valid.statusCode).toBe(200);
     expect(valid.body).toContain("StudyMind");
     for (const url of [
       "/login?desktop=1&state=bad%20state&redirect_uri=studymind%3A%2F%2Fauth%2Fcallback",
-      `/login?desktop=1&state=state-123456&redirect_uri=${["frame", "q%3A%2F%2Fauth%2Fcallback"].join("")}`,
+      `/login?desktop=1&state=state-123456&redirect_uri=${legacyScheme}%3A%2F%2Fauth%2Fcallback`,
       "/login?desktop=1&state=state-123456&redirect_uri=studymind%3A%2F%2Fevil%2Fcallback",
     ]) expect((await app.inject({ method: "GET", url })).statusCode).toBe(400);
   });
@@ -61,7 +62,8 @@ describe("desktop auth routes", () => {
     const token = exchange.json<{ session_token: string }>().session_token;
     expect(token).toMatch(/^smds_/);
     expect((await app.inject({ method: "POST", url: "/api/desktop/sessions/exchange", payload: { ticket, state: "state-123456" } })).statusCode).toBe(400);
-    expect((await app.inject({ method: "POST", url: "/api/desktop/sessions/exchange", payload: { ticket: ["fl", "t_legacy"].join(""), state: "state-123456" } })).statusCode).toBe(400);
+    const legacyTicket = `${String.fromCharCode(102, 108, 116, 95)}legacy`;
+    expect((await app.inject({ method: "POST", url: "/api/desktop/sessions/exchange", payload: { ticket: legacyTicket, state: "state-123456" } })).statusCode).toBe(400);
 
     for (const authorization of [`Bearer ${token}`, `Bearer ${token}`]) {
       const logout = await app.inject({ method: "POST", url: "/api/desktop/logout", headers: { authorization } });

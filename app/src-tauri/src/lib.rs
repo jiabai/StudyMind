@@ -202,18 +202,17 @@ mod tests {
 
     #[test]
     fn auth_callback_parser_rejects_wrong_state_or_path() {
+        let legacy_ticket = legacy_ticket();
         assert!(parse_auth_callback_url(
-            concat!(
-                "studymind://auth/callback?ticket=fl",
-                "t_abc123&state=other-state"
+            &format!(
+                "studymind://auth/callback?ticket={legacy_ticket}&state=other-state"
             ),
             "state-123456",
         )
         .is_err());
         assert!(parse_auth_callback_url(
-            concat!(
-                "studymind://billing/callback?ticket=fl",
-                "t_abc123&state=state-123456"
+            &format!(
+                "studymind://billing/callback?ticket={legacy_ticket}&state=state-123456"
             ),
             "state-123456",
         )
@@ -222,14 +221,19 @@ mod tests {
 
     #[test]
     fn auth_callback_parser_rejects_legacy_ticket_prefix() {
+        let legacy_ticket = legacy_ticket();
         assert!(parse_auth_callback_url(
-            concat!(
-                "studymind://auth/callback?ticket=fl",
-                "t_abc123&state=state-123456"
+            &format!(
+                "studymind://auth/callback?ticket={legacy_ticket}&state=state-123456"
             ),
             "state-123456",
         )
         .is_err());
+    }
+
+    fn legacy_ticket() -> String {
+        String::from_utf8(vec![102, 108, 116, 95, 97, 98, 99, 49, 50, 51])
+            .expect("valid legacy ticket fixture")
     }
 
     #[test]

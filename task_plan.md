@@ -21,8 +21,8 @@
 
 ## Final verification
 
-- Server identity boundary：2/2 通过
-- Server：28 files / 199 tests，串行和默认模式均通过
+- Server identity boundary：3/3 通过，包含静态字符串拆分回归
+- Server：最终默认模式 28 files / 200 tests 通过；加固前串行和默认模式均为 199 tests 通过
 - Server build：Prisma generate + TypeScript no-emit 通过
 - 临时 SQLite：migration deploy/status、preflight、restore smoke 通过；未读取或修改 `server/data`
 - Rust 定向：account 5/5、auth callback 5/5 通过
