@@ -51,6 +51,10 @@ StudyMind/
 
 Issues 与 specs 以 GitHub issues 形式追踪，使用 `gh` CLI。详见 `docs/agents/issue-tracker.md`。
 
+### Triage labels
+
+五个 canonical triage 角色使用默认 label（needs-triage / needs-info / ready-for-agent / ready-for-human / wontfix）。详见 `docs/agents/triage-labels.md`。
+
 ### Domain docs
 
 单上下文布局：repo 根目录的 `CONTEXT.md` 与 `docs/adr/`，由相关 skill 按需创建。详见 `docs/agents/domain.md`。
