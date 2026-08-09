@@ -170,7 +170,6 @@ export function AppSidebar({
   return (
     <aside className="app-sidebar expanded" aria-label={tSidebar("ariaLabel")}>
       <header className="sidebar-header">
-        <span className="sidebar-brand">{tSidebar("brand")}</span>
         <button
           className="sidebar-collapse-toggle"
           type="button"

@@ -104,7 +104,7 @@ pub(super) fn shell_fixture_command(script: String) -> (PathBuf, Vec<String>) {
 }
 
 pub(super) fn valid_progress_line() -> &'static str {
-    r#"STUDYMIND_PROGRESS {"stage":"video_extracting","progress":22,"message_code":"video.download.preparing"}"#
+    r#"STUDYMIND_PROGRESS {"stage":"video_extracting","progress":22,"message_code":"audio.extract.running"}"#
 }
 
 #[cfg(windows)]

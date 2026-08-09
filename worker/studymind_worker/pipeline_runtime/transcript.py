@@ -2,16 +2,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from studymind_worker.asr import (
-    DEFAULT_ASR_MODEL,
-    ASRError,
-    QwenAsrTranscriber,
-    Transcriber,
-    build_asr_transcriber,
-    resolve_model_cache_dir,
+from studymind_worker.asr_runtime.artifacts import (
     transcribe_and_write,
     write_transcript_files,
 )
+from studymind_worker.asr_runtime.qwen import QwenAsrTranscriber
+from studymind_worker.asr_runtime.registry import (
+    DEFAULT_ASR_MODEL,
+    build_asr_transcriber,
+    resolve_model_cache_dir,
+)
+from studymind_worker.asr_runtime.types import ASRError, Transcriber
 from studymind_worker.atomic_files import AtomicFileCommitError
 from studymind_worker.desktop_contract import ProgressCallback
 from studymind_worker.model_download import (

@@ -167,7 +167,7 @@ mod tests {
         fs::create_dir_all(task_dir.join("ai")).unwrap();
         fs::write(
             task_dir.join("StudyMind-task.json"),
-            r#"{"schema_version":4,"task_id":"nonexistent-task","created_at":"2026-08-08T00:00:00Z","updated_at":"2026-08-08T00:00:00Z","source_kind":"local_file","local_source":{"display_name":"test.mp3","media_kind":"audio","extension":"mp3"},"status":"completed","app_version":"app","worker_version":"app","model":"iic/SenseVoiceSmall","text_preview":"hello","insights_count":0,"artifacts":{}}"#,
+            r#"{"schema_version":4,"task_id":"nonexistent-task","created_at":"2026-08-08T00:00:00Z","updated_at":"2026-08-08T00:00:00Z","source_kind":"local_file","local_source":{"display_name":"test.mp3","media_kind":"audio","extension":"mp3"},"platform":"local","status":"completed","app_version":"app","worker_version":"app","model":"iic/SenseVoiceSmall","text_preview":"hello","insights_count":0,"artifacts":{}}"#,
         )
         .unwrap();
 
@@ -190,7 +190,7 @@ mod tests {
         fs::create_dir_all(task_dir.join("ai")).unwrap();
         fs::write(
             task_dir.join("StudyMind-task.json"),
-            r#"{"schema_version":4,"task_id":"test-task-123","created_at":"2026-08-08T00:00:00Z","updated_at":"2026-08-08T00:00:00Z","source_kind":"local_file","local_source":{"display_name":"test.mp3","media_kind":"audio","extension":"mp3"},"status":"completed","app_version":"app","worker_version":"app","model":"iic/SenseVoiceSmall","text_preview":"hello","insights_count":0,"artifacts":{}}"#,
+            r#"{"schema_version":4,"task_id":"test-task-123","created_at":"2026-08-08T00:00:00Z","updated_at":"2026-08-08T00:00:00Z","source_kind":"local_file","local_source":{"display_name":"test.mp3","media_kind":"audio","extension":"mp3"},"platform":"local","status":"completed","app_version":"app","worker_version":"app","model":"iic/SenseVoiceSmall","text_preview":"hello","insights_count":0,"artifacts":{}}"#,
         )
         .unwrap();
 

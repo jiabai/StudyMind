@@ -406,7 +406,7 @@ fn supported_task_opens_only_current_tasks_and_reads_validated_artifacts() {
         Some("facade transcript")
     );
     assert_eq!(
-        task.existing_artifacts()["transcript_txt"],
+        task.declared_artifacts()["transcript_txt"],
         "transcript/transcript.txt"
     );
 }

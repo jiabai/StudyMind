@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import shutil
 from dataclasses import dataclass
@@ -61,7 +61,7 @@ class MediaPreparationFacade:
                 f"Local media file not found: {input_path}",
             )
 
-        self._emit_progress("extracting_audio", f"Probing {input_path.name}")
+        self._emit_progress("local.media.validating", 5)
         try:
             media_info = probe_media_file(input_path, runner=self._runner)
         except CommandExecutionError as exc:
@@ -74,7 +74,7 @@ class MediaPreparationFacade:
         if media_info.is_normalized_pcm_wav and input_path.suffix.lower() == ".wav":
             shutil.copy2(input_path, audio_path)
         else:
-            self._emit_progress("extracting_audio", f"Extracting audio from {input_path.name}")
+            self._emit_progress("audio.extract.running", 20)
             try:
                 extract_audio(input_path, audio_path, runner=self._runner)
             except CommandExecutionError as exc:
@@ -102,6 +102,12 @@ class MediaPreparationFacade:
             subtitle_candidate=subtitle_candidate,
         )
 
-    def _emit_progress(self, stage: str, message: str) -> None:
+    def _emit_progress(self, message_code: str, progress: int) -> None:
         if self._progress is not None:
-            self._progress(build_worker_progress_event(stage, message))
+            self._progress(
+                build_worker_progress_event(
+                    message_code,
+                    stage=JobStage.VIDEO_EXTRACTING.value,
+                    progress=progress,
+                )
+            )

@@ -4,7 +4,7 @@ use super::super::progress::{inspect_progress_line, ProgressProtocol, ProgressRe
 fn progress_protocols_validate_before_routing_and_drop_invalid_payloads() {
     let worker = inspect_progress_line(
         ProgressProtocol::Worker,
-        r#"STUDYMIND_PROGRESS {"stage":"video_extracting","progress":22,"message_code":"video.download.preparing"}"#,
+        r#"STUDYMIND_PROGRESS {"stage":"video_extracting","progress":22,"message_code":"audio.extract.running"}"#,
     );
     let model = inspect_progress_line(
         ProgressProtocol::AsrModelDownload,
@@ -16,12 +16,12 @@ fn progress_protocols_validate_before_routing_and_drop_invalid_payloads() {
     );
     let ignored_by_none = inspect_progress_line(
         ProgressProtocol::None,
-        r#"STUDYMIND_PROGRESS {"stage":"video_extracting","progress":22,"message_code":"video.download.preparing"}"#,
+        r#"STUDYMIND_PROGRESS {"stage":"video_extracting","progress":22,"message_code":"audio.extract.running"}"#,
     );
 
     assert!(matches!(
         worker,
-        ProgressRecord::Validated(value) if value["message_code"] == "video.download.preparing"
+        ProgressRecord::Validated(value) if value["message_code"] == "audio.extract.running"
     ));
     assert!(matches!(
         model,

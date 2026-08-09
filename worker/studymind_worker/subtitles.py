@@ -5,7 +5,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from studymind_worker.asr import TranscriptSegment
+from studymind_worker.asr_runtime.types import TranscriptSegment
 
 PREFERRED_SUBTITLE_LANGUAGES = (
     "zh-Hans",

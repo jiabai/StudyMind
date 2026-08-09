@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from studymind_worker.asr import DEFAULT_ASR_MODEL, SENSEVOICE_SMALL_ONNX_MODEL
+from studymind_worker.asr_runtime.registry import DEFAULT_ASR_MODEL, SENSEVOICE_SMALL_ONNX_MODEL
 from studymind_worker.config import load_project_env
 from studymind_worker.desktop_contract import (
     MODEL_DIR_ENV,

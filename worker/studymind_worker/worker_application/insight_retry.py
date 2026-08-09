@@ -19,11 +19,8 @@ from studymind_worker.models import (
     TranscriptMetadata,
     WorkerError,
 )
-from studymind_worker.pipeline import (
-    resolve_cache_dir,
-    resolve_output_dir,
-    run_insight_generation_step,
-)
+from studymind_worker.pipeline_runtime.insights import run_insight_generation_step
+from studymind_worker.pipeline_runtime.shared import resolve_cache_dir, resolve_output_dir
 from studymind_worker.requests import (
     INVALID_RETRY_PAYLOAD_MESSAGE,
     parse_retry_insights_request,
@@ -60,7 +57,7 @@ def retry_insights_once(
 
     try:
         request = parse_retry_insights_request(payload)
-    except ValueError:
+    except (TypeError, ValueError):
         return failed_insight_retry_result(
             code="INVALID_RETRY_PAYLOAD",
             message=INVALID_RETRY_PAYLOAD_MESSAGE,

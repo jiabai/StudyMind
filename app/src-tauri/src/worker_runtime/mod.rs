@@ -6,6 +6,8 @@ mod supervisor;
 
 use command::build_asr_model_download_command_spec;
 pub(crate) use facade::{AsrModelDownloadJob, TaskWorkerFacade, WorkerJob};
+#[cfg(test)]
+pub(crate) use result_protocol::{TaskError, TaskErrorStage, TaskTerminalStatus};
 pub(crate) use result_protocol::{
     validate_task_dissection, ModelDownloadTerminalResult, TaskDissection, TaskTerminalResult,
     ValidatedWorkerResult, WORKER_PROTOCOL_MESSAGE, WORKER_PROTOCOL_VIOLATION,

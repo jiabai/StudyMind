@@ -60,8 +60,6 @@ class ModelProgressSpec:
 
 
 WORKER_PROGRESS_REGISTRY: dict[str, WorkerProgressSpec] = {
-    "video.download.preparing": WorkerProgressSpec(),
-    "video.stream.validating": WorkerProgressSpec(),
     "local.media.validating": WorkerProgressSpec(),
     "local.video.copying": WorkerProgressSpec(),
     "local.audio.normalizing": WorkerProgressSpec(),
@@ -73,18 +71,6 @@ WORKER_PROGRESS_REGISTRY: dict[str, WorkerProgressSpec] = {
     "asr.transcribe.starting": WorkerProgressSpec(),
     "asr.transcribe.running": WorkerProgressSpec(),
     "ai.generation.running": WorkerProgressSpec(("attempt", "total")),
-    "douyin.page.resolving": WorkerProgressSpec(),
-    "douyin.stream.probing": WorkerProgressSpec(),
-    "douyin.video.saving": WorkerProgressSpec(),
-    "douyin.stream.retrying": WorkerProgressSpec(("attempt", "total")),
-    "xiaohongshu.page.resolving": WorkerProgressSpec(),
-    "xiaohongshu.video.saving": WorkerProgressSpec(),
-    "xiaohongshu.stream.retrying": WorkerProgressSpec(("attempt", "total")),
-    "bilibili.metadata.resolving": WorkerProgressSpec(),
-    "bilibili.stream.probing": WorkerProgressSpec(),
-    "bilibili.video.downloading": WorkerProgressSpec(),
-    "bilibili.audio.downloading": WorkerProgressSpec(),
-    "bilibili.media.merging": WorkerProgressSpec(),
 }
 
 

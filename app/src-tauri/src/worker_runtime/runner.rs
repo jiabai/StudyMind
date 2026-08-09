@@ -15,12 +15,14 @@ use watchdog::start_watchdog;
 pub(super) use watchdog::WatchdogPolicy;
 
 use super::command::WorkerCommandSpec;
-use super::result_protocol::{ValidatedWorkerResult, WORKER_PROTOCOL_MESSAGE};
+use super::result_protocol::{
+    ModelDownloadTerminalResult, ValidatedWorkerResult, WORKER_PROTOCOL_MESSAGE,
+};
 use super::supervisor::{
     request_process_cancellation, CancelProcessResult, ProcessInstance, ProcessPhase,
     ProcessSupervisor,
 };
-use crate::{append_desktop_log, RuntimePaths};
+use crate::{append_desktop_log, summarize_worker_result_for_log, RuntimePaths};
 use std::process::Output;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -319,10 +321,34 @@ impl WorkerLane {
             WorkerRunOutcome::TimedOut(WorkerTimeoutKind::Absolute) => "absolute_timeout",
             WorkerRunOutcome::UnstructuredFailure(_) => "unstructured_failure",
         };
+        let result_detail = match &outcome {
+            WorkerRunOutcome::Structured(ValidatedWorkerResult::Task(result)) => {
+                summarize_worker_result_for_log(result)
+            }
+            WorkerRunOutcome::Structured(ValidatedWorkerResult::ModelDownload(result)) => {
+                match result {
+                    ModelDownloadTerminalResult::Completed { model } => {
+                        format!("status=completed model={model}")
+                    }
+                    ModelDownloadTerminalResult::Failed { code, message } => {
+                        format!("status=failed error_code={code} error_message={message}")
+                    }
+                }
+            }
+            _ => String::new(),
+        };
         let _ = append_desktop_log(
             paths,
             &operation.event("result"),
-            &format!("operation={} outcome={terminal}", operation.as_str()),
+            &format!(
+                "operation={} outcome={terminal}{}",
+                operation.as_str(),
+                if result_detail.is_empty() {
+                    String::new()
+                } else {
+                    format!(" {result_detail}")
+                }
+            ),
         );
         Ok(outcome)
     }

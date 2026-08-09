@@ -40,6 +40,20 @@ server/prisma/*.db-shm
 *.sqlite-wal
 *.sqlite-shm
 
+# Local scratch / agent artifacts
+/error.txt
+/findings.md
+/progress.md
+/task_plan.md
+/tauri-log.txt
+/IDENTITY.md
+/USER.md
+/HEARTBEAT.md
+/SOUL.md
+/TOOLS.md
+/.openclaw/*
+/.openclaw-attachments/*
+
 # Local config and secrets
 .env
 .env.*

@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from studymind_worker.asr import Transcriber
+from studymind_worker.asr_runtime.types import Transcriber
 from studymind_worker.desktop_contract import CACHE_DIR_ENV, OUTPUT_DIR_ENV, ProgressCallback
 from studymind_worker.models import JobStage, ProcessResult, WorkerError
 from studymind_worker.progress_events import build_worker_progress_event

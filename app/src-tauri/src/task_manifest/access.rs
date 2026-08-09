@@ -117,10 +117,6 @@ impl SupportedTask {
         &self.manifest.status
     }
 
-    pub(crate) fn model(&self) -> &str {
-        &self.manifest.model
-    }
-
     pub(crate) fn source(&self) -> TaskSourceSummary {
         self.manifest
             .safe_source_summary()
@@ -137,23 +133,6 @@ impl SupportedTask {
 
     pub(crate) fn declared_artifacts(&self) -> HashMap<String, String> {
         self.manifest.safe_artifacts()
-    }
-
-    pub(crate) fn existing_artifacts(&self) -> HashMap<String, String> {
-        self.manifest
-            .artifacts
-            .iter()
-            .filter_map(|(key, raw_path)| {
-                let relative = validate_relative_artifact_path(raw_path, key).ok()?;
-                let path = self.task_dir.join(relative);
-                if !path.is_file()
-                    || validate_task_artifact_path(&self.task_dir, &path, key).is_err()
-                {
-                    return None;
-                }
-                Some((key.clone(), raw_path.clone()))
-            })
-            .collect()
     }
 
     pub(crate) fn safe_error(&self) -> Option<SafeTaskError> {

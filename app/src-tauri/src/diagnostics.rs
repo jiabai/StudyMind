@@ -1,3 +1,4 @@
+use crate::worker_runtime::TaskTerminalResult;
 use crate::{RuntimePaths, DESKTOP_LOG_DIR_NAME};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -170,33 +171,21 @@ fn collapse_log_whitespace(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-pub(crate) fn summarize_worker_result_for_log(value: &serde_json::Value) -> String {
+pub(crate) fn summarize_worker_result_for_log(result: &TaskTerminalResult) -> String {
     let mut parts = Vec::new();
-    parts.push(format!(
-        "status={}",
-        value
-            .get("status")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("unknown")
-    ));
+    parts.push(format!("status={}", result.status.as_str()));
 
-    if let Some(task_id) = value.get("task_id").and_then(serde_json::Value::as_str) {
+    if let Some(task_id) = result.task_id.as_deref() {
         parts.push(format!("task_id={task_id}"));
     }
 
-    if let Some(error) = value.get("error").and_then(serde_json::Value::as_object) {
-        if let Some(code) = error.get("code").and_then(serde_json::Value::as_str) {
-            parts.push(format!("error_code={code}"));
-        }
-        if let Some(stage) = error.get("stage").and_then(serde_json::Value::as_str) {
-            parts.push(format!("error_stage={stage}"));
-        }
-        if let Some(message) = error.get("message").and_then(serde_json::Value::as_str) {
-            parts.push(format!(
-                "error_message={}",
-                truncate_for_log(&sanitize_diagnostic_text(message), 500)
-            ));
-        }
+    if let Some(error) = result.error.as_ref() {
+        parts.push(format!("error_code={}", error.code));
+        parts.push(format!("error_stage={}", error.stage.as_str()));
+        parts.push(format!(
+            "error_message={}",
+            truncate_for_log(&sanitize_diagnostic_text(&error.message), 500)
+        ));
     }
 
     parts.join(" ")
@@ -266,15 +255,30 @@ mod tests {
 
     #[test]
     fn worker_result_log_summary_includes_status_task_and_sanitized_error() {
-        let result = serde_json::json!({
-            "status": "failed",
-            "task_id": "20260705-120000-local-demo",
-            "error": {
-                "code": "LOCAL_MEDIA_FAILED",
-                "stage": "video_extracting",
-                "message": "extraction failed https://example.test/video?sig=SECRET Use --cookies cookies.txt."
-            }
-        });
+        use crate::worker_runtime::{
+            TaskError, TaskErrorStage, TaskTerminalResult, TaskTerminalStatus,
+        };
+        use std::collections::HashMap;
+
+        let result = TaskTerminalResult {
+            status: TaskTerminalStatus::Failed,
+            task_id: Some("20260705-120000-local-demo".to_string()),
+            task_dir: None,
+            artifacts: HashMap::new(),
+            text: String::new(),
+            summary: String::new(),
+            insights: Vec::new(),
+            transcript: None,
+            dissection: None,
+            dissection_source_status: None,
+            error: Some(TaskError {
+                code: "LOCAL_MEDIA_FAILED".to_string(),
+                message:
+                    "extraction failed https://example.test/video?sig=SECRET Use --cookies cookies.txt."
+                        .to_string(),
+                stage: TaskErrorStage::VideoExtracting,
+            }),
+        };
 
         let summary = summarize_worker_result_for_log(&result);
 

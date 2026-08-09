@@ -345,14 +345,14 @@ mod tests {
             let payload = serde_json::json!({
                 "stage": stage,
                 "progress": 1,
-                "message_code": "video.download.preparing"
+                "message_code": "audio.extract.running"
             });
             assert!(validate_worker_progress_event(&payload).is_ok());
         }
         let desktop_only = serde_json::json!({
             "stage": "cancelling",
             "progress": 1,
-            "message_code": "video.download.preparing"
+            "message_code": "audio.extract.running"
         });
         assert!(validate_worker_progress_event(&desktop_only).is_err());
     }
@@ -400,11 +400,11 @@ mod tests {
             }),
             serde_json::json!({
                 "stage": "video_extracting", "progress": 22,
-                "message_code": "video.download.preparing", "message": "raw prose"
+                "message_code": "audio.extract.running", "message": "raw prose"
             }),
             serde_json::json!({
                 "stage": "video_extracting", "progress": 22,
-                "message_code": "video.download.preparing", "task_id": "private"
+                "message_code": "audio.extract.running", "task_id": "private"
             }),
         ] {
             assert!(validate_worker_progress_event(&payload).is_err());
@@ -417,23 +417,23 @@ mod tests {
             serde_json::json!({"stage": "video_extracting", "progress": 22}),
             serde_json::json!({
                 "stage": "not-a-stage", "progress": 22,
-                "message_code": "video.download.preparing"
+                "message_code": "audio.extract.running"
             }),
             serde_json::json!({
                 "stage": "video_extracting", "progress": -1,
-                "message_code": "video.download.preparing"
+                "message_code": "audio.extract.running"
             }),
             serde_json::json!({
                 "stage": "video_extracting", "progress": 101,
-                "message_code": "video.download.preparing"
+                "message_code": "audio.extract.running"
             }),
             serde_json::json!({
                 "stage": "video_extracting", "progress": "22",
-                "message_code": "video.download.preparing"
+                "message_code": "audio.extract.running"
             }),
             serde_json::json!({
                 "stage": "video_extracting", "progress": 22.5,
-                "message_code": "video.download.preparing"
+                "message_code": "audio.extract.running"
             }),
         ] {
             assert!(validate_worker_progress_event(&payload).is_err());
@@ -445,7 +445,7 @@ mod tests {
         for payload in [
             serde_json::json!({
                 "stage": "video_extracting", "progress": 22,
-                "message_code": "video.download.preparing",
+                "message_code": "audio.extract.running",
                 "message_args": {"language": "zh-CN"}
             }),
             serde_json::json!({
@@ -455,17 +455,17 @@ mod tests {
             }),
             serde_json::json!({
                 "stage": "video_extracting", "progress": 22,
-                "message_code": "douyin.stream.retrying",
+                "message_code": "ai.generation.running",
                 "message_args": {"attempt": 0, "total": 101}
             }),
             serde_json::json!({
                 "stage": "video_extracting", "progress": 22,
-                "message_code": "douyin.stream.retrying",
+                "message_code": "ai.generation.running",
                 "message_args": {"attempt": 1.5, "total": 2}
             }),
             serde_json::json!({
                 "stage": "video_extracting", "progress": 22,
-                "message_code": "douyin.stream.retrying",
+                "message_code": "ai.generation.running",
                 "message_args": {"attempt": 3, "total": 2}
             }),
             serde_json::json!({

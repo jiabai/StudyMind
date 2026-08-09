@@ -3,17 +3,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from studymind_worker.asr import Transcriber
+from studymind_worker.asr_runtime.types import Transcriber
 from studymind_worker.atomic_files import AtomicFileCommitError
 from studymind_worker.config import load_project_env
 from studymind_worker.desktop_contract import ProgressCallback
 from studymind_worker.media import CommandRunner, run_command
 from studymind_worker.models import JobStage
-from studymind_worker.pipeline import (
-    TranscriberFactory,
-    failed_result,
-    run_local_media_pipeline,
-)
+from studymind_worker.pipeline_runtime.orchestration import run_local_media_pipeline
+from studymind_worker.pipeline_runtime.shared import TranscriberFactory, failed_result
 from studymind_worker.requests import parse_process_local_media_request
 from studymind_worker.task_transaction import (
     TaskArtifactCommitError,
@@ -36,7 +33,7 @@ def run_local_media_once(
     try:
         payload = json.loads(request_json)
         request = parse_process_local_media_request(payload)
-    except (json.JSONDecodeError, ValueError):
+    except (json.JSONDecodeError, TypeError, ValueError):
         return failed_result(
             code="LOCAL_MEDIA_VALIDATION_FAILED",
             message="Local media request payload was invalid.",

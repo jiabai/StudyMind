@@ -290,13 +290,13 @@ mod tests {
         fs::write(
             &env_path,
             [
-                "StudyMind_LLM_PROVIDER=openai_compatible",
-                "StudyMind_LLM_BASE_URL=https://llm.example/v1",
-                "StudyMind_LLM_API_KEY=secret-key",
-                "StudyMind_LLM_MODEL=demo-model",
-                "StudyMind_LLM_TIMEOUT_SECONDS=42",
-                "StudyMind_OUTPUT_DIR=D:/StudyMind/results",
-                "StudyMind_ASR_MODEL=iic/SenseVoiceSmall",
+                "STUDYMIND_LLM_PROVIDER=openai_compatible",
+                "STUDYMIND_LLM_BASE_URL=https://llm.example/v1",
+                "STUDYMIND_LLM_API_KEY=secret-key",
+                "STUDYMIND_LLM_MODEL=demo-model",
+                "STUDYMIND_LLM_TIMEOUT_SECONDS=42",
+                "STUDYMIND_OUTPUT_DIR=D:/StudyMind/results",
+                "STUDYMIND_ASR_MODEL=iic/SenseVoiceSmall",
             ]
             .join("\n"),
         )
@@ -323,9 +323,9 @@ mod tests {
         assert_eq!(config.asr_model, "iic/SenseVoiceSmall");
         assert!(saved.contains("StudyMind desktop local settings"));
         assert!(saved.contains("STUDYMIND_SERVER_BASE_URL=http://127.0.0.1:8788"));
-        assert!(saved.contains("StudyMind_OUTPUT_DIR="));
-        assert!(saved.contains("StudyMind_ASR_MODEL=iic/SenseVoiceSmall"));
-        assert!(!saved.contains("StudyMind_LLM_API_KEY"));
+        assert!(saved.contains("STUDYMIND_OUTPUT_DIR="));
+        assert!(saved.contains("STUDYMIND_ASR_MODEL=iic/SenseVoiceSmall"));
+        assert!(!saved.contains("STUDYMIND_LLM_API_KEY"));
     }
 
     #[test]
@@ -335,11 +335,11 @@ mod tests {
             &env_path,
             [
                 "# keep this comment",
-                "StudyMind_LLM_PROVIDER=openai_compatible",
-                "StudyMind_LLM_BASE_URL=https://old.example/v1",
-                "StudyMind_LLM_API_KEY=old-secret",
-                "StudyMind_LLM_MODEL=old-model",
-                "StudyMind_LLM_TIMEOUT_SECONDS=44",
+                "STUDYMIND_LLM_PROVIDER=openai_compatible",
+                "STUDYMIND_LLM_BASE_URL=https://old.example/v1",
+                "STUDYMIND_LLM_API_KEY=old-secret",
+                "STUDYMIND_LLM_MODEL=old-model",
+                "STUDYMIND_LLM_TIMEOUT_SECONDS=44",
                 "OTHER_SETTING=keep-me",
             ]
             .join("\n"),
@@ -359,14 +359,14 @@ mod tests {
         assert_eq!(config.output_dir, "D:/StudyMind/custom-results");
         assert_eq!(config.asr_model, "iic/SenseVoiceSmall");
         assert_eq!(config.config_path, path_to_env_string(&env_path));
-        assert!(saved.contains("StudyMind_OUTPUT_DIR=D:/StudyMind/custom-results"));
-        assert!(saved.contains("StudyMind_ASR_MODEL=iic/SenseVoiceSmall"));
+        assert!(saved.contains("STUDYMIND_OUTPUT_DIR=D:/StudyMind/custom-results"));
+        assert!(saved.contains("STUDYMIND_ASR_MODEL=iic/SenseVoiceSmall"));
         assert!(saved.contains("OTHER_SETTING=keep-me"));
-        assert!(!saved.contains("StudyMind_LLM_PROVIDER"));
-        assert!(!saved.contains("StudyMind_LLM_BASE_URL"));
-        assert!(!saved.contains("StudyMind_LLM_API_KEY"));
-        assert!(!saved.contains("StudyMind_LLM_MODEL"));
-        assert!(!saved.contains("StudyMind_LLM_TIMEOUT_SECONDS"));
+        assert!(!saved.contains("STUDYMIND_LLM_PROVIDER"));
+        assert!(!saved.contains("STUDYMIND_LLM_BASE_URL"));
+        assert!(!saved.contains("STUDYMIND_LLM_API_KEY"));
+        assert!(!saved.contains("STUDYMIND_LLM_MODEL"));
+        assert!(!saved.contains("STUDYMIND_LLM_TIMEOUT_SECONDS"));
     }
 
     #[test]
@@ -385,10 +385,10 @@ mod tests {
 
         assert_eq!(config.output_dir, "D:/StudyMind/results-only");
         assert_eq!(config.asr_model, "iic/SenseVoiceSmall");
-        assert!(saved.contains("StudyMind_OUTPUT_DIR=D:/StudyMind/results-only"));
-        assert!(saved.contains("StudyMind_ASR_MODEL=iic/SenseVoiceSmall"));
+        assert!(saved.contains("STUDYMIND_OUTPUT_DIR=D:/StudyMind/results-only"));
+        assert!(saved.contains("STUDYMIND_ASR_MODEL=iic/SenseVoiceSmall"));
         assert!(saved.contains("StudyMind desktop local settings"));
-        assert!(!saved.contains("StudyMind_LLM_API_KEY"));
+        assert!(!saved.contains("STUDYMIND_LLM_API_KEY"));
     }
 
     #[test]

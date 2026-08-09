@@ -1,6 +1,5 @@
 export const sidebarResources = {
   "zh-CN": {
-    brand: "StudyMind",
     newTopic: "新建课题",
     myTopic: "我的课题",
     allTopics: "全部课题",
@@ -31,7 +30,6 @@ export const sidebarResources = {
     },
   },
   "zh-TW": {
-    brand: "StudyMind",
     newTopic: "新建課題",
     myTopic: "我的課題",
     allTopics: "全部課題",
@@ -62,7 +60,6 @@ export const sidebarResources = {
     },
   },
   "en-US": {
-    brand: "StudyMind",
     newTopic: "New topic",
     myTopic: "My topic",
     allTopics: "All topics",

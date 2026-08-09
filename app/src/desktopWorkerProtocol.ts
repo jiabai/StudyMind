@@ -39,8 +39,6 @@ export const PROGRESS_MESSAGE_MODELS = [
 type ProgressMessageArgKey = "model" | "language" | "attempt" | "total";
 
 export const WORKER_MESSAGE_CODE_RULES = {
-  "video.download.preparing": { allowedArgs: [] },
-  "video.stream.validating": { allowedArgs: [] },
   "local.media.validating": { allowedArgs: [] },
   "local.video.copying": { allowedArgs: [] },
   "local.audio.normalizing": { allowedArgs: [] },
@@ -52,18 +50,6 @@ export const WORKER_MESSAGE_CODE_RULES = {
   "asr.transcribe.starting": { allowedArgs: [] },
   "asr.transcribe.running": { allowedArgs: [] },
   "ai.generation.running": { allowedArgs: ["attempt", "total"] },
-  "douyin.page.resolving": { allowedArgs: [] },
-  "douyin.stream.probing": { allowedArgs: [] },
-  "douyin.video.saving": { allowedArgs: [] },
-  "douyin.stream.retrying": { allowedArgs: ["attempt", "total"] },
-  "xiaohongshu.page.resolving": { allowedArgs: [] },
-  "xiaohongshu.video.saving": { allowedArgs: [] },
-  "xiaohongshu.stream.retrying": { allowedArgs: ["attempt", "total"] },
-  "bilibili.metadata.resolving": { allowedArgs: [] },
-  "bilibili.stream.probing": { allowedArgs: [] },
-  "bilibili.video.downloading": { allowedArgs: [] },
-  "bilibili.audio.downloading": { allowedArgs: [] },
-  "bilibili.media.merging": { allowedArgs: [] },
 } as const satisfies Record<string, { allowedArgs: readonly ProgressMessageArgKey[] }>;
 
 export const ASR_MODEL_DOWNLOAD_MESSAGE_CODE_RULES = {

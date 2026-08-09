@@ -128,7 +128,7 @@ select:focus-visible {
   grid-template-columns: auto minmax(0, 1fr);
   grid-template-rows: var(--toolbar-height) minmax(0, 1fr);
   grid-template-areas:
-    "sidebar toolbar"
+    "toolbar toolbar"
     "sidebar workspace";
   height: 100vh;
   max-width: none;
@@ -3878,22 +3878,14 @@ h3 {
   transition: width var(--sidebar-transition), flex-basis var(--sidebar-transition);
 }
 
-/* 头部行 */
+/* 头部行：顶栏全宽后只保留折叠按钮的紧凑行 */
 .sidebar-header {
   align-items: center;
   display: flex;
   flex: 0 0 auto;
-  gap: 8px;
-  height: var(--toolbar-height);
-  justify-content: space-between;
-  padding: 0 14px 0 18px;
-}
-
-.sidebar-brand {
-  color: var(--text);
-  font-size: 0.92rem;
-  font-weight: 700;
-  letter-spacing: -0.01em;
+  justify-content: flex-end;
+  min-height: 44px;
+  padding: 6px var(--space-3) 0;
 }
 
 .sidebar-collapse-toggle {

@@ -23,8 +23,6 @@ pub(crate) const TASK_RESULT_FIELDS: &[&str] = &[
     "dissection",
     "error",
 ];
-#[cfg(test)]
-pub(crate) const TASK_RESULT_OPTIONAL_FIELDS: &[&str] = &["dissection_source_status"];
 pub(crate) const TASK_ARTIFACT_KEYS: &[&str] = &[
     "video",
     "audio",
@@ -96,6 +94,20 @@ pub(crate) enum TaskErrorStage {
     Completed,
     PartialCompleted,
     Failed,
+}
+
+impl TaskErrorStage {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::WaitingInput => "waiting_input",
+            Self::VideoExtracting => "video_extracting",
+            Self::VideoTranscribing => "video_transcribing",
+            Self::InsightsGenerating => "insights_generating",
+            Self::Completed => "completed",
+            Self::PartialCompleted => "partial_completed",
+            Self::Failed => "failed",
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

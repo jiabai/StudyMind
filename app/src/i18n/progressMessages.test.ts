@@ -44,7 +44,7 @@ describe("semantic progress message rendering", () => {
 
   test("re-renders the same stored semantic progress after a locale switch", () => {
     const message: ProgressMessageDescriptor = {
-      messageCode: "douyin.stream.retrying",
+      messageCode: "ai.generation.running",
       args: { attempt: 2, total: 3 },
     };
 

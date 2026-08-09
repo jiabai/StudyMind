@@ -16,6 +16,7 @@ use tauri::{Emitter, Window};
 
 #[cfg(not(test))]
 pub(crate) enum ProgressRoute {
+    #[allow(dead_code)] // reserved for window-less / background runs without progress events
     None,
     Worker(Window),
     AsrModelDownload(Window),
