@@ -1,29 +1,32 @@
 {
   "name": "studymind-server",
-  "private": true,
   "version": "0.1.0",
+  "private": true,
   "type": "module",
   "scripts": {
+    "build": "prisma generate && tsc --noEmit",
     "dev": "tsx src/index.ts",
-    "build": "prisma generate && tsc",
-    "start": "node dist/index.js",
-    "test": "vitest run --no-file-parallelism",
-    "prisma:generate": "prisma generate",
-    "prisma:push": "prisma db push",
-    "prisma:studio": "prisma studio",
-    "prisma:reset": "prisma db push --force-reset"
+    "start": "node --import tsx src/index.ts",
+    "test": "vitest run",
+    "db:migrate:deploy": "prisma migrate deploy",
+    "db:migrate:status": "prisma migrate status",
+    "db:preflight": "node --import dotenv/config scripts/database-preflight.mjs",
+    "db:restore-smoke": "node scripts/restore-smoke.mjs",
+    "prisma:generate": "prisma generate"
   },
   "dependencies": {
-    "fastify": "^5.0.0",
-    "@prisma/client": "^5.0.0",
-    "zod": "^3.24.0",
-    "dotenv": "^16.4.0"
+    "@prisma/client": "^6.19.0",
+    "dotenv": "^17.4.2",
+    "fastify": "^5.6.2",
+    "nodemailer": "^7.0.11",
+    "prisma": "^6.19.0",
+    "tsx": "^4.21.0",
+    "zod": "^4.2.1"
   },
   "devDependencies": {
-    "typescript": "~5.8.3",
-    "tsx": "^4.0.0",
-    "vitest": "^4.1.9",
-    "prisma": "^5.0.0",
-    "@types/node": "^22.0.0"
+    "@types/node": "^24.10.2",
+    "@types/nodemailer": "^7.0.4",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.0"
   }
 }

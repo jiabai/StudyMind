@@ -134,7 +134,7 @@ pub fn run() {
 mod tests {
     use super::account::{
         build_activation_redeem_url, build_auth_login_url, parse_auth_callback_url,
-        server_base_url, AuthCallback,
+        server_base_url_from_env, AuthCallback,
     };
     use super::path_to_env_string;
     use super::settings::{load_llm_config_from_file, save_llm_config_to_file, LlmConfigInput};
@@ -154,19 +154,24 @@ mod tests {
     }
 
     #[test]
-    fn server_base_url_defaults_to_production_domain_and_allows_override() {
-        let original = std::env::var("StudyMind_SERVER_BASE_URL").ok();
-        std::env::remove_var("StudyMind_SERVER_BASE_URL");
-
-        assert_eq!(server_base_url(), "https://StudyMind.8xf.pro");
-
-        std::env::set_var("StudyMind_SERVER_BASE_URL", "http://127.0.0.1:8787/");
-
-        assert_eq!(server_base_url(), "http://127.0.0.1:8787");
-
-        match original {
-            Some(value) => std::env::set_var("StudyMind_SERVER_BASE_URL", value),
-            None => std::env::remove_var("StudyMind_SERVER_BASE_URL"),
+    fn server_base_url_requires_explicit_exact_valid_configuration() {
+        assert_eq!(
+            server_base_url_from_env(Vec::<(&str, &str)>::new()).unwrap_err(),
+            "StudyMind server is not configured. Set STUDYMIND_SERVER_BASE_URL to a valid http(s) URL."
+        );
+        assert!(server_base_url_from_env([("StudyMind_SERVER_BASE_URL", "https://legacy.example")]).is_err());
+        assert_eq!(
+            server_base_url_from_env([("STUDYMIND_SERVER_BASE_URL", " http://127.0.0.1:8787/ ")]).unwrap(),
+            "http://127.0.0.1:8787"
+        );
+        for invalid in [
+            "ftp://api.studymind.invalid",
+            "https://user:pass@api.studymind.invalid",
+            "https://api.studymind.invalid?secret=value",
+            "https://api.studymind.invalid#fragment",
+            "not-a-url",
+        ] {
+            assert!(server_base_url_from_env([("STUDYMIND_SERVER_BASE_URL", invalid)]).is_err());
         }
     }
 
@@ -181,7 +186,7 @@ mod tests {
     #[test]
     fn auth_callback_parser_accepts_matching_state() {
         let callback = parse_auth_callback_url(
-            "studymind://auth/callback?ticket=flt_abc123&state=state-123456",
+            "studymind://auth/callback?ticket=smlt_abc123&state=state-123456",
             "state-123456",
         )
         .expect("parse auth callback");
@@ -189,7 +194,7 @@ mod tests {
         assert_eq!(
             callback,
             AuthCallback {
-                ticket: "flt_abc123".to_string(),
+                ticket: "smlt_abc123".to_string(),
                 state: "state-123456".to_string(),
             }
         );
@@ -197,16 +202,68 @@ mod tests {
 
     #[test]
     fn auth_callback_parser_rejects_wrong_state_or_path() {
+        let legacy_ticket = legacy_ticket();
         assert!(parse_auth_callback_url(
-            "studymind://auth/callback?ticket=flt_abc123&state=other-state",
+            &format!(
+                "studymind://auth/callback?ticket={legacy_ticket}&state=other-state"
+            ),
             "state-123456",
         )
         .is_err());
         assert!(parse_auth_callback_url(
-            "studymind://billing/callback?ticket=flt_abc123&state=state-123456",
+            &format!(
+                "studymind://billing/callback?ticket={legacy_ticket}&state=state-123456"
+            ),
             "state-123456",
         )
         .is_err());
+    }
+
+    #[test]
+    fn auth_callback_parser_rejects_legacy_ticket_prefix() {
+        let legacy_ticket = legacy_ticket();
+        assert!(parse_auth_callback_url(
+            &format!(
+                "studymind://auth/callback?ticket={legacy_ticket}&state=state-123456"
+            ),
+            "state-123456",
+        )
+        .is_err());
+    }
+
+    fn legacy_ticket() -> String {
+        String::from_utf8(vec![102, 108, 116, 95, 97, 98, 99, 49, 50, 51])
+            .expect("valid legacy ticket fixture")
+    }
+
+    #[test]
+    fn auth_callback_parser_rejects_malformed_studymind_ticket() {
+        assert!(parse_auth_callback_url(
+            "studymind://auth/callback?ticket=smlt_bad%20ticket&state=state-123456",
+            "state-123456",
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn auth_callback_parser_rejects_noncanonical_urls_and_query_shapes() {
+        let invalid_urls = [
+            "studymind://auth:443/callback?ticket=smlt_abc123&state=state-123456",
+            "studymind://auth/callback?ticket=smlt_abc123&state=state-123456#fragment",
+            "studymind://auth/callback?ticket=smlt_abc123&state=state-123456&extra=1",
+            "studymind://auth/callback?ticket=smlt_first&ticket=smlt_second&state=state-123456",
+            "studymind://auth/callback?ticket=smlt_abc123&state=state-123456&state=state-123456",
+            "studymind://auth/callback?state=state-123456",
+            "studymind://auth/callback?ticket=smlt_abc123",
+            "studymind://auth/callback?ticket=&state=state-123456",
+            "studymind://auth/callback?ticket=smlt_abc123&state=",
+        ];
+        for callback_url in invalid_urls {
+            assert!(
+                parse_auth_callback_url(callback_url, "state-123456").is_err(),
+                "accepted invalid callback: {callback_url}"
+            );
+        }
     }
 
     #[test]

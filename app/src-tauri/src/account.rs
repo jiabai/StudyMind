@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::future::Future;
 use std::path::Path;
 use tauri::AppHandle;
 use url::Url;
@@ -9,7 +10,9 @@ use crate::{ensure_runtime_dirs, resolve_runtime_paths, RuntimePaths};
 
 const ACCOUNT_SESSION_FILE_NAME: &str = "session.json";
 const ACCOUNT_PENDING_STATE_FILE_NAME: &str = "pending_auth_state.txt";
-const DEFAULT_SERVER_BASE_URL: &str = "https://StudyMind.8xf.pro";
+const SERVER_BASE_URL_ENV: &str = "STUDYMIND_SERVER_BASE_URL";
+const SERVER_CONFIG_ERROR: &str =
+    "StudyMind server is not configured. Set STUDYMIND_SERVER_BASE_URL to a valid http(s) URL.";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AuthCallback {
@@ -126,8 +129,9 @@ pub(crate) fn begin_auth_flow(app: AppHandle) -> Result<BeginAuthFlowResult, Str
     let state = generate_auth_state();
     fs::create_dir_all(account_auth_dir(&paths)).map_err(|error| error.to_string())?;
     fs::write(account_pending_state_path(&paths), &state).map_err(|error| error.to_string())?;
+    let server_url = server_base_url()?;
     Ok(BeginAuthFlowResult {
-        auth_url: build_auth_login_url(&server_base_url(), &state)?,
+        auth_url: build_auth_login_url(&server_url, &state)?,
         state,
     })
 }
@@ -142,12 +146,12 @@ pub(crate) async fn complete_auth_flow(
     let pending_state = fs::read_to_string(account_pending_state_path(&paths))
         .map_err(|_| "No pending login state was found.".to_string())?;
     let callback = parse_auth_callback_url(&callback_url, pending_state.trim())?;
-    let exchange = exchange_auth_ticket(&server_base_url(), &callback).await?;
+    let server_url = server_base_url()?;
+    let exchange = exchange_auth_ticket(&server_url, &callback).await?;
     fs::create_dir_all(account_auth_dir(&paths)).map_err(|error| error.to_string())?;
     write_account_session(&account_session_path(&paths), &exchange)?;
     let _ = fs::remove_file(account_pending_state_path(&paths));
-    let status =
-        get_account_status_from_server(&server_base_url(), &exchange.session_token).await?;
+    let status = get_account_status_from_server(&server_url, &exchange.session_token).await?;
     Ok(CompleteAuthFlowResult {
         authenticated: true,
         email: exchange.email,
@@ -163,7 +167,8 @@ pub(crate) async fn get_account_status(app: AppHandle) -> Result<AccountStatusVi
     let Some(session) = read_account_session(&account_session_path(&paths))? else {
         return Ok(guest_account_status());
     };
-    match get_account_status_from_server(&server_base_url(), &session.session_token).await {
+    let server_url = server_base_url()?;
+    match get_account_status_from_server(&server_url, &session.session_token).await {
         Ok(status) => Ok(AccountStatusView {
             authenticated: status.authenticated,
             email: Some(status.email),
@@ -200,14 +205,39 @@ pub(crate) async fn get_account_status(app: AppHandle) -> Result<AccountStatusVi
 #[tauri::command]
 pub(crate) async fn logout_account(app: AppHandle) -> Result<(), String> {
     let paths = resolve_runtime_paths(&app)?;
-    if let Some(session) = read_account_session(&account_session_path(&paths))? {
-        let _ = reqwest::Client::new()
-            .post(format!("{}/api/desktop/logout", server_base_url()))
-            .bearer_auth(session.session_token)
-            .send()
-            .await;
+    logout_account_session(
+        &account_session_path(&paths),
+        server_base_url,
+        |server_url, session_token| async move {
+            reqwest::Client::new()
+                .post(format!("{server_url}/api/desktop/logout"))
+                .bearer_auth(session_token)
+                .send()
+                .await
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+        },
+    )
+    .await
+}
+
+pub(crate) async fn logout_account_session<ResolveServer, Revoke, RevokeFuture>(
+    session_path: &Path,
+    resolve_server: ResolveServer,
+    revoke: Revoke,
+) -> Result<(), String>
+where
+    ResolveServer: FnOnce() -> Result<String, String>,
+    Revoke: FnOnce(String, String) -> RevokeFuture,
+    RevokeFuture: Future<Output = Result<(), String>>,
+{
+    let Some(session) = read_account_session(session_path)? else {
+        return Ok(());
+    };
+    fs::remove_file(session_path).map_err(|error| error.to_string())?;
+    if let Ok(server_url) = resolve_server() {
+        let _ = revoke(server_url, session.session_token).await;
     }
-    let _ = fs::remove_file(account_session_path(&paths));
     Ok(())
 }
 
@@ -218,8 +248,9 @@ pub(crate) async fn redeem_activation_code(
 ) -> Result<AccountStatusView, String> {
     let paths = resolve_runtime_paths(&app)?;
     let session = require_account_session(&paths)?;
+    let server_url = server_base_url()?;
     let response = reqwest::Client::new()
-        .post(build_activation_redeem_url(&server_base_url()))
+        .post(build_activation_redeem_url(&server_url))
         .bearer_auth(&session.session_token)
         .json(&serde_json::json!({ "code": code }))
         .send()
@@ -239,11 +270,9 @@ pub(crate) async fn redeem_activation_code(
 pub(crate) async fn create_wechat_checkout(app: AppHandle) -> Result<WechatCheckoutView, String> {
     let paths = resolve_runtime_paths(&app)?;
     let session = require_account_session(&paths)?;
+    let server_url = server_base_url()?;
     let response = reqwest::Client::new()
-        .post(format!(
-            "{}/api/desktop/billing/wechat-native",
-            server_base_url()
-        ))
+        .post(format!("{}/api/desktop/billing/wechat-native", server_url))
         .bearer_auth(session.session_token)
         .send()
         .await
@@ -275,10 +304,11 @@ pub(crate) async fn get_checkout_status(
 ) -> Result<CheckoutStatusView, String> {
     let paths = resolve_runtime_paths(&app)?;
     let session = require_account_session(&paths)?;
+    let server_url = server_base_url()?;
     let response = reqwest::Client::new()
         .get(format!(
             "{}/api/desktop/billing/orders/{}",
-            server_base_url(),
+            server_url,
             percent_encode(&order_id)
         ))
         .bearer_auth(session.session_token)
@@ -309,7 +339,7 @@ pub(crate) fn server_managed_llm_invocation(
         return Ok(None);
     };
     Ok(Some(ServerManagedLlmInvocation {
-        server_base_url: server_base_url(),
+        server_base_url: server_base_url()?,
         session_token: session.session_token,
         request_id: format!("llm-{}", Uuid::new_v4().simple()),
     }))
@@ -327,13 +357,35 @@ fn account_pending_state_path(paths: &RuntimePaths) -> std::path::PathBuf {
     account_auth_dir(paths).join(ACCOUNT_PENDING_STATE_FILE_NAME)
 }
 
-pub(crate) fn server_base_url() -> String {
-    std::env::var("StudyMind_SERVER_BASE_URL")
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| DEFAULT_SERVER_BASE_URL.to_string())
-        .trim_end_matches('/')
-        .to_string()
+pub(crate) fn server_base_url() -> Result<String, String> {
+    let pairs = std::env::vars_os()
+        .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)));
+    server_base_url_from_env(pairs)
+}
+
+pub(crate) fn server_base_url_from_env<I, K, V>(pairs: I) -> Result<String, String>
+where
+    I: IntoIterator<Item = (K, V)>,
+    K: AsRef<str>,
+    V: AsRef<str>,
+{
+    let raw = pairs
+        .into_iter()
+        .find(|(key, _)| key.as_ref() == SERVER_BASE_URL_ENV)
+        .map(|(_, value)| value.as_ref().trim().to_string())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| SERVER_CONFIG_ERROR.to_string())?;
+    let parsed = Url::parse(&raw).map_err(|_| SERVER_CONFIG_ERROR.to_string())?;
+    if !matches!(parsed.scheme(), "http" | "https")
+        || parsed.host_str().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+    {
+        return Err(SERVER_CONFIG_ERROR.to_string());
+    }
+    Ok(raw.trim_end_matches('/').to_string())
 }
 
 fn generate_auth_state() -> String {
@@ -367,16 +419,23 @@ pub(crate) fn parse_auth_callback_url(
 ) -> Result<AuthCallback, String> {
     validate_auth_state(expected_state)?;
     let url = Url::parse(callback_url).map_err(|_| "Auth callback URL is invalid.".to_string())?;
-    if url.scheme() != "studymind" || url.host_str() != Some("auth") || url.path() != "/callback" {
+    if url.scheme() != "studymind"
+        || url.host_str() != Some("auth")
+        || url.path() != "/callback"
+        || url.port().is_some()
+        || url.fragment().is_some()
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
         return Err("Auth callback URL target is invalid.".to_string());
     }
     let mut ticket: Option<String> = None;
     let mut state: Option<String> = None;
     for (key, value) in url.query_pairs() {
         match key.as_ref() {
-            "ticket" => ticket = Some(value.to_string()),
-            "state" => state = Some(value.to_string()),
-            _ => {}
+            "ticket" if ticket.is_none() => ticket = Some(value.to_string()),
+            "state" if state.is_none() => state = Some(value.to_string()),
+            _ => return Err("Auth callback query is invalid.".to_string()),
         }
     }
     let Some(ticket) = ticket else {
@@ -388,7 +447,13 @@ pub(crate) fn parse_auth_callback_url(
     if state != expected_state {
         return Err("Auth callback state does not match this device.".to_string());
     }
-    if !ticket.starts_with("flt_") || ticket.len() > 256 {
+    if ticket.len() <= 5
+        || !ticket.starts_with("smlt_")
+        || ticket.len() > 256
+        || !ticket[5..]
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-'))
+    {
         return Err("Auth callback ticket is invalid.".to_string());
     }
     Ok(AuthCallback { ticket, state })
@@ -549,8 +614,95 @@ fn guest_account_status() -> AccountStatusView {
 
 #[cfg(test)]
 mod tests {
-    use super::{account_status_view_from_server, guest_account_status, ServerAccountStatus};
+    use super::{
+        account_status_view_from_server, guest_account_status, logout_account_session,
+        AccountSessionFile, ServerAccountStatus,
+    };
     use serde_json::json;
+    use std::fs;
+    use std::sync::{Arc, Mutex};
+    use uuid::Uuid;
+
+    fn logout_fixture() -> (std::path::PathBuf, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!("studymind-logout-test-{}", Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("create logout fixture");
+        let session_path = dir.join("session.json");
+        fs::write(
+            &session_path,
+            serde_json::to_string(&AccountSessionFile {
+                session_token: "smds_secret-token".to_string(),
+                email: "student@example.com".to_string(),
+                expires_at: "2026-12-01T00:00:00.000Z".to_string(),
+            })
+            .expect("serialize session"),
+        )
+        .expect("write session");
+        (dir, session_path)
+    }
+
+    #[test]
+    fn logout_deletes_local_session_when_server_config_is_missing_or_invalid() {
+        tauri::async_runtime::block_on(async {
+            for config_error in ["missing configuration", "invalid configuration"] {
+                let (dir, session_path) = logout_fixture();
+                let remote_calls = Arc::new(Mutex::new(0));
+                let calls = Arc::clone(&remote_calls);
+                logout_account_session(
+                    &session_path,
+                    || Err(config_error.to_string()),
+                    move |_, _| async move {
+                        *calls.lock().expect("remote calls") += 1;
+                        Ok(())
+                    },
+                )
+                .await
+                .expect("local logout succeeds");
+                assert!(!session_path.exists());
+                assert_eq!(*remote_calls.lock().expect("remote calls"), 0);
+                fs::remove_dir_all(dir).expect("remove logout fixture");
+            }
+        });
+    }
+
+    #[test]
+    fn logout_ignores_remote_failure_after_deleting_local_session() {
+        tauri::async_runtime::block_on(async {
+            let (dir, session_path) = logout_fixture();
+            logout_account_session(
+                &session_path,
+                || Ok("https://api.studymind.invalid".to_string()),
+                |_, _| async { Err("network unavailable".to_string()) },
+            )
+            .await
+            .expect("local logout succeeds");
+            assert!(!session_path.exists());
+            fs::remove_dir_all(dir).expect("remove logout fixture");
+        });
+    }
+
+    #[test]
+    fn logout_without_session_is_idempotent_and_does_not_read_server_config() {
+        tauri::async_runtime::block_on(async {
+            let dir =
+                std::env::temp_dir().join(format!("studymind-logout-empty-{}", Uuid::new_v4()));
+            fs::create_dir_all(&dir).expect("create logout fixture");
+            let session_path = dir.join("session.json");
+            let config_reads = Arc::new(Mutex::new(0));
+            let reads = Arc::clone(&config_reads);
+            logout_account_session(
+                &session_path,
+                move || {
+                    *reads.lock().expect("config reads") += 1;
+                    Err("missing configuration".to_string())
+                },
+                |_, _| async { Ok(()) },
+            )
+            .await
+            .expect("idempotent logout succeeds");
+            assert_eq!(*config_reads.lock().expect("config reads"), 0);
+            fs::remove_dir_all(dir).expect("remove logout fixture");
+        });
+    }
 
     #[test]
     fn account_status_view_preserves_separate_processing_and_ai_gates() {

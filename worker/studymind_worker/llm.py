@@ -5,6 +5,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from urllib.parse import urlsplit, urlunsplit
 from urllib.request import Request
 
 from studymind_worker.insightflow import InsightClient, InsightGenerationError
@@ -42,7 +43,7 @@ class OpenAICompatibleInsightClient:
             "temperature": self.temperature,
         }
         request = Request(
-            url=f"{self.base_url.rstrip('/')}/chat/completions",
+            url=_chat_completions_url(self.base_url),
             data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
             headers={
                 "Authorization": f"Bearer {self.api_key}",
@@ -186,29 +187,81 @@ def build_insight_client_from_env(env: Mapping[str, str]) -> InsightClient | Non
 def parse_managed_checkout_response(raw_response: bytes) -> dict[str, str | int]:
     try:
         payload = json.loads(raw_response.decode("utf-8"))
-        provider = str(payload["provider"]).strip().lower()
-        base_url = str(payload["base_url"]).strip()
-        model = str(payload["model"]).strip()
-        api_key = str(payload["api_key"]).strip()
-        timeout_seconds = int(payload.get("timeout_seconds", DEFAULT_LLM_TIMEOUT_SECONDS))
-    except (KeyError, TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise InsightGenerationError(
-            "INSIGHTFLOW_LLM_CHECKOUT_INVALID_RESPONSE",
-            "StudyMind LLM checkout did not return usable configuration.",
-        ) from exc
+    except (TypeError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise _invalid_managed_checkout_response() from exc
 
-    if provider not in {"openai", "openai_compatible"} or not base_url or not model or not api_key:
-        raise InsightGenerationError(
-            "INSIGHTFLOW_LLM_CHECKOUT_INVALID_RESPONSE",
-            "StudyMind LLM checkout did not return usable configuration.",
-        )
+    expected_fields = {
+        "provider",
+        "base_url",
+        "model",
+        "api_key",
+        "timeout_seconds",
+        "quota_remaining",
+    }
+    if not isinstance(payload, dict) or set(payload) != expected_fields:
+        raise _invalid_managed_checkout_response()
+    if not all(
+        isinstance(payload[field], str)
+        for field in ("provider", "base_url", "model", "api_key")
+    ):
+        raise _invalid_managed_checkout_response()
+    provider = payload["provider"].strip().lower()
+    base_url = payload["base_url"].strip()
+    model = payload["model"].strip()
+    api_key = payload["api_key"].strip()
+    timeout_seconds = payload["timeout_seconds"]
+    quota_remaining = payload["quota_remaining"]
+
+    try:
+        parsed_base_url = urlsplit(base_url)
+        _ = parsed_base_url.port
+    except ValueError:
+        raise _invalid_managed_checkout_response() from None
+    if (
+        provider not in {"openai", "openai_compatible"}
+        or not base_url
+        or "\\" in base_url
+        or "%5c" in base_url.lower()
+        or parsed_base_url.scheme not in {"http", "https"}
+        or not parsed_base_url.hostname
+        or any(character.isspace() for character in parsed_base_url.netloc)
+        or parsed_base_url.username is not None
+        or parsed_base_url.password is not None
+        or bool(parsed_base_url.query)
+        or bool(parsed_base_url.fragment)
+        or not model
+        or not api_key
+        or isinstance(timeout_seconds, bool)
+        or not isinstance(timeout_seconds, int)
+        or not 1 <= timeout_seconds <= 600
+        or isinstance(quota_remaining, bool)
+        or not isinstance(quota_remaining, int)
+        or quota_remaining < 0
+    ):
+        raise _invalid_managed_checkout_response()
     return {
         "provider": provider,
         "base_url": base_url,
         "model": model,
         "api_key": api_key,
         "timeout_seconds": timeout_seconds,
+        "quota_remaining": quota_remaining,
     }
+
+
+def _invalid_managed_checkout_response() -> InsightGenerationError:
+    return InsightGenerationError(
+        "INSIGHTFLOW_LLM_CHECKOUT_INVALID_RESPONSE",
+        "StudyMind LLM checkout did not return usable configuration.",
+    )
+
+
+def _chat_completions_url(base_url: str) -> str:
+    parsed = urlsplit(base_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.query or parsed.fragment:
+        raise ValueError("Invalid LLM base URL.")
+    path = f"{parsed.path.rstrip('/')}/chat/completions"
+    return urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
 
 
 def _managed_checkout_http_error(error: urllib.error.HTTPError) -> InsightGenerationError:
