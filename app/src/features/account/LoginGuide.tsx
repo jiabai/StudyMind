@@ -10,12 +10,14 @@ type LoginGuideProps = {
   loginInProgress: boolean;
   onLogin: () => void;
   footerLinks?: LoginGuideFooterLinks;
+  onOpenLink?: (url: string) => void;
 };
 
 export function LoginGuide({
   loginInProgress,
   onLogin,
   footerLinks = {},
+  onOpenLink,
 }: LoginGuideProps) {
   const { t } = useTranslation("account");
   const privacyUrl = footerLinks.privacyUrl;
@@ -44,12 +46,26 @@ export function LoginGuide({
       {privacyUrl || termsUrl ? (
         <nav className="login-guide-links" aria-label={t("guide.footerLinksAria")}>
           {privacyUrl ? (
-            <a className="login-guide-link" href={privacyUrl}>
+            <a
+              className="login-guide-link"
+              href={privacyUrl}
+              onClick={(event) => {
+                event.preventDefault();
+                onOpenLink?.(privacyUrl);
+              }}
+            >
               {t("guide.privacyPolicy")}
             </a>
           ) : null}
           {termsUrl ? (
-            <a className="login-guide-link" href={termsUrl}>
+            <a
+              className="login-guide-link"
+              href={termsUrl}
+              onClick={(event) => {
+                event.preventDefault();
+                onOpenLink?.(termsUrl);
+              }}
+            >
               {t("guide.termsOfService")}
             </a>
           ) : null}

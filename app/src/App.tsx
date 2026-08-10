@@ -7,7 +7,7 @@ import {
   ShieldCheck,
   X,
 } from "lucide-react";
-import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { revealItemInDir, openUrl } from "@tauri-apps/plugin-opener";
 import { useTranslation } from "react-i18next";
 import "./App.css";
 import {
@@ -17,6 +17,7 @@ import {
 } from "./workflow";
 import { createTaskWorkspaceViewModel } from "./taskWorkspaceViewModel";
 import type { HistoryItem } from "./historyClient";
+import { getServerBaseUrl } from "./accountClient";
 import { type AccountStatus } from "./accountState";
 import { AccountSheet } from "./features/account/AccountSheet";
 import { LoginGuide, type LoginGuideFooterLinks } from "./features/account/LoginGuide";
@@ -53,12 +54,6 @@ const asrModelLabels: Record<string, string> = {
   "Qwen/Qwen3-ASR-0.6B": "Qwen3-ASR 0.6B",
   "iic/SenseVoiceSmall": "SenseVoice Small",
   "iic/SenseVoiceSmall-onnx": "SenseVoiceSmall-ONNX (≈ 230 MB)",
-};
-
-// 登录引导页底部法律链接的配置位：填入落地页 URL 后自动显示（留空则不渲染）。
-const loginGuideFooterLinks: LoginGuideFooterLinks = {
-  // privacyUrl: "https://example.com/privacy",
-  // termsUrl: "https://example.com/terms",
 };
 
 function formatProgressPercent(value: number): string {
@@ -112,6 +107,7 @@ function App() {
   const { t: tUpdates } = useTranslation("updates");
   const { t: tSynthesis } = useTranslation("synthesis");
   const [actionNotice, setActionNotice] = useState<UiMessage | null>(null);
+  const [serverBaseUrl, setServerBaseUrl] = useState<string | null>(null);
   const [workspaceTransition, setWorkspaceTransition] = useState<"hero-to-workspace" | "workspace-to-hero" | null>(null);
   const prevStageRef = useRef<string>("waiting_input");
   const [loginTransition, setLoginTransition] = useState<"guide-to-hero" | null>(null);
@@ -256,6 +252,26 @@ function App() {
     !account.authenticated &&
     !account.serverError &&
     !accountStatusPending;
+
+  useEffect(() => {
+    let cancelled = false;
+    getServerBaseUrl()
+      .then((url) => {
+        if (!cancelled) {
+          setServerBaseUrl(url);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const loginGuideFooterLinks: LoginGuideFooterLinks = serverBaseUrl
+    ? {
+        privacyUrl: `${serverBaseUrl.replace(/\/+$/, "")}/privacy`,
+        termsUrl: `${serverBaseUrl.replace(/\/+$/, "")}/terms`,
+      }
+    : {};
 
   useEffect(() => {
     const prev = prevLoginGuideVisibleRef.current;
@@ -543,6 +559,7 @@ function App() {
               <LoginGuide
                 loginInProgress={accountLoading}
                 footerLinks={loginGuideFooterLinks}
+                onOpenLink={(url) => void openUrl(url)}
                 onLogin={() => {
                   openAccountPanel();
                   void startLoginFlow();

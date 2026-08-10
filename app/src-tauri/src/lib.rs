@@ -116,6 +116,7 @@ pub fn run() {
             asr_model::cancel_asr_model_download,
             account::begin_auth_flow,
             account::complete_auth_flow,
+            account::get_server_base_url,
             account::get_account_status,
             account::logout_account,
             account::redeem_activation_code,

@@ -485,6 +485,8 @@ describe("App result workspace layout styles", () => {
     expect(appTsx).toContain("loginGuideVisible");
     expect(appTsx).toContain("loginTransition");
     expect(appTsx).toContain("footerLinks={loginGuideFooterLinks}");
+    expect(appTsx).toContain("getServerBaseUrl");
+    expect(appTsx).toContain("onOpenLink={(url) => void openUrl(url)}");
     expect(guideRule).toContain("display: flex;");
     expect(guideRule).toContain("flex-direction: column;");
     expect(guideRule).toContain("justify-content: center;");

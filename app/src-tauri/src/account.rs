@@ -15,6 +15,12 @@ const SERVER_BASE_URL_ENV: &str = "STUDYMIND_SERVER_BASE_URL";
 const SERVER_CONFIG_ERROR: &str =
     "StudyMind server is not configured. Set STUDYMIND_SERVER_BASE_URL to a valid http(s) URL.";
 
+#[tauri::command]
+pub(crate) fn get_server_base_url(app: AppHandle) -> Result<String, String> {
+    let paths = resolve_runtime_paths(&app)?;
+    server_base_url_from_paths(&paths)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AuthCallback {
     pub(crate) ticket: String,

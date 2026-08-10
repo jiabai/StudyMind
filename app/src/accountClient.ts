@@ -92,6 +92,16 @@ export async function getAccountStatus(
   );
 }
 
+export async function getServerBaseUrl(
+  runner: AccountCommandRunner = defaultRunner,
+): Promise<string> {
+  const value = await runner("get_server_base_url", {});
+  if (typeof value !== "string" || value.length === 0) {
+    throwInvalidAccountResponse();
+  }
+  return value;
+}
+
 export async function beginAuthFlow(
   runner: AccountCommandRunner = defaultRunner,
 ): Promise<BeginAuthFlow> {

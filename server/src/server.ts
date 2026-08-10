@@ -14,6 +14,7 @@ import { registerDesktopAccountRoutes } from "./routes/desktopAccount.js";
 import { registerDesktopAuthRoutes } from "./routes/desktopAuth.js";
 import { registerDesktopLlmRoutes } from "./routes/desktopLlm.js";
 import { registerHealthRoutes } from "./routes/health.js";
+import { registerLegalRoutes } from "./routes/legal.js";
 import { registerUserAuthRoutes } from "./routes/userAuth.js";
 import type { Store } from "./store.js";
 import type { UserAuthService } from "./userAuth.js";
@@ -49,6 +50,7 @@ export async function createServer(dependencies: ServerDependencies): Promise<Fa
   registerAdminRoutes(app, { store: dependencies.store, auth: dependencies.adminAuth, activationCodes: dependencies.activationCodes, llmConfig: dependencies.llmConfig, adjustments: dependencies.adjustments, adminEmail: dependencies.adminEmail, secureCookies: dependencies.secureCookies, now: dependencies.now });
   registerUserAuthRoutes(app, { store: dependencies.store, auth: dependencies.userAuth, secureCookies: dependencies.secureCookies, now: dependencies.now });
   registerDashboardRoutes(app, { store: dependencies.store, auth: dependencies.userAuth, llmConfig: dependencies.llmConfig, now: dependencies.now });
+  registerLegalRoutes(app);
   await app.ready();
   return app;
 }
