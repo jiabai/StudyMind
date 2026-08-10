@@ -53,6 +53,26 @@ server/prisma/*.db-shm
 /TOOLS.md
 /.openclaw/*
 /.openclaw-attachments/*
+/evolution-drafts/*
+/.impeccable.md
+
+# Editor and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs, caches, and local build artifacts
+*.log
+*.tsbuildinfo
+.coverage
+coverage/
+htmlcov/
+.mypy_cache/
+.pytype/
+.ipynb_checkpoints/
+.cache/
+.vite/
 
 # Local config and secrets
 .env

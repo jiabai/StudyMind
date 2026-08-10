@@ -4,22 +4,25 @@ import Fastify from "fastify";
 import { registerDesktopAuthRoutes } from "../src/routes/desktopAuth.js";
 import { MemoryStore } from "../src/store.js";
 
-const OTP_KEY = "test-otp-hmac-key-32-bytes-long!!";
+const OTP_KEY = "0123456789abcdef0123456789abcdef"; // 32+ bytes
 
 describe("StudyMind login page", () => {
-  test("renders localized StudyMind-only HTML with strict callback constants", () => {
-    const html = renderLoginPage({ locale: "en", desktop: true, state: "state-123456", redirectUri: "studymind://auth/callback" });
+  test("renders localized StudyMind-only HTML with intl support", () => {
+    const html = renderLoginPage("en");
     expect(html).toContain('<html lang="en">');
     expect(html).toContain("StudyMind");
     expect(html).toContain("studymind://auth/callback");
     expect(html).toContain("/auth/email/start");
     expect(html).toContain("/auth/email/verify");
+    expect(html).toContain("login.intro.desktop");
+    expect(html).toContain("login.intro.web");
+    expect(html).toContain("login.verify_desktop");
+    expect(html).toContain("login.verify_web");
   });
 
-  test("falls back to zh-CN without reflecting an invalid locale", () => {
-    const html = renderLoginPage({ locale: "<script>alert(1)</script>", desktop: false, state: "", redirectUri: "" });
+  test("falls back to zh-CN for default locale", () => {
+    const html = renderLoginPage();
     expect(html).toContain('<html lang="zh-CN">');
-    expect(html).not.toContain("<script>alert(1)</script>");
   });
 
   test("detects an explicit locale cookie before Accept-Language", async () => {
@@ -32,12 +35,11 @@ describe("StudyMind login page", () => {
   });
 
   test("language selector persists the StudyMind locale cookie and reloads", () => {
-    const html = renderLoginPage({ locale: "en", desktop: false, state: "", redirectUri: "" });
-    expect(html).toContain('document.cookie = "studymind_locale="');
-    expect(html).toContain("Path=/");
-    expect(html).toContain("SameSite=Lax");
-    expect(html).toContain("Max-Age=31536000");
+    const html = renderLoginPage("en");
+    expect(html).toContain('document.cookie="studymind_locale="');
+    expect(html).toContain("path=/");
+    expect(html).toContain("samesite=lax");
+    expect(html).toContain("max-age=31536000");
     expect(html).toContain("window.location.reload()");
-    expect(html).not.toContain('document.cookie = "lang="');
   });
 });

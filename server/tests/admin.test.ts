@@ -72,19 +72,85 @@ describe("StudyMind admin routes", () => {
     expect(response.statusCode).toBe(200); expect(store.adminEntitlementAdjustments[0]?.adminEmail).toBe("admin@studymind.test");
   });
 
-  test("renders secure StudyMind pages and redirects invalid sessions", async () => {
-    const { app, cookie } = await login(); const page = await app.inject({ method: "GET", url: "/admin", headers: { cookie } });
-    expect(page.statusCode).toBe(200); expect(page.headers["content-security-policy"]).toBeTruthy(); expect(page.body).toContain("StudyMind");
-    expect(page.body).toContain('for="llm-provider"');
-    expect(page.body).toContain('for="llm-base-url"');
-    expect(page.body).toContain('for="llm-model"');
-    expect(page.body).toContain('for="llm-api-key"');
-    expect(page.body).toContain('for="llm-timeout"');
+  test("renders secure StudyMind admin dashboard with all sections", async () => {
+    const f = fixture();
+    const store = f.store;
+    const user = await store.upsertUserByEmail("user@example.com", now);
+    await store.upsertEntitlement(user.id, new Date("2026-09-09T08:00:00.000Z"), now, { llmQuotaLimit: 20, llmQuotaUsed: 5 });
+    await store.upsertLlmConfig({ provider: "openai", baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini", encryptedApiKey: "enc-test", apiKeyLast4: "test", timeoutSeconds: 60 }, now);
+    await store.createActivationCode({ codeHash: "code-hash", codePrefix: "SM-ABCD", status: "active", entitlementDays: 31, redeemBy: new Date("2026-09-08T08:00:00.000Z"), createdAt: now, redeemedAt: null, redeemedByUserId: null });
+    await store.applyEntitlementAdjustmentWithAudit({ adminEmail: "admin@studymind.test", userId: user.id, reason: "bug_compensation", note: "test note", extendDays: 7, now });
+
+    // Login against the same app with the pre-populated store
+    await f.app.inject({ method: "POST", url: "/admin/auth/email/start", payload: { state: "admin-dash-state" } });
+    const verifyResp = await f.app.inject({ method: "POST", url: "/admin/auth/email/verify", payload: { state: "admin-dash-state", code: f.sentCode() } });
+    const hdrs = Array.isArray(verifyResp.headers["set-cookie"]) ? verifyResp.headers["set-cookie"] : [String(verifyResp.headers["set-cookie"] ?? "")];
+    const sess = hdrs.find((v) => v.startsWith("studymind_admin_session="))!;
+    const csrfHdr = hdrs.find((v) => v.startsWith("studymind_admin_csrf="))!;
+    const cookie = `${sess.split(";")[0]}; ${csrfHdr.split(";")[0]}`;
+
+    const page = await f.app.inject({ method: "GET", url: "/admin", headers: { cookie } });
+
+    expect(page.statusCode).toBe(200);
+    expect(page.headers["content-security-policy"]).toBeTruthy();
+    expect(page.body).toContain("StudyMind");
+    expect(page.body).toContain("概览");
+    expect(page.body).toContain("用户管理");
+    expect(page.body).toContain("LLM 配置");
+
+    // Metrics
+    expect(page.body).toContain("总用户数");
+    expect(page.body).toContain("有效用户");
+    expect(page.body).toContain("可用激活码");
+
+    // LLM config form
+    expect(page.body).toContain("llm-config-form");
     expect(page.body).toContain("保存 LLM 配置");
     expect(page.body).toContain("/admin/api/llm-config");
     expect(page.body).toContain("x-studymind-csrf");
-    const loginPage = await app.inject({ method: "GET", url: "/admin/login" }); expect(loginPage.headers["cache-control"]).toBe("no-store"); expect(loginPage.body).toContain("StudyMind");
-    const invalid = await app.inject({ method: "GET", url: "/admin", headers: { cookie: "studymind_admin_session=invalid" } }); expect(invalid.statusCode).toBe(302); expect(invalid.headers.location).toBe("/admin/login");
+
+    // Tables
+    expect(page.body).toContain("用户权益概览");
+    expect(page.body).toContain("用户管理");
+    expect(page.body).toContain("entitlement-adjustment-table");
+    expect(page.body).toContain("entitlement-adjustment-history-table");
+    expect(page.body).toContain("权益调整历史");
+    expect(page.body).toContain("/entitlement-adjustments");
+
+    // Activation codes
+    expect(page.body).toContain("生成激活码");
+    expect(page.body).toContain("激活码列表");
+    expect(page.body).toContain("SM-ABCD");
+
+    // User data in tables
+    expect(page.body).toContain("user@example.com");
+    expect(page.body).toContain("admin@studymind.test");
+
+    // Logout
+    expect(page.body).toContain("退出");
+
+    // No email leak
+    expect(page.body).not.toContain("enc-test");
+  });
+
+  test("renders secure login page", async () => {
+    const { app } = fixture();
+    const page = await app.inject({ method: "GET", url: "/admin/login" });
+    expect(page.statusCode).toBe(200);
+    expect(page.headers["cache-control"]).toBe("no-store");
+    expect(page.headers["content-security-policy"]).toBeTruthy();
+    expect(page.body).toContain("StudyMind");
+    expect(page.body).toContain("brand-mark");
+    expect(page.body).toContain("admin-login");
+    expect(page.body).toContain("管理员登录");
+    expect(page.body).toContain("获取验证码");
+  });
+
+  test("redirects invalid sessions to login", async () => {
+    const { app } = fixture();
+    const invalid = await app.inject({ method: "GET", url: "/admin", headers: { cookie: "studym…alid" } });
+    expect(invalid.statusCode).toBe(302);
+    expect(invalid.headers.location).toBe("/admin/login");
   });
 
   test("logout requires csrf, revokes the session, and clears both cookies", async () => {
@@ -100,13 +166,14 @@ describe("StudyMind admin routes", () => {
     await store.createAdminSession({ email: "admin@studymind.test", tokenHash: sha256(token), csrfTokenHash: sha256(csrf), createdAt: now, expiresAt: new Date(now.getTime() + 60_000) });
     const response = await app.inject({ method: "GET", url: "/admin", headers: { cookie: `studymind_admin_session=${token}; studymind_admin_csrf=${encodeURIComponent(csrf)}` } });
     expect(response.statusCode).toBe(200); expect(response.body).not.toContain("</script><script>owned()"); expect(response.body).toContain("\\u003c/script>\\u003cscript>owned()\\u003c/script>"); expect(response.body).toContain("\\u2028line\\u2029");
-    const literal = response.body.match(/const csrf=("(?:\\.|[^"\\])*")/)?.[1]; expect(literal).toBeTruthy(); expect(JSON.parse(literal!)).toBe(csrf);
+    const literal = response.body.match(/var csrf\s*=\s*("(?:\\.|[^"\\])*")/)?.[1]; expect(literal).toBeTruthy(); expect(JSON.parse(literal!)).toBe(csrf);
   });
 
   test("maps admin auth, dashboard, and mutation dependency failures to a fixed private 503", async () => {
     const detail = "private database detail";
     const authFailure = fixture(); authFailure.auth.authenticate = async () => { throw new Error(detail); };
-    await expectPrivate503(await authFailure.app.inject({ method: "GET", url: "/admin", headers: { cookie: "studymind_admin_session=value" } }), detail);
+    const authResp = await authFailure.app.inject({ method: "GET", url: "/admin", headers: { cookie: "studymind_admin_session=invalid-session-value" } });
+    await expectPrivate503(authResp, detail);
     const dashboardFailure = await login(); dashboardFailure.store.listUsers = async () => { throw new Error(detail); };
     await expectPrivate503(await dashboardFailure.app.inject({ method: "GET", url: "/admin", headers: { cookie: dashboardFailure.cookie } }), detail);
     for (const kind of ["activation", "llm", "adjustment"] as const) {
@@ -115,9 +182,32 @@ describe("StudyMind admin routes", () => {
       if (kind === "llm") f.llmConfig.save = async () => { throw new Error(detail); };
       if (kind === "adjustment") f.adjustments.apply = async () => { throw new Error(detail); };
       const user = await f.store.upsertUserByEmail("failure@example.com", now);
-      const requests = { activation: { url: "/admin/api/activation-codes", payload: {} }, llm: { url: "/admin/api/llm-config", payload: { provider: "openai", base_url: "https://api.openai.com/v1", model: "gpt", api_key: "private-key", timeout_seconds: 30 } }, adjustment: { url: `/admin/api/users/${user.id}/entitlement-adjustments`, payload: { reason: "support", extend_days: 1 } } };
+      const requests = { activation: { url: "/admin/api/activation-codes", payload: {} }, llm: { url: "/admin/api/llm-config", payload: { provider: "openai", base_url: "https://api.openai.com/v1", model: "gpt", api_key: "****-test-key", timeout_seconds: 30 } }, adjustment: { url: `/admin/api/users/${user.id}/entitlement-adjustments`, payload: { reason: "support", extend_days: 1 } } };
       const request = requests[kind]; await expectPrivate503(await f.app.inject({ method: "POST", url: request.url, headers: { cookie: f.cookie, "x-studymind-csrf": f.csrf }, payload: request.payload }), detail);
     }
+  });
+
+  test("entitlement adjustment API returns llm_quota_remaining", async () => {
+    const { app, store, cookie, csrf } = await login();
+    const user = await store.upsertUserByEmail("quota-test@example.com", now);
+    await store.upsertEntitlement(user.id, new Date("2026-09-09T08:00:00.000Z"), now, { llmQuotaLimit: 30, llmQuotaUsed: 10 });
+    const response = await app.inject({ method: "POST", url: `/admin/api/users/${user.id}/entitlement-adjustments`, headers: { cookie, "x-studymind-csrf": csrf }, payload: { reason: "support", quota_add: 5 } });
+    expect(response.statusCode).toBe(200);
+    const body = response.json<{ llm_quota_remaining: number; llm_quota_limit: number; llm_quota_used: number }>();
+    expect(body.llm_quota_limit).toBe(35);
+    expect(body.llm_quota_used).toBe(10);
+    expect(body.llm_quota_remaining).toBe(25);
+  });
+
+  test("admin page shows emtpy states for no-user tables", async () => {
+    const { app, cookie } = await login();
+    const page = await app.inject({ method: "GET", url: "/admin", headers: { cookie } });
+    expect(page.statusCode).toBe(200);
+    expect(page.body).toContain("暂无用户数据");
+    expect(page.body).toContain("暂无调整记录");
+    expect(page.body).toContain("暂无激活码");
+    // LLM config form should show default timeout when no config saved
+    expect(page.body).toContain('value="60"');
   });
 });
 

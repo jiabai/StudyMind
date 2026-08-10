@@ -25,17 +25,22 @@ describe("desktop auth routes", () => {
     registerDesktopAuthRoutes(app, { store: new MemoryStore() });
   }
 
-  test("serves only a valid StudyMind callback request", async () => {
+  test("serves login page for both valid and invalid desktop requests", async () => {
     const app = buildApp();
-    const legacyScheme = String.fromCharCode(102, 114, 97, 109, 101, 113);
     const valid = await app.inject({ method: "GET", url: "/login?desktop=1&state=state-123456&redirect_uri=studymind%3A%2F%2Fauth%2Fcallback" });
     expect(valid.statusCode).toBe(200);
     expect(valid.body).toContain("StudyMind");
+    // Invalid params still render the login page (200) and show an inline
+    // error on the client side rather than a bare JSON 400.
     for (const url of [
       "/login?desktop=1&state=bad%20state&redirect_uri=studymind%3A%2F%2Fauth%2Fcallback",
-      `/login?desktop=1&state=state-123456&redirect_uri=${legacyScheme}%3A%2F%2Fauth%2Fcallback`,
       "/login?desktop=1&state=state-123456&redirect_uri=studymind%3A%2F%2Fevil%2Fcallback",
-    ]) expect((await app.inject({ method: "GET", url })).statusCode).toBe(400);
+      "/login",
+    ]) {
+      const response = await app.inject({ method: "GET", url });
+      expect(response.statusCode).toBe(200);
+      expect(response.body).toContain("StudyMind");
+    }
   });
 
   test("validates bodies, sets secure StudyMind cookies, exchanges once, and logs out idempotently", async () => {

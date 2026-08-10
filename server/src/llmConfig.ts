@@ -9,6 +9,9 @@ const DOMAIN = "studymind:llm-config-encryption:v1";
 export type PublicLlmConfig = {
   configured: boolean; apiKeyLast4: string;
 };
+export type AdminLlmConfigView = PublicLlmConfig & {
+  provider: string; baseUrl: string; model: string; timeoutSeconds: number;
+};
 export type DecryptedLlmConfig = {
   provider: string; baseUrl: string; model: string; apiKey: string; timeoutSeconds: number;
 };
@@ -45,6 +48,18 @@ export class LlmConfigService {
   async getPublic(): Promise<PublicLlmConfig> {
     const config = await this.options.store.getLlmConfig();
     return config ? toPublic(config, this.isUsable(config)) : { configured: false, apiKeyLast4: "" };
+  }
+
+  async getAdminView(): Promise<AdminLlmConfigView> {
+    const config = await this.options.store.getLlmConfig();
+    return {
+      configured: config ? this.isUsable(config) : false,
+      apiKeyLast4: config?.apiKeyLast4 ?? "",
+      provider: config?.provider ?? "",
+      baseUrl: config?.baseUrl ?? "",
+      model: config?.model ?? "",
+      timeoutSeconds: config?.timeoutSeconds ?? 60,
+    };
   }
 
   async isConfigured(): Promise<boolean> {

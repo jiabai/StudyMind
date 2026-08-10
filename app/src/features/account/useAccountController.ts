@@ -104,6 +104,7 @@ export function useAccountController({
   const refreshRequestIdRef = useRef(0);
   const activeOperationIdRef = useRef(0);
   const activeOperationPendingRef = useRef<number | null>(null);
+  const lastCallbackUrlRef = useRef<string | null>(null);
 
   const beginActiveOperation = useCallback(() => {
     const operationId = activeOperationIdRef.current + 1;
@@ -184,23 +185,34 @@ export function useAccountController({
 
   const handleAuthCallback = useCallback(
     async (callbackUrl: string) => {
+      console.log("[studymind] handleAuthCallback called with", callbackUrl);
       if (!callbackUrl.startsWith("studymind://auth/callback")) {
+        console.log("[studymind] handleAuthCallback rejected: doesn't start with studymind://auth/callback");
         return;
       }
+      // Deduplicate: skip if this exact URL is already being processed.
+      if (lastCallbackUrlRef.current === callbackUrl) {
+        console.log("[studymind] handleAuthCallback skipped: duplicate URL");
+        return;
+      }
+      lastCallbackUrlRef.current = callbackUrl;
       const operationId = beginActiveOperation();
       setActivationRedeeming(false);
       setAccountOpen(true);
       setAccountLoading(true);
       setAccountNotice(uiMessage("account.notice.loginCompleting"));
       try {
+        console.log("[studymind] calling completeAuthFlow with", callbackUrl);
         await completeAuthFlow(callbackUrl);
+        console.log("[studymind] completeAuthFlow succeeded");
         if (activeOperationPendingRef.current === operationId) {
           await runAccountStatusRefresh(operationId);
         }
         if (activeOperationPendingRef.current === operationId) {
           setAccountNotice(uiMessage("account.notice.loginComplete"));
         }
-      } catch {
+      } catch (err) {
+        console.error("[studymind] completeAuthFlow failed:", err);
         if (activeOperationPendingRef.current === operationId) {
           setAccountNotice(uiMessage("account.notice.loginFailed"));
         }

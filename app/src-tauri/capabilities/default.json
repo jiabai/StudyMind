@@ -10,6 +10,7 @@
     "core:window:allow-minimize",
     "core:window:allow-toggle-maximize",
     "opener:default",
-    "process:default"
+    "process:default",
+    "deep-link:default"
   ]
 }

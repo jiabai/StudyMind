@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link";
+import { listen } from "@tauri-apps/api/event";
 import {
   Download,
   ListChecks,
@@ -433,19 +434,50 @@ function App() {
 
     async function registerDeepLinkListeners() {
       try {
+        console.log("[studymind] registerDeepLinkListeners start");
         const currentUrls = await getCurrent();
         if (!cancelled && currentUrls) {
+          console.log("[studymind] getCurrent returned", currentUrls);
           for (const url of currentUrls) {
             void handleAuthCallback(url);
           }
+        } else {
+          console.log("[studymind] getCurrent returned null/empty");
         }
         unlisten = await onOpenUrl((urls) => {
+          console.log("[studymind] onOpenUrl fired with", urls);
           for (const url of urls) {
             void handleAuthCallback(url);
           }
         });
-      } catch {
-        // Browser-only tests and Vite preview do not provide the Tauri deep-link plugin.
+        console.log("[studymind] onOpenUrl listener registered");
+        // Also listen for the custom event emitted by single_instance
+        // callback, which carries the raw command-line argv containing
+        // the deep-link URL on Windows when the app is already running.
+        const unlistenCustom = await listen<string[]>(
+          "studymind-deep-link-args",
+          (event) => {
+            console.log("[studymind] studymind-deep-link-args event fired, payload:", event.payload);
+            for (const arg of event.payload) {
+              if (
+                typeof arg === "string" &&
+                arg.startsWith("studymind://")
+              ) {
+                console.log("[studymind] calling handleAuthCallback with", arg);
+                void handleAuthCallback(arg);
+              }
+            }
+          },
+        );
+        console.log("[studymind] studymind-deep-link-args listener registered");
+        // Merge both unlisten functions into one cleanup handle
+        const originalUnlisten = unlisten;
+        unlisten = () => {
+          originalUnlisten();
+          unlistenCustom();
+        };
+      } catch (err) {
+        console.error("[studymind] registerDeepLinkListeners failed:", err);
       }
     }
 

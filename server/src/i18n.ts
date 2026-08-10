@@ -6,9 +6,144 @@ export const LANG_COOKIE_MAX_AGE = 365 * 24 * 60 * 60;
 
 const strings: Record<Locale, Record<string, string>> = {
   "zh-CN": {
+    // ── login page ──────────────────────────────────────────
     "login.title": "StudyMind 登录",
-    "login.intro": "输入邮箱获取验证码，验证后返回 StudyMind 客户端。",
+    "login.intro.desktop": "输入邮箱获取验证码，验证成功后会自动回到 StudyMind 客户端。",
+    "login.intro.web": "输入邮箱获取验证码，验证成功后会进入 StudyMind 控制台。",
+    "login.email": "邮箱",
+    "login.send_code": "获取验证码",
+    "login.code": "验证码",
+    "login.verify_desktop": "登录 StudyMind",
+    "login.verify_web": "登录控制台",
+    "login.success_title": "登录成功",
+    "login.success_body": "此窗口可关闭，请返回并继续使用 StudyMind",
+    "login.status_sending": "正在发送验证码...",
+    "login.status_sent": "验证码已发送，请检查邮箱。开发环境会在服务端终端输出验证码。",
+    "login.status_verifying": "正在验证...",
+    "login.status_verified_web": "验证成功，正在进入 StudyMind 控制台...",
+    "login.error_state_desktop": "登录请求已失效，请回到 StudyMind 重新发起登录。",
+    "login.error_callback": "登录回调地址无效，请回到 StudyMind 重新发起登录。",
+    "login.error_request": "请求失败，请稍后重试。",
+    "login.error_verify": "验证失败，请重试。",
+    "login.error_invalid": "登录请求无效。",
+
+    // ── shared ──────────────────────────────────────────────
     "lang.select": "语言",
+    "lang.switch_to": "English",
+
+    // ── admin login page ────────────────────────────────────
+    "admin_login.title": "StudyMind 管理员登录",
+    "admin_login.heading": "管理员登录",
+    "admin_login.intro": "输入邮箱验证码以登录管理后台。",
+    "admin_login.code": "验证码",
+    "admin_login.code_placeholder": "6 位数字验证码",
+    "admin_login.send_code": "获取验证码",
+    "admin_login.signin": "登录",
+    "admin_login.status_sending": "发送中…",
+    "admin_login.status_sent": "验证码已发送到管理员邮箱。",
+    "admin_login.status_send_failed": "发送失败，请稍后重试。",
+    "admin_login.status_verifying": "验证中…",
+    "admin_login.status_success": "登录成功",
+    "admin_login.status_code_error": "验证码无效或已过期。",
+    "admin_login.network_error": "网络错误，请检查连接。",
+
+    // ── admin dashboard ─────────────────────────────────────
+    "admin.title": "StudyMind Admin",
+    "admin.heading": "管理员控制台",
+    "admin.logged_in_as": "已登录：",
+    "admin.logout": "退出登录",
+    "admin.metrics_users": "总用户数",
+    "admin.metrics_active": "有效用户",
+    "admin.metrics_codes": "可用激活码",
+    "admin.llm_eyebrow": "LLM Config",
+    "admin.llm_heading": "桌面端 LLM API",
+    "admin.llm_desc": "配置后，有权益的桌面端客户端将通过 checkout 获取此 API key。请使用专用可撤销的供应商 key。",
+    "admin.llm_provider": "Provider",
+    "admin.llm_base_url": "Base URL",
+    "admin.llm_model": "Model",
+    "admin.llm_timeout": "超时（秒）",
+    "admin.llm_api_key": "API Key",
+    "admin.llm_api_key_placeholder": "输入 LLM API Key",
+    "admin.llm_api_key_saved": "当前末四位 •••• ",
+    "admin.llm_save": "保存 LLM 配置",
+    "admin.llm_saving": "保存中…",
+    "admin.llm_saved": "配置已保存。",
+    "admin.llm_save_failed": "保存失败。",
+    "admin.llm_check_fields": "请检查所有字段。",
+    "admin.activation_eyebrow": "激活码",
+    "admin.activation_heading": "生成月卡激活码",
+    "admin.activation_desc": "兑换后获得 31 天月卡权益 + 20 LLM Credits。",
+    "admin.code_validity": "激活码有效期",
+    "admin.days": "天",
+    "admin.generate_code": "生成激活码",
+    "admin.new_code": "新激活码",
+    "admin.copy": "复制",
+    "admin.generating": "生成中…",
+    "admin.generated": "激活码已生成。",
+    "admin.generate_failed": "生成失败。",
+    "admin.code_copied": "已复制到剪贴板。",
+    "admin.users_eyebrow": "用户管理",
+    "admin.users_heading": "用户权益概览",
+    "admin.col_email": "邮箱",
+    "admin.col_entitlement": "权益状态",
+    "admin.col_expiry": "到期时间",
+    "admin.col_total": "总量",
+    "admin.col_used": "已用",
+    "admin.col_remaining": "剩余",
+    "admin.col_action": "操作",
+    "admin.no_users": "暂无用户数据",
+    "admin.quota_eyebrow": "配额管理",
+    "admin.quota_heading": "LLM 配额使用情况",
+    "admin.compensation_eyebrow": "权益调整",
+    "admin.compensation_heading": "手动调整用户权益",
+    "admin.compensation_desc": "为特定用户延长有效期或增加 LLM 配额。所有操作均记录审计日志。",
+    "admin.col_current_expiry": "当前到期",
+    "admin.col_remaining_quota": "剩余配额",
+    "admin.col_extend_days": "延长天数",
+    "admin.col_add_quota": "增加配额",
+    "admin.col_reason": "原因",
+    "admin.col_note": "备注",
+    "admin.reason_bug": "Bug 补偿",
+    "admin.reason_goodwill": "客服安抚",
+    "admin.reason_repair": "手动修复",
+    "admin.reason_other": "其他",
+    "admin.note_placeholder": "备注（选填）",
+    "admin.save": "保存",
+    "admin.saving": "保存中…",
+    "admin.saved": "已保存",
+    "admin.save_failed": "保存失败。",
+    "admin.cannot_connect": "网络错误。",
+    "admin.audit_eyebrow": "审计记录",
+    "admin.audit_heading": "权益调整历史",
+    "admin.col_time": "时间",
+    "admin.col_expiry_change": "到期变更",
+    "admin.col_quota_change": "配额变更",
+    "admin.no_adjustments": "暂无调整记录",
+    "admin.codes_eyebrow": "激活码管理",
+    "admin.codes_heading": "激活码列表",
+    "admin.col_prefix": "前缀",
+    "admin.col_status": "状态",
+    "admin.col_entitlement_days": "权益天数",
+    "admin.col_redeem_by": "兑换截止",
+    "admin.col_redeemed_at": "兑换时间",
+    "admin.col_redeemed_by": "兑换用户",
+    "admin.no_codes": "暂无激活码",
+    "admin.code_active": "有效",
+    "admin.code_redeemed": "已兑换",
+    "admin.code_expired": "已过期",
+    "admin.code_disabled": "已禁用",
+    "admin.none": "无",
+    "admin.user_active": "有效",
+    "admin.user_inactive": "未激活",
+    "admin.stats_eyebrow": "系统统计",
+    "admin.stats_heading": "月度趋势（近 6 个月）",
+    "admin.stats_signup": "注册",
+    "admin.stats_redeem": "兑换",
+    "admin.stats_adjust": "调整",
+    "admin.entitlement_days_suffix": " 天",
+    "admin.logout_failed": "退出失败。",
+
+    // ── legal pages ─────────────────────────────────────────
     "privacy.title": "隐私政策",
     "privacy.updated": "更新日期：2026-08-10",
     "privacy.intro": "本隐私政策说明 StudyMind 客户端与账号服务如何处理你的信息。",
@@ -40,8 +175,138 @@ const strings: Record<Locale, Record<string, string>> = {
   },
   "zh-TW": {
     "login.title": "StudyMind 登入",
-    "login.intro": "輸入電子郵件取得驗證碼，驗證後返回 StudyMind 用戶端。",
+    "login.intro.desktop": "輸入電子郵件取得驗證碼，驗證成功後會自動回到 StudyMind 用戶端。",
+    "login.intro.web": "輸入電子郵件取得驗證碼，驗證成功後會進入 StudyMind 控制台。",
+    "login.email": "電子郵件",
+    "login.send_code": "取得驗證碼",
+    "login.code": "驗證碼",
+    "login.verify_desktop": "登入 StudyMind",
+    "login.verify_web": "登入控制台",
+    "login.success_title": "登入成功",
+    "login.success_body": "此視窗可關閉，請返回並繼續使用 StudyMind",
+    "login.status_sending": "正在發送驗證碼...",
+    "login.status_sent": "驗證碼已發送，請檢查電子郵件。開發環境會在伺服器端終端輸出驗證碼。",
+    "login.status_verifying": "正在驗證...",
+    "login.status_verified_web": "驗證成功，正在進入 StudyMind 控制台...",
+    "login.error_state_desktop": "登入請求已失效，請回到 StudyMind 重新發起登入。",
+    "login.error_callback": "登入回呼網址無效，請回到 StudyMind 重新發起登入。",
+    "login.error_request": "請求失敗，請稍後重試。",
+    "login.error_verify": "驗證失敗，請重試。",
+    "login.error_invalid": "登入請求無效。",
+
     "lang.select": "語言",
+    "lang.switch_to": "English",
+
+    "admin_login.title": "StudyMind 管理員登入",
+    "admin_login.heading": "管理員登入",
+    "admin_login.intro": "輸入電子郵件驗證碼以登入管理後台。",
+    "admin_login.code": "驗證碼",
+    "admin_login.code_placeholder": "6 位數字驗證碼",
+    "admin_login.send_code": "取得驗證碼",
+    "admin_login.signin": "登入",
+    "admin_login.status_sending": "發送中…",
+    "admin_login.status_sent": "驗證碼已發送到管理員電子郵件。",
+    "admin_login.status_send_failed": "發送失敗，請稍後重試。",
+    "admin_login.status_verifying": "驗證中…",
+    "admin_login.status_success": "登入成功",
+    "admin_login.status_code_error": "驗證碼無效或已過期。",
+    "admin_login.network_error": "網路錯誤，請檢查連線。",
+
+    "admin.title": "StudyMind Admin",
+    "admin.heading": "管理員控制台",
+    "admin.logged_in_as": "已登入：",
+    "admin.logout": "登出",
+    "admin.metrics_users": "使用者數",
+    "admin.metrics_active": "有效使用者",
+    "admin.metrics_codes": "可用啟用碼",
+    "admin.llm_eyebrow": "LLM Config",
+    "admin.llm_heading": "桌面端 LLM API",
+    "admin.llm_desc": "設定後，有權益的桌面端客戶端將透過 checkout 取得此 API key。請使用專用可撤銷的供應商 key。",
+    "admin.llm_provider": "Provider",
+    "admin.llm_base_url": "Base URL",
+    "admin.llm_model": "Model",
+    "admin.llm_timeout": "逾時（秒）",
+    "admin.llm_api_key": "API Key",
+    "admin.llm_api_key_placeholder": "輸入 LLM API Key",
+    "admin.llm_api_key_saved": "目前末四位 •••• ",
+    "admin.llm_save": "儲存 LLM 設定",
+    "admin.llm_saving": "儲存中…",
+    "admin.llm_saved": "設定已儲存。",
+    "admin.llm_save_failed": "儲存失敗。",
+    "admin.llm_check_fields": "請檢查所有欄位。",
+    "admin.activation_eyebrow": "啟用碼",
+    "admin.activation_heading": "產生月卡啟用碼",
+    "admin.activation_desc": "兌換後取得 31 天月卡權益 + 20 LLM Credits。",
+    "admin.code_validity": "啟用碼有效期",
+    "admin.days": "天",
+    "admin.generate_code": "產生啟用碼",
+    "admin.new_code": "新啟用碼",
+    "admin.copy": "複製",
+    "admin.generating": "產生中…",
+    "admin.generated": "啟用碼已產生。",
+    "admin.generate_failed": "產生失敗。",
+    "admin.code_copied": "已複製到剪貼簿。",
+    "admin.users_eyebrow": "使用者管理",
+    "admin.users_heading": "使用者權益概覽",
+    "admin.col_email": "電子郵件",
+    "admin.col_entitlement": "權益狀態",
+    "admin.col_expiry": "到期時間",
+    "admin.col_total": "總量",
+    "admin.col_used": "已用",
+    "admin.col_remaining": "剩餘",
+    "admin.col_action": "操作",
+    "admin.no_users": "暫無使用者資料",
+    "admin.quota_eyebrow": "配額管理",
+    "admin.quota_heading": "LLM 配額使用情況",
+    "admin.compensation_eyebrow": "權益調整",
+    "admin.compensation_heading": "手動調整使用者權益",
+    "admin.compensation_desc": "為特定使用者延長有效期或增加 LLM 配額。所有操作均記錄審計日誌。",
+    "admin.col_current_expiry": "目前到期",
+    "admin.col_remaining_quota": "剩餘配額",
+    "admin.col_extend_days": "延長天數",
+    "admin.col_add_quota": "增加配額",
+    "admin.col_reason": "原因",
+    "admin.col_note": "備註",
+    "admin.reason_bug": "Bug 補償",
+    "admin.reason_goodwill": "客服安撫",
+    "admin.reason_repair": "手動修復",
+    "admin.reason_other": "其他",
+    "admin.note_placeholder": "備註（選填）",
+    "admin.save": "儲存",
+    "admin.saving": "儲存中…",
+    "admin.saved": "已儲存",
+    "admin.save_failed": "儲存失敗。",
+    "admin.cannot_connect": "網路錯誤。",
+    "admin.audit_eyebrow": "審計記錄",
+    "admin.audit_heading": "權益調整歷史",
+    "admin.col_time": "時間",
+    "admin.col_expiry_change": "到期變更",
+    "admin.col_quota_change": "配額變更",
+    "admin.no_adjustments": "暫無調整記錄",
+    "admin.codes_eyebrow": "啟用碼管理",
+    "admin.codes_heading": "啟用碼列表",
+    "admin.col_prefix": "前綴",
+    "admin.col_status": "狀態",
+    "admin.col_entitlement_days": "權益天數",
+    "admin.col_redeem_by": "兌換截止",
+    "admin.col_redeemed_at": "兌換時間",
+    "admin.col_redeemed_by": "兌換使用者",
+    "admin.no_codes": "暫無啟用碼",
+    "admin.code_active": "有效",
+    "admin.code_redeemed": "已兌換",
+    "admin.code_expired": "已過期",
+    "admin.code_disabled": "已停用",
+    "admin.none": "無",
+    "admin.user_active": "有效",
+    "admin.user_inactive": "未啟用",
+    "admin.stats_eyebrow": "系統統計",
+    "admin.stats_heading": "月度趨勢（近 6 個月）",
+    "admin.stats_signup": "註冊",
+    "admin.stats_redeem": "兌換",
+    "admin.stats_adjust": "調整",
+    "admin.entitlement_days_suffix": " 天",
+    "admin.logout_failed": "登出失敗。",
+
     "privacy.title": "隱私政策",
     "privacy.updated": "更新日期：2026-08-10",
     "privacy.intro": "本隱私政策說明 StudyMind 用戶端與帳號服務如何處理你的資訊。",
@@ -73,8 +338,138 @@ const strings: Record<Locale, Record<string, string>> = {
   },
   en: {
     "login.title": "StudyMind Login",
-    "login.intro": "Enter your email to receive a verification code and return to StudyMind.",
+    "login.intro.desktop": "Enter your email to receive a verification code. After verification, you'll be redirected back to the StudyMind client.",
+    "login.intro.web": "Enter your email to receive a verification code. After verification, you'll enter the StudyMind dashboard.",
+    "login.email": "Email",
+    "login.send_code": "Get code",
+    "login.code": "Verification code",
+    "login.verify_desktop": "Sign in to StudyMind",
+    "login.verify_web": "Sign in to dashboard",
+    "login.success_title": "Sign-in successful",
+    "login.success_body": "You can close this window. Return to StudyMind to continue.",
+    "login.status_sending": "Sending verification code...",
+    "login.status_sent": "Verification code sent. Please check your email. (In development, the code is printed in the server terminal.)",
+    "login.status_verifying": "Verifying...",
+    "login.status_verified_web": "Verification successful. Entering StudyMind dashboard...",
+    "login.error_state_desktop": "Login request expired. Please restart login from StudyMind.",
+    "login.error_callback": "Login callback URL is invalid. Please restart login from StudyMind.",
+    "login.error_request": "Request failed. Please try again later.",
+    "login.error_verify": "Verification failed. Please try again.",
+    "login.error_invalid": "Invalid login request.",
+
     "lang.select": "Language",
+    "lang.switch_to": "中文",
+
+    "admin_login.title": "StudyMind Admin Login",
+    "admin_login.heading": "Admin Login",
+    "admin_login.intro": "Enter the verification code sent to the administrator email.",
+    "admin_login.code": "Verification code",
+    "admin_login.code_placeholder": "6-digit code",
+    "admin_login.send_code": "Send code",
+    "admin_login.signin": "Sign in",
+    "admin_login.status_sending": "Sending…",
+    "admin_login.status_sent": "Verification code sent to administrator email.",
+    "admin_login.status_send_failed": "Failed to send. Please try again later.",
+    "admin_login.status_verifying": "Verifying…",
+    "admin_login.status_success": "Sign-in successful",
+    "admin_login.status_code_error": "Invalid or expired verification code.",
+    "admin_login.network_error": "Network error. Please check your connection.",
+
+    "admin.title": "StudyMind Admin",
+    "admin.heading": "Admin Console",
+    "admin.logged_in_as": "Signed in: ",
+    "admin.logout": "Sign out",
+    "admin.metrics_users": "Total users",
+    "admin.metrics_active": "Active users",
+    "admin.metrics_codes": "Available codes",
+    "admin.llm_eyebrow": "LLM Config",
+    "admin.llm_heading": "Desktop LLM API",
+    "admin.llm_desc": "Once configured, entitled desktop clients will fetch this API key at checkout. Use a dedicated revocable supplier key.",
+    "admin.llm_provider": "Provider",
+    "admin.llm_base_url": "Base URL",
+    "admin.llm_model": "Model",
+    "admin.llm_timeout": "Timeout (s)",
+    "admin.llm_api_key": "API Key",
+    "admin.llm_api_key_placeholder": "Enter LLM API Key",
+    "admin.llm_api_key_saved": "Saved key ending ",
+    "admin.llm_save": "Save LLM config",
+    "admin.llm_saving": "Saving…",
+    "admin.llm_saved": "Config saved.",
+    "admin.llm_save_failed": "Save failed.",
+    "admin.llm_check_fields": "Please check all fields.",
+    "admin.activation_eyebrow": "Activation code",
+    "admin.activation_heading": "Generate monthly activation code",
+    "admin.activation_desc": "Redeem for 31-day monthly entitlement + 20 LLM Credits.",
+    "admin.code_validity": "Code validity",
+    "admin.days": "days",
+    "admin.generate_code": "Generate code",
+    "admin.new_code": "New activation code",
+    "admin.copy": "Copy",
+    "admin.generating": "Generating…",
+    "admin.generated": "Activation code generated.",
+    "admin.generate_failed": "Generation failed.",
+    "admin.code_copied": "Copied to clipboard.",
+    "admin.users_eyebrow": "Users",
+    "admin.users_heading": "User entitlements",
+    "admin.col_email": "Email",
+    "admin.col_entitlement": "Entitlement",
+    "admin.col_expiry": "Expires at",
+    "admin.col_total": "Total",
+    "admin.col_used": "Used",
+    "admin.col_remaining": "Remaining",
+    "admin.col_action": "Action",
+    "admin.no_users": "No users",
+    "admin.quota_eyebrow": "LLM quota",
+    "admin.quota_heading": "LLM quota usage",
+    "admin.compensation_eyebrow": "Compensation",
+    "admin.compensation_heading": "Adjust user entitlements",
+    "admin.compensation_desc": "Extend validity or add LLM quota for specific users. All operations are audited.",
+    "admin.col_current_expiry": "Current expiry",
+    "admin.col_remaining_quota": "Remaining quota",
+    "admin.col_extend_days": "Extend days",
+    "admin.col_add_quota": "Add quota",
+    "admin.col_reason": "Reason",
+    "admin.col_note": "Note",
+    "admin.reason_bug": "Bug compensation",
+    "admin.reason_goodwill": "Support goodwill",
+    "admin.reason_repair": "Manual repair",
+    "admin.reason_other": "Other",
+    "admin.note_placeholder": "Note (optional)",
+    "admin.save": "Save",
+    "admin.saving": "Saving…",
+    "admin.saved": "Saved",
+    "admin.save_failed": "Save failed.",
+    "admin.cannot_connect": "Network error.",
+    "admin.audit_eyebrow": "Audit",
+    "admin.audit_heading": "Entitlement adjustment history",
+    "admin.col_time": "Time",
+    "admin.col_expiry_change": "Expiry change",
+    "admin.col_quota_change": "Quota change",
+    "admin.no_adjustments": "No adjustment records",
+    "admin.codes_eyebrow": "Codes",
+    "admin.codes_heading": "Activation code list",
+    "admin.col_prefix": "Prefix",
+    "admin.col_status": "Status",
+    "admin.col_entitlement_days": "Entitlement days",
+    "admin.col_redeem_by": "Redeem by",
+    "admin.col_redeemed_at": "Redeemed at",
+    "admin.col_redeemed_by": "Redeemed by",
+    "admin.no_codes": "No activation codes",
+    "admin.code_active": "Active",
+    "admin.code_redeemed": "Redeemed",
+    "admin.code_expired": "Expired",
+    "admin.code_disabled": "Disabled",
+    "admin.none": "None",
+    "admin.user_active": "Active",
+    "admin.user_inactive": "Inactive",
+    "admin.stats_eyebrow": "Stats",
+    "admin.stats_heading": "Monthly trends (last 6 months)",
+    "admin.stats_signup": "Signup",
+    "admin.stats_redeem": "Redeem",
+    "admin.stats_adjust": "Adjust",
+    "admin.entitlement_days_suffix": " days",
+    "admin.logout_failed": "Sign-out failed.",
+
     "privacy.title": "Privacy Policy",
     "privacy.updated": "Last updated: 2026-08-10",
     "privacy.intro": "This Privacy Policy explains how the StudyMind desktop app and account service handle your information.",
@@ -106,22 +501,51 @@ const strings: Record<Locale, Record<string, string>> = {
   },
 };
 
-export function resolveLocale(value: unknown): Locale {
-  return typeof value === "string" && (SUPPORTED_LOCALES as readonly string[]).includes(value) ? value as Locale : DEFAULT_LOCALE;
+export function t(locale: Locale, key: string): string {
+  return strings[locale]?.[key] ?? strings[DEFAULT_LOCALE][key] ?? key;
 }
 
-export function t(locale: Locale, key: string): string { return strings[locale][key] ?? strings[DEFAULT_LOCALE][key] ?? key; }
-export function extractQueryLang(query: unknown): string | null { const value = (query as Record<string, unknown> | undefined)?.lang; return typeof value === "string" ? value : null; }
+/** Build a JSON object of all strings for a locale, for client-side JS use. */
+export function buildClientStrings(locale: Locale): Record<string, string> {
+  return { ...strings[locale] };
+}
+
+export function resolveLocale(value: unknown): Locale {
+  return typeof value === "string" && (SUPPORTED_LOCALES as readonly string[]).includes(value)
+    ? (value as Locale)
+    : DEFAULT_LOCALE;
+}
+
+export function extractQueryLang(query: unknown): string | null {
+  const value = (query as Record<string, unknown> | undefined)?.lang;
+  return typeof value === "string" ? value : null;
+}
+
 export function resolveCookieLocale(header: string | null | undefined): Locale | null {
   const raw = header?.match(/(?:^|;\s*)studymind_locale=([^;]+)/)?.[1];
   if (!raw) return null;
-  try { const decoded = decodeURIComponent(raw); return (SUPPORTED_LOCALES as readonly string[]).includes(decoded) ? decoded as Locale : null; }
-  catch { return null; }
+  try {
+    const decoded = decodeURIComponent(raw);
+    return (SUPPORTED_LOCALES as readonly string[]).includes(decoded) ? (decoded as Locale) : null;
+  } catch {
+    return null;
+  }
 }
-export function detectLocale(input: { cookie?: string | null; queryLang?: string | null; acceptLanguage?: string | null }): Locale {
-  const explicit = resolveCookieLocale(input.cookie) ?? ((SUPPORTED_LOCALES as readonly string[]).includes(input.queryLang ?? "") ? input.queryLang as Locale : null);
+
+export function detectLocale(input: {
+  cookie?: string | null;
+  queryLang?: string | null;
+  acceptLanguage?: string | null;
+}): Locale {
+  const explicit =
+    resolveCookieLocale(input.cookie) ??
+    ((SUPPORTED_LOCALES as readonly string[]).includes(input.queryLang ?? "")
+      ? (input.queryLang as Locale)
+      : null);
   if (explicit) return explicit;
-  const ranges = (input.acceptLanguage ?? "").split(",").map((part) => part.trim().split(";")[0]?.toLowerCase() ?? "");
+  const ranges = (input.acceptLanguage ?? "")
+    .split(",")
+    .map((part) => part.trim().split(";")[0]?.toLowerCase() ?? "");
   for (const range of ranges) {
     if (range === "zh-tw" || range.startsWith("zh-hant")) return "zh-TW";
     if (range === "zh" || range === "zh-cn" || range.startsWith("zh-hans")) return "zh-CN";
@@ -129,9 +553,40 @@ export function detectLocale(input: { cookie?: string | null; queryLang?: string
   }
   return DEFAULT_LOCALE;
 }
+
 export function renderLangSwitcher(locale: Locale): string {
-  const options = SUPPORTED_LOCALES.map((value) => `<option value="${value}"${value === locale ? " selected" : ""}>${LOCALE_LABELS[value]}</option>`).join("");
-  return `<select class="lang-switch" aria-label="${t(locale, "lang.select")}">${options}</select><script>(function(){var selector=document.currentScript.previousElementSibling;if(!selector)return;selector.addEventListener("change",function(){var target=selector.value;document.cookie = "studymind_locale=" + encodeURIComponent(target) + "; Path=/; Max-Age=${LANG_COOKIE_MAX_AGE}; SameSite=Lax";window.location.reload()})})()</script>`;
+  const options = SUPPORTED_LOCALES.map(
+    (value) =>
+      `<option value="${value}"${value === locale ? " selected" : ""}>${LOCALE_LABELS[value]}</option>`,
+  ).join("");
+  return `<select class="lang-switch" aria-label="${t(locale, "lang.select")}">${options}</select><script>(function(){var selector=document.currentScript.previousElementSibling;if(!selector)return;selector.addEventListener("change",function(){var target=selector.value;document.cookie="studymind_locale="+encodeURIComponent(target)+";path=/;max-age=${LANG_COOKIE_MAX_AGE};samesite=lax";window.location.reload()})})()</script>`;
 }
-export function langSwitcherStyles(): string { return ".lang-switch{min-height:34px;padding:6px 12px}"; }
-export function dateLocale(locale: Locale): string { return locale; }
+
+export function langSwitcherStyles(): string {
+  return `
+    .lang-switch {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 34px;
+      padding: 6px 12px;
+      border: 1px solid #d7dce3;
+      border-radius: 7px;
+      background: #ffffff;
+      color: #303743;
+      font: inherit;
+      font-size: 0.82rem;
+      font-weight: 700;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .lang-switch:hover {
+      border-color: #c2c9d3;
+      background: #f7f8fa;
+    }
+  `;
+}
+
+export function dateLocale(locale: Locale): string {
+  return locale;
+}

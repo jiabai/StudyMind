@@ -19,14 +19,15 @@ export function registerDesktopAuthRoutes(app: FastifyInstance, dependencies: De
   const auth = dependencies.auth ?? new AuthService({ store: dependencies.store, sendOtp: dependencies.sendOtp, otpHmacKey: dependencies.otpHmacKey, now });
   const secure = dependencies.secureCookies ?? true;
   app.get("/login", async (request, reply) => {
-    const query = request.query as Record<string, unknown>;
-    const desktop = query.desktop === "1";
-    if (desktop && (typeof query.state !== "string" || !/^[A-Za-z0-9._~-]{8,160}$/.test(query.state) || query.redirect_uri !== "studymind://auth/callback"))
-      return reply.code(400).send({ error: "INVALID_LOGIN_REQUEST" });
     reply.header("cache-control", "no-store").type("text/html; charset=utf-8");
+    const queryLang = extractQueryLang(request.query);
     const acceptLanguage = request.headers["accept-language"];
-    const locale = detectLocale({ cookie: request.headers.cookie, queryLang: extractQueryLang(query), acceptLanguage: Array.isArray(acceptLanguage) ? acceptLanguage[0] : acceptLanguage });
-    return renderLoginPage({ locale, desktop, state: typeof query.state === "string" ? query.state : "", redirectUri: typeof query.redirect_uri === "string" ? query.redirect_uri : "" });
+    const locale = detectLocale({
+      cookie: request.headers.cookie,
+      queryLang,
+      acceptLanguage: Array.isArray(acceptLanguage) ? acceptLanguage[0] : acceptLanguage,
+    });
+    return renderLoginPage(locale);
   });
   app.post("/auth/email/start", async (request, reply) => {
     const parsed = emailStartSchema.safeParse(request.body); if (!parsed.success) return reply.code(400).send({ error: "INVALID_REQUEST" });
