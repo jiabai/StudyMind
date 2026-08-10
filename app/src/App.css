@@ -290,7 +290,6 @@ h3 {
 }
 
 .icon-button,
-.account-chip,
 .update-chip,
 .secondary-button,
 .tool-actions button {
@@ -307,30 +306,11 @@ h3 {
     transform 120ms ease;
 }
 
-.account-chip {
-  background: rgba(255, 255, 255, 0.62);
-  box-shadow: none;
-  font-size: 0.82rem;
-  min-height: 32px;
-  min-width: 0;
-  padding: 0 9px;
-}
-
 .update-chip {
   color: #0c4f91;
   font-size: 0.8rem;
   min-width: 92px;
   padding: 0 10px;
-}
-
-.account-chip.active {
-  background: rgba(255, 255, 255, 0.62);
-  border-color: var(--border);
-  color: #34363b;
-}
-
-.account-chip.active svg {
-  color: var(--success);
 }
 
 .icon-button {
@@ -340,7 +320,6 @@ h3 {
 }
 
 .icon-button:hover,
-.account-chip:hover,
 .update-chip:hover,
 .secondary-button:hover,
 .tool-actions button:hover {
@@ -350,7 +329,6 @@ h3 {
 }
 
 .icon-button:active,
-.account-chip:active,
 .update-chip:active,
 .secondary-button:active,
 .tool-actions button:active,
@@ -812,6 +790,7 @@ h3 {
   padding: 24px;
   position: fixed;
   backdrop-filter: blur(10px);
+  z-index: 40;
 }
 
 .detail-modal,
@@ -4410,6 +4389,170 @@ h3 {
 .sidebar-footer-button svg {
   color: var(--text-muted);
   flex: 0 0 auto;
+}
+
+/* 底部用户按钮与菜单 */
+.sidebar-user {
+  position: relative;
+}
+
+.sidebar-user-trigger {
+  align-items: center;
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  cursor: pointer;
+  display: flex;
+  font-size: 0.84rem;
+  gap: 10px;
+  height: 40px;
+  padding: 0 10px;
+  text-align: left;
+  transition:
+    background 120ms ease,
+    color 120ms ease,
+    border-color 120ms ease;
+  width: 100%;
+}
+
+.sidebar-user-trigger:hover {
+  background: rgba(60, 60, 67, 0.06);
+}
+
+.sidebar-user-trigger:focus-visible {
+  background: rgba(10, 132, 255, 0.08);
+  outline: none;
+}
+
+.sidebar-user-avatar {
+  align-items: center;
+  background: linear-gradient(135deg, var(--primary), var(--primary-pressed));
+  border-radius: 999px;
+  color: #fff;
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 0.72rem;
+  font-weight: 700;
+  height: 26px;
+  justify-content: center;
+  width: 26px;
+}
+
+.sidebar-user-avatar.large {
+  font-size: 0.92rem;
+  height: 36px;
+  width: 36px;
+}
+
+.sidebar-user-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-user-caret {
+  color: var(--text-muted);
+  flex: 0 0 auto;
+  transition: transform 160ms ease;
+}
+
+.sidebar-user-caret.open {
+  transform: rotate(180deg);
+}
+
+.sidebar-user-menu {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border-soft);
+  border-radius: var(--radius-md);
+  bottom: calc(100% + 8px);
+  box-shadow: var(--glass-shadow);
+  left: 0;
+  min-width: 220px;
+  padding: 6px;
+  position: absolute;
+  right: 0;
+  z-index: 30;
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+}
+
+.sidebar-user-menu-header {
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  gap: 10px;
+  margin-bottom: 4px;
+  padding: 8px 8px 10px;
+}
+
+.sidebar-user-menu-header strong {
+  display: block;
+  font-size: 0.86rem;
+}
+
+.sidebar-user-menu-header small {
+  color: var(--text-muted);
+  display: block;
+  font-size: 0.74rem;
+  margin-top: 2px;
+}
+
+.sidebar-user-menu-item {
+  align-items: center;
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  cursor: pointer;
+  display: flex;
+  font-size: 0.84rem;
+  gap: 10px;
+  height: 36px;
+  padding: 0 10px;
+  text-align: left;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
+  width: 100%;
+}
+
+.sidebar-user-menu-item:hover {
+  background: rgba(60, 60, 67, 0.06);
+}
+
+.sidebar-user-menu-item:focus-visible {
+  background: rgba(10, 132, 255, 0.08);
+  outline: none;
+}
+
+.sidebar-user-menu-item:disabled {
+  color: var(--text-muted);
+  cursor: default;
+  opacity: 0.55;
+}
+
+.sidebar-user-menu-item svg {
+  color: var(--text-muted);
+  flex: 0 0 auto;
+}
+
+.sidebar-user-menu-item.danger {
+  color: #b42318;
+}
+
+.sidebar-user-menu-item.danger svg {
+  color: #b42318;
+}
+
+.sidebar-user-menu-value {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  margin-left: auto;
 }
 
 /* inline 删除确认弹层 */

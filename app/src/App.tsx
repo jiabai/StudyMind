@@ -4,9 +4,7 @@ import {
   Download,
   ListChecks,
   LoaderCircle,
-  Settings,
   ShieldCheck,
-  UserRound,
   X,
 } from "lucide-react";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
@@ -19,10 +17,7 @@ import {
 } from "./workflow";
 import { createTaskWorkspaceViewModel } from "./taskWorkspaceViewModel";
 import type { HistoryItem } from "./historyClient";
-import {
-  canProcessWithAccount,
-  type AccountStatus,
-} from "./accountState";
+import { type AccountStatus } from "./accountState";
 import { AccountSheet } from "./features/account/AccountSheet";
 import { useAccountController } from "./features/account/useAccountController";
 import { useAppUpdateController } from "./features/updates/useAppUpdateController";
@@ -463,6 +458,8 @@ function App() {
           onNewTopic={startNewTaskFromToolbar}
           onOpenSettings={openSettings}
           onOpenAccount={() => openAccountPanel()}
+          onSignOut={() => void signOutAccount()}
+          account={account}
           accountChipLabel={accountChipLabel}
         />
         <header className="app-toolbar topbar" data-tauri-drag-region="" onMouseDown={handleToolbarMouseDown}>
@@ -495,15 +492,6 @@ function App() {
           </div>
 
           <div className="topbar-actions toolbar-actions">
-            <button
-              className={`account-chip ${canProcessWithAccount(account) ? "active" : ""}`}
-              type="button"
-              onClick={() => openAccountPanel()}
-              aria-label={tCommon("toolbar.account")}
-            >
-              <UserRound size={15} />
-              <span>{accountChipLabel}</span>
-            </button>
             {updateToolbarVisible ? (
               <button
                 className={`update-chip ${updateState.status}`}
@@ -516,9 +504,6 @@ function App() {
                 <span>{updateToolbarText}</span>
               </button>
             ) : null}
-            <button className="icon-button" type="button" onClick={openSettings} aria-label={tCommon("toolbar.settings")}>
-              <Settings size={17} />
-            </button>
           </div>
         </header>
 

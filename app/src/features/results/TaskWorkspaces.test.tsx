@@ -190,7 +190,7 @@ describe("task domain workspaces", () => {
     expect(markup).toContain('role="status"');
     expect(markup).toContain('aria-live="polite"');
     expect(markup).toContain('aria-atomic="true"');
-    expect(markup).toContain("视频、音频和文字稿已保存在本机");
+    expect(markup).toContain("媒体文件和文字稿已保存在本机");
     expect(markup).toContain('aria-label="本地文字稿工作区"');
     expect(markup).toContain('data-task-id="same-task"');
     expect(markup).toContain('aria-label="智能提炼工作区"');

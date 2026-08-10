@@ -14,9 +14,11 @@ import { isProcessingStage, type WorkflowState } from "../../workflow";
 import { renameTaskTitle } from "../../historyClient";
 import type { HistoryListItem } from "../../historyClient";
 import type { HistoryController } from "../history/useHistoryController";
+import type { AccountStatus } from "../../accountState";
 import { useSidebarState } from "./useSidebarState";
 import { SidebarTopicItem, displayTopicTitle } from "./SidebarTopicItem";
 import { InlineDeleteConfirm } from "./InlineDeleteConfirm";
+import { SidebarUserMenu } from "./SidebarUserMenu";
 
 type AppSidebarProps = {
   controller: HistoryController;
@@ -27,6 +29,8 @@ type AppSidebarProps = {
   onNewTopic: () => void;
   onOpenSettings: () => void;
   onOpenAccount: () => void;
+  onSignOut: () => void;
+  account: AccountStatus;
   accountChipLabel: string;
 };
 
@@ -39,6 +43,8 @@ export function AppSidebar({
   onNewTopic,
   onOpenSettings,
   onOpenAccount,
+  onSignOut,
+  account,
   accountChipLabel,
 }: AppSidebarProps) {
   const { t: tSidebar } = useTranslation("sidebar");
@@ -254,22 +260,12 @@ export function AppSidebar({
       </section>
 
       <div className="sidebar-footer">
-        <button
-          className="sidebar-footer-button"
-          type="button"
-          onClick={onOpenSettings}
-        >
-          <Settings size={16} />
-          <span>{tSidebar("settings")}</span>
-        </button>
-        <button
-          className="sidebar-footer-button"
-          type="button"
-          onClick={onOpenAccount}
-        >
-          <UserRound size={16} />
-          <span>{tSidebar("account")}</span>
-        </button>
+        <SidebarUserMenu
+          account={account}
+          onOpenAccount={onOpenAccount}
+          onOpenSettings={onOpenSettings}
+          onSignOut={onSignOut}
+        />
       </div>
 
       <InlineDeleteConfirm

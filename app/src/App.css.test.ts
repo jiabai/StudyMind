@@ -174,18 +174,10 @@ describe("App result workspace layout styles", () => {
     expect(actionFeedbackRule).toContain("border-color: #8cc8ff;");
   });
 
-  test("keeps account status and cancel controls in the desktop toolbar system", () => {
-    const activeAccountRule = getRuleBody([".account-chip.active"]);
-    const activeAccountIconRule = getRuleBody([".account-chip.active svg"]);
+  test("keeps cancel controls in the desktop toolbar system", () => {
     const dangerButtonRule = getRuleBody([".danger-soft"]);
     const dangerHoverRule = getRuleBody([".danger-soft:hover"]);
 
-    expect(activeAccountRule).toContain(
-      "background: rgba(255, 255, 255, 0.62);",
-    );
-    expect(activeAccountRule).toContain("border-color: var(--border);");
-    expect(activeAccountRule).toContain("color: #34363b;");
-    expect(activeAccountIconRule).toContain("color: var(--success);");
     expect(dangerButtonRule).toContain(
       "background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(239, 241, 245, 0.9));",
     );
@@ -194,31 +186,14 @@ describe("App result workspace layout styles", () => {
     expect(dangerHoverRule).toContain("background: #fff7f5;");
   });
 
-  test("groups persistent toolbar utilities and keeps the labelled account chip compact", () => {
-    const accountRule = getRuleBody([".account-chip"]);
-    const toolGroupRule = getRuleBody([".toolbar-tool-group"]);
-    const groupedIconRule = getRuleBody([".toolbar-tool-group .icon-button"]);
-    const groupedIconFeedbackRule = getRuleBody([
-      ".toolbar-tool-group .icon-button:hover",
-      ".toolbar-tool-group .icon-button:focus-visible",
-    ]);
-
-    expect(appTsx).toMatch(
-      /className="toolbar-tool-group"[\s\S]*?aria-label=\{tCommon\("toolbar\.history"\)\}[\s\S]*?aria-label=\{tCommon\("toolbar\.settings"\)\}[\s\S]*?aria-label=\{toolbarNewTaskAriaLabel\}/,
-    );
-    expect(appTsx).toContain("<span>{accountChipLabel}</span>");
-    expect(accountRule).toContain("min-width: 0;");
-    expect(accountRule).toContain("min-height: 32px;");
-    expect(accountRule).toContain("padding: 0 9px;");
-    expect(accountRule).toContain("box-shadow: none;");
-    expect(toolGroupRule).toContain("gap: 2px;");
-    expect(toolGroupRule).toContain("padding: 2px;");
-    expect(groupedIconRule).toContain("height: 32px;");
-    expect(groupedIconRule).toContain("min-height: 32px;");
-    expect(groupedIconRule).toContain("width: 32px;");
-    expect(groupedIconRule).toContain("box-shadow: none;");
-    expect(groupedIconRule).toContain("border-color: transparent;");
-    expect(groupedIconFeedbackRule).toContain("background: rgba(255, 255, 255, 0.82);");
+  test("keeps the desktop toolbar free of duplicated account and settings entries", () => {
+    // Account and settings live in the left sidebar; the top bar only carries
+    // the optional update chip so the two entry points cannot drift apart.
+    expect(appTsx).not.toContain("account-chip");
+    expect(appTsx).not.toContain('tCommon("toolbar.account")');
+    expect(appTsx).not.toContain('tCommon("toolbar.settings")');
+    expect(appTsx).not.toContain('aria-label={tCommon("toolbar.settings")}');
+    expect(appTsx).toContain('aria-label={tCommon("toolbar.update")}');
   });
 
   test("uses facade cancellation state for the processing cancel action", () => {

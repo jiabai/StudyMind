@@ -7,6 +7,7 @@ type StateUpdater<T> = T | ((current: T) => T);
 type HookHarness = {
   resetRender: () => void;
   useCallback: <T extends (...args: never[]) => unknown>(callback: T) => T;
+  useEffect: () => void;
   useRef: <T>(initialValue: T) => { current: T };
   useState: <T>(initialValue: T | (() => T)) => [T, (next: StateUpdater<T>) => void];
 };
@@ -30,6 +31,7 @@ function createHookHarness(): HookHarness {
       cursor = 0;
     },
     useCallback: (callback) => callback,
+    useEffect: () => undefined,
     useRef: <T,>(initialValue: T) => {
       const stateIndex = cursor;
       cursor += 1;
@@ -105,6 +107,7 @@ async function createController(
   const harness = createHookHarness();
   vi.doMock("react", () => ({
     useCallback: harness.useCallback,
+    useEffect: harness.useEffect,
     useRef: harness.useRef,
     useState: harness.useState,
   }));
@@ -149,7 +152,6 @@ describe("useHistoryController", () => {
     expect(controller.historyOpen).toBe(true);
     expect(controller.historyLoading).toBe(true);
     expect(controller.historyItems).toEqual([]);
-    expect(controller.historyNotice).toEqual({ messageCode: "history.notice.loading" });
 
     await load;
     controller = render();
@@ -214,9 +216,6 @@ describe("useHistoryController", () => {
     expect(controller.historyOpen).toBe(true);
     expect(controller.historyLoading).toBe(true);
     expect(controller.historyItems).toEqual([]);
-    expect(controller.historyNotice).toEqual({
-      messageCode: "history.notice.loading",
-    });
 
     const newest = createHistoryItem({ taskId: "newest", id: "newest" });
     resolveSecond([newest]);

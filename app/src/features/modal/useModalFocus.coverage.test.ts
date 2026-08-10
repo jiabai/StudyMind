@@ -6,7 +6,6 @@ const MODAL_SOURCES = [
   ["../../App.tsx", 1],
   ["../account/AccountSheet.tsx", 1],
   ["../asrModel/ModelGuideSheet.tsx", 1],
-  ["../history/HistorySheet.tsx", 2],
   ["../insightPreferences/InsightPreferenceFlow.tsx", 1],
   ["../results/AiResultDetailSheet.tsx", 1],
   ["../settings/SettingsSheet.tsx", 1],

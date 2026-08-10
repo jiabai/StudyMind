@@ -17,6 +17,15 @@ export const sidebarResources = {
     ariaLabel: "课题导航",
     topicListAria: "全部课题列表",
     currentTopicAria: "当前课题",
+    noticeCloseAria: "关闭提示",
+    userMenu: {
+      aria: "用户菜单",
+      guest: "未登录",
+      signedIn: "已登录",
+      credits: "积分余额",
+      settings: "设置",
+      signOut: "退出登录",
+    },
     rename: {
       actionAria: "重命名课题",
       actionTitle: "重命名",
@@ -47,6 +56,15 @@ export const sidebarResources = {
     ariaLabel: "課題導航",
     topicListAria: "全部課題列表",
     currentTopicAria: "目前課題",
+    noticeCloseAria: "關閉提示",
+    userMenu: {
+      aria: "使用者選單",
+      guest: "未登入",
+      signedIn: "已登入",
+      credits: "積分餘額",
+      settings: "設定",
+      signOut: "登出",
+    },
     rename: {
       actionAria: "重新命名課題",
       actionTitle: "重新命名",
@@ -77,6 +95,15 @@ export const sidebarResources = {
     ariaLabel: "Topic navigation",
     topicListAria: "All topics list",
     currentTopicAria: "Current topic",
+    noticeCloseAria: "Dismiss notice",
+    userMenu: {
+      aria: "User menu",
+      guest: "Guest",
+      signedIn: "Signed in",
+      credits: "Credits",
+      settings: "Settings",
+      signOut: "Sign out",
+    },
     rename: {
       actionAria: "Rename topic",
       actionTitle: "Rename",
