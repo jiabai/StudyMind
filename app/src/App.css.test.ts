@@ -27,6 +27,10 @@ const settingsControllerTs = readFileSync(
   new URL("./features/settings/useSettingsController.ts", import.meta.url),
   "utf-8",
 );
+const appSidebarTsx = readFileSync(
+  new URL("./features/sidebar/AppSidebar.tsx", import.meta.url),
+  "utf-8",
+);
 
 function getRuleBody(selectors: string[]): string {
   const selectorPattern = selectors
@@ -442,5 +446,61 @@ describe("App result workspace layout styles", () => {
     expect(basicNoticeRule).toContain("color: var(--text-muted);");
     expect(basicNoticeRule).not.toContain("background");
     expect(basicNoticeRule).not.toContain("border:");
+  });
+
+  test("surfaces history notice feedback inside the sidebar topic list", () => {
+    const noticeRule = getRuleBody([".sidebar-history-notice"]);
+    const dangerRule = getRuleBody([".sidebar-history-notice.danger"]);
+    const successRule = getRuleBody([".sidebar-history-notice.success"]);
+    const closeRule = getRuleBody([".sidebar-history-notice-close"]);
+    const closeHoverRule = getRuleBody([".sidebar-history-notice-close:hover"]);
+
+    expect(appSidebarTsx).toContain("SidebarHistoryNotice");
+    expect(appSidebarTsx).toContain("historyNotice");
+    expect(appSidebarTsx).toContain("clearHistoryNotice");
+    expect(noticeRule).toContain("display: flex;");
+    expect(noticeRule).toContain("border: 1px solid var(--border);");
+    expect(dangerRule).toContain("color: #98332c;");
+    expect(successRule).toContain("color: #1e6f40;");
+    expect(closeRule).toContain("height: 20px;");
+    expect(closeRule).toContain("width: 20px;");
+    expect(closeRule).toContain("padding: 0;");
+    expect(closeHoverRule).toContain("background: rgba(60, 60, 67, 0.08);");
+  });
+
+  test("shows a centered sign-in guide on the home page for guests", () => {
+    const guideRule = getRuleBody([".login-guide"]);
+    const taglineRule = getRuleBody([".login-guide-tagline"]);
+    const subtitleRule = getRuleBody([".login-guide-subtitle"]);
+    const loginRule = getRuleBody([".login-guide-login"]);
+    const privacyRule = getRuleBody([".login-guide-privacy"]);
+    const linksRule = getRuleBody([".login-guide-links"]);
+    const linkRule = getRuleBody([".login-guide-link"]);
+    const linkHoverRule = getRuleBody([".login-guide-link:hover"]);
+    const transitionRule = getRuleBody([
+      ".workspace.login-transitioning.guide-to-hero",
+    ]);
+
+    expect(appTsx).toContain("<LoginGuide");
+    expect(appTsx).toContain("loginGuideVisible");
+    expect(appTsx).toContain("loginTransition");
+    expect(appTsx).toContain("footerLinks={loginGuideFooterLinks}");
+    expect(guideRule).toContain("display: flex;");
+    expect(guideRule).toContain("flex-direction: column;");
+    expect(guideRule).toContain("justify-content: center;");
+    expect(guideRule).toContain("text-align: center;");
+    expect(guideRule).toContain("min-height: calc(100vh - var(--toolbar-height) - 48px);");
+    expect(guideRule).toContain("animation: hero-slide-up 400ms cubic-bezier(0.4, 0, 0.2, 1) both;");
+    expect(taglineRule).toContain("color: var(--text);");
+    expect(taglineRule).toContain("font-weight: 700;");
+    expect(subtitleRule).toContain("color: var(--text-muted);");
+    expect(subtitleRule).toContain("max-width: 480px;");
+    expect(loginRule).toContain("min-width: 168px;");
+    expect(privacyRule).toContain("color: var(--text-soft);");
+    expect(linksRule).toContain("display: flex;");
+    expect(linksRule).toContain("justify-content: center;");
+    expect(linkRule).toContain("text-decoration: none;");
+    expect(linkHoverRule).toContain("text-decoration: underline;");
+    expect(transitionRule).toContain("animation: hero-fade-in 350ms");
   });
 });

@@ -265,6 +265,20 @@ describe("useAccountController semantic notices", () => {
     expectSafeMessage(controller.accountNotice, "account.notice.signOutFailed", secret);
   });
 
+  test("keeps account status pending until the first verification completes", async () => {
+    getAccountStatusMock.mockResolvedValueOnce(
+      createAccountStatus("member@example.test"),
+    );
+    const { render } = await createController();
+
+    let controller = render();
+    expect(controller.accountStatusPending).toBe(true);
+
+    await controller.refreshAccountStatus();
+    controller = render();
+    expect(controller.accountStatusPending).toBe(false);
+  });
+
   test("derives account chip and status copy from the current locale", async () => {
     const activeAccount = createAccountStatus("member@example.test");
     getAccountStatusMock.mockResolvedValueOnce(activeAccount);

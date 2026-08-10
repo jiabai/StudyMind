@@ -100,6 +100,7 @@ export function useAccountController({
   const [accountLoading, setAccountLoading] = useState(false);
   const [activationCodeDraft, setActivationCodeDraft] = useState("");
   const [activationRedeeming, setActivationRedeeming] = useState(false);
+  const [accountStatusPending, setAccountStatusPending] = useState(true);
   const refreshRequestIdRef = useRef(0);
   const activeOperationIdRef = useRef(0);
   const activeOperationPendingRef = useRef<number | null>(null);
@@ -169,6 +170,7 @@ export function useAccountController({
       );
       setAccountNotice(uiMessage("account.notice.statusRefreshFailed"));
     } finally {
+      setAccountStatusPending(false);
       if (canCommit()) {
         setAccountLoading(false);
       }
@@ -321,6 +323,7 @@ export function useAccountController({
     accountOpen,
     accountNotice,
     accountLoading,
+    accountStatusPending,
     activationCodeDraft,
     activationRedeeming,
     accountChipLabel,

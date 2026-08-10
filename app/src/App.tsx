@@ -19,6 +19,7 @@ import { createTaskWorkspaceViewModel } from "./taskWorkspaceViewModel";
 import type { HistoryItem } from "./historyClient";
 import { type AccountStatus } from "./accountState";
 import { AccountSheet } from "./features/account/AccountSheet";
+import { LoginGuide, type LoginGuideFooterLinks } from "./features/account/LoginGuide";
 import { useAccountController } from "./features/account/useAccountController";
 import { useAppUpdateController } from "./features/updates/useAppUpdateController";
 import { getAiCreditsCostHint } from "./aiCreditsCopy";
@@ -52,6 +53,12 @@ const asrModelLabels: Record<string, string> = {
   "Qwen/Qwen3-ASR-0.6B": "Qwen3-ASR 0.6B",
   "iic/SenseVoiceSmall": "SenseVoice Small",
   "iic/SenseVoiceSmall-onnx": "SenseVoiceSmall-ONNX (≈ 230 MB)",
+};
+
+// 登录引导页底部法律链接的配置位：填入落地页 URL 后自动显示（留空则不渲染）。
+const loginGuideFooterLinks: LoginGuideFooterLinks = {
+  // privacyUrl: "https://example.com/privacy",
+  // termsUrl: "https://example.com/terms",
 };
 
 function formatProgressPercent(value: number): string {
@@ -107,6 +114,8 @@ function App() {
   const [actionNotice, setActionNotice] = useState<UiMessage | null>(null);
   const [workspaceTransition, setWorkspaceTransition] = useState<"hero-to-workspace" | "workspace-to-hero" | null>(null);
   const prevStageRef = useRef<string>("waiting_input");
+  const [loginTransition, setLoginTransition] = useState<"guide-to-hero" | null>(null);
+  const prevLoginGuideVisibleRef = useRef(false);
 
   const settingsController = useSettingsController();
   const { settingsOpen, closeSettings, openSettings } = settingsController;
@@ -220,6 +229,7 @@ function App() {
     accountOpen,
     accountNotice,
     accountLoading,
+    accountStatusPending,
     activationCodeDraft,
     activationRedeeming,
     accountChipLabel,
@@ -241,6 +251,23 @@ function App() {
       resetWorkflow();
     },
   });
+  const loginGuideVisible =
+    workflow.stage === "waiting_input" &&
+    !account.authenticated &&
+    !account.serverError &&
+    !accountStatusPending;
+
+  useEffect(() => {
+    const prev = prevLoginGuideVisibleRef.current;
+    if (prev && !loginGuideVisible) {
+      setLoginTransition("guide-to-hero");
+      const t = setTimeout(() => setLoginTransition(null), 400);
+      prevLoginGuideVisibleRef.current = loginGuideVisible;
+      return () => clearTimeout(t);
+    }
+    prevLoginGuideVisibleRef.current = loginGuideVisible;
+    return undefined;
+  }, [loginGuideVisible]);
   const taskWorkspaceModel = useMemo(
     () => createTaskWorkspaceViewModel(workflow, account),
     [account, workflow],
@@ -508,20 +535,31 @@ function App() {
         </header>
 
         <section
-          className={`workspace ${workflow.stage === "waiting_input" ? "waiting-layout" : "active-layout"}${workspaceTransition ? ` hero-transitioning ${workspaceTransition}` : ""}`}
+          className={`workspace ${workflow.stage === "waiting_input" ? "waiting-layout" : "active-layout"}${workspaceTransition ? ` hero-transitioning ${workspaceTransition}` : ""}${loginTransition ? ` login-transitioning ${loginTransition}` : ""}`}
           aria-label={tWorkflow("input.workspaceAria")}
         >
           {workflow.stage === "waiting_input" ? (
-            <HeroUploadZone
-              source={workflow.composerSource}
-              canSubmit={canSubmit}
-              statusBody={activeStageBody}
-              onLocalMediaSelected={setLocalMediaSelection}
-              onRemoveLocalMedia={removeLocalMediaSelection}
-              onSubmit={(submission) => {
-                void submitTask(submission, account, openAccountPanel);
-              }}
-            />
+            loginGuideVisible ? (
+              <LoginGuide
+                loginInProgress={accountLoading}
+                footerLinks={loginGuideFooterLinks}
+                onLogin={() => {
+                  openAccountPanel();
+                  void startLoginFlow();
+                }}
+              />
+            ) : (
+              <HeroUploadZone
+                source={workflow.composerSource}
+                canSubmit={canSubmit}
+                statusBody={activeStageBody}
+                onLocalMediaSelected={setLocalMediaSelection}
+                onRemoveLocalMedia={removeLocalMediaSelection}
+                onSubmit={(submission) => {
+                  void submitTask(submission, account, openAccountPanel);
+                }}
+              />
+            )
           ) : (
             <>
               <TaskStatusBanner model={taskWorkspaceModel.banner} />

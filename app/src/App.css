@@ -4720,3 +4720,136 @@ h3 {
     transition: none;
   }
 }
+
+/* === Login Guide（未登录引导页） === */
+
+.login-guide {
+  align-items: center;
+  animation: hero-slide-up 400ms cubic-bezier(0.4, 0, 0.2, 1) both;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  justify-content: center;
+  min-height: calc(100vh - var(--toolbar-height) - 48px);
+  padding: 24px;
+  text-align: center;
+}
+
+.login-guide-mascot {
+  margin-bottom: 4px;
+}
+
+.login-guide-mascot-svg {
+  display: block;
+  height: 172px;
+  width: auto;
+}
+
+.login-guide-tagline {
+  color: var(--text);
+  font-size: 1.9rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  margin: 0;
+}
+
+.login-guide-subtitle {
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  line-height: 1.6;
+  margin: 0;
+  max-width: 480px;
+}
+
+.login-guide-login {
+  margin-top: 10px;
+  min-width: 168px;
+}
+
+.login-guide-privacy {
+  color: var(--text-soft);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  margin: 10px 0 0;
+  max-width: 480px;
+}
+
+/* 底部法律链接（隐私政策 / 服务条款，配置 URL 后显示） */
+.login-guide-links {
+  align-items: center;
+  display: flex;
+  gap: 18px;
+  justify-content: center;
+  margin-top: 12px;
+}
+
+.login-guide-link {
+  color: var(--text-soft);
+  font-size: 0.78rem;
+  text-decoration: none;
+}
+
+.login-guide-link:hover {
+  color: var(--primary);
+  text-decoration: underline;
+}
+
+/* 登录引导页 → 上传区过渡（复用 hero 入场动画） */
+.workspace.login-transitioning.guide-to-hero {
+  animation: hero-fade-in 350ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+/* 历史课题通知条（加载失败 / 删除结果等） */
+.sidebar-history-notice {
+  align-items: flex-start;
+  background: rgba(248, 249, 252, 0.9);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  display: flex;
+  flex: 0 0 auto;
+  font-size: 0.76rem;
+  gap: 6px;
+  line-height: 1.5;
+  margin: 0 12px 10px;
+  padding: 8px 8px 8px 10px;
+}
+
+.sidebar-history-notice.danger {
+  background: #fff6f5;
+  border-color: rgba(199, 53, 44, 0.24);
+  color: #98332c;
+}
+
+.sidebar-history-notice.success {
+  background: #eef8f1;
+  border-color: rgba(35, 134, 75, 0.22);
+  color: #1e6f40;
+}
+
+.sidebar-history-notice-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.sidebar-history-notice-close {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  box-shadow: none;
+  color: inherit;
+  flex: 0 0 auto;
+  height: 20px;
+  justify-content: center;
+  margin: -2px -2px 0 0;
+  min-height: 20px;
+  min-width: 20px;
+  padding: 0;
+  width: 20px;
+}
+
+.sidebar-history-notice-close:hover {
+  background: rgba(60, 60, 67, 0.08);
+}
