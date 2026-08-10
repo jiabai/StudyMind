@@ -119,6 +119,10 @@ export function useHistoryController({
     }
   }, []);
 
+  const clearHistoryNotice = useCallback(() => {
+    setHistoryNotice(null);
+  }, []);
+
   const confirmHistoryItemDeletion = useCallback(async () => {
     if (!historyDeleteCandidate || deleteRequestPendingRef.current) {
       return;
@@ -179,6 +183,7 @@ export function useHistoryController({
     requestHistoryItemDeletion,
     cancelHistoryItemDeletion,
     confirmHistoryItemDeletion,
+    clearHistoryNotice,
   };
 }
 

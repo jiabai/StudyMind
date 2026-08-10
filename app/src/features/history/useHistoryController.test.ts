@@ -288,6 +288,24 @@ describe("useHistoryController", () => {
     expect(deleteHistoryTaskMock).not.toHaveBeenCalled();
   });
 
+  test("clears the notice on demand without touching the list", async () => {
+    getHistoryMock.mockRejectedValueOnce(new Error("disk unavailable"));
+    const { render } = await createController();
+
+    let controller = render();
+    await controller.openHistory();
+    controller = render();
+    expect(controller.historyNotice).toEqual({
+      messageCode: "history.notice.loadFailed",
+    });
+
+    controller.clearHistoryNotice();
+    controller = render();
+    expect(controller.historyNotice).toBeNull();
+    expect(controller.historyItems).toEqual([]);
+    expect(controller.historyOpen).toBe(true);
+  });
+
   test("removes a task only after confirmed deletion succeeds", async () => {
     const item = createHistoryItem();
     getHistoryMock.mockResolvedValueOnce([item]);

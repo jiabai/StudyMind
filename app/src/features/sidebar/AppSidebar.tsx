@@ -16,6 +16,7 @@ import type { HistoryListItem } from "../../historyClient";
 import type { HistoryController } from "../history/useHistoryController";
 import type { AccountStatus } from "../../accountState";
 import { useSidebarState } from "./useSidebarState";
+import { SidebarHistoryNotice } from "./SidebarHistoryNotice";
 import { SidebarTopicItem, displayTopicTitle } from "./SidebarTopicItem";
 import { InlineDeleteConfirm } from "./InlineDeleteConfirm";
 import { SidebarUserMenu } from "./SidebarUserMenu";
@@ -53,6 +54,7 @@ export function AppSidebar({
   const {
     historyItems,
     historyLoading,
+    historyNotice,
     historyDeleteCandidate,
     historyDeleting,
     openHistoryItem,
@@ -60,6 +62,7 @@ export function AppSidebar({
     cancelHistoryItemDeletion,
     confirmHistoryItemDeletion,
     loadHistory,
+    clearHistoryNotice,
   } = controller;
 
   const [renameCandidateId, setRenameCandidateId] = useState<string | null>(null);
@@ -228,6 +231,10 @@ export function AppSidebar({
 
       <section className="sidebar-topic-list-section" aria-label={tSidebar("topicListAria")}>
         <p className="sidebar-section-label">{tSidebar("allTopics")}</p>
+        <SidebarHistoryNotice
+          notice={historyNotice}
+          onClose={clearHistoryNotice}
+        />
         {historyLoading && historyItems.length === 0 ? (
           <div className="sidebar-loading">
             <LoaderCircle size={14} className="spin" />
