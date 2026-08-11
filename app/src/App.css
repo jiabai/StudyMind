@@ -2428,6 +2428,17 @@ h3 {
   min-width: 0;
 }
 
+.task-workspace-learning-row {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 0.72fr);
+  min-width: 0;
+}
+
+.task-workspace-learning-row > .annotation-panel {
+  margin-top: 0;
+}
+
 .task-workspace-layout.transcript-only {
   grid-template-columns: minmax(0, 1fr);
 }
@@ -3107,6 +3118,10 @@ h3 {
 
 @media (max-width: 1099px) {
   .task-workspace-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .task-workspace-learning-row {
     grid-template-columns: minmax(0, 1fr);
   }
 
