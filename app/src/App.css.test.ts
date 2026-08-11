@@ -408,6 +408,17 @@ describe("App result workspace layout styles", () => {
     expect(editFeedbackRule).toContain("border-color: #c8d6bc;");
   });
 
+  test("keeps transcript edit and note actions together at the right edge", () => {
+    const actionsRule = getRuleBody([".transcript-segment-actions"]);
+
+    expect(transcriptReviewPanelTsx).toContain(
+      'className="transcript-segment-actions"',
+    );
+    expect(actionsRule).toContain("display: flex;");
+    expect(actionsRule).toContain("gap: 4px;");
+    expect(actionsRule).toContain("margin-left: auto;");
+  });
+
   test("keeps playback, editing, and keyboard focus visually distinct", () => {
     const activeRule = getRuleBody([".transcript-segment.active"]);
     const editingRule = getRuleBody([".transcript-segment.editing"]);

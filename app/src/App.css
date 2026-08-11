@@ -1494,6 +1494,13 @@ h3 {
   justify-content: space-between;
 }
 
+.transcript-segment-actions {
+  align-items: center;
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
 .transcript-segment-time,
 .transcript-segment-text {
   background: transparent;
@@ -3787,9 +3794,11 @@ h3 {
   align-items: center;
   background: rgba(246, 243, 234, 0.86);
   border-bottom: 1px solid var(--border);
+  cursor: move;
   display: flex;
   gap: 8px;
   padding: 8px 12px;
+  user-select: none;
 }
 
 .annotation-popover-anchor {

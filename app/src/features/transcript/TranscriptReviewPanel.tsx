@@ -278,56 +278,58 @@ export function TranscriptReviewPanel({
                     <Play size={14} />
                     <span>{formatSegmentTime(segment.start_ms, locale)}</span>
                   </button>
-                  <button
-                    ref={(element) => {
-                      transcriptEditButtonRefs.current[segment.id] = element;
-                    }}
-                    type="button"
-                    className="secondary-button compact-button transcript-segment-edit"
-                    onClick={() => beginTranscriptSegmentEdit(segment.id)}
-                    disabled={
-                      editingDisabled ||
-                      isTranscriptSegmentEditDisabled(
-                        editingTranscriptSegmentId,
+                  <div className="transcript-segment-actions">
+                    <button
+                      ref={(element) => {
+                        transcriptEditButtonRefs.current[segment.id] = element;
+                      }}
+                      type="button"
+                      className="secondary-button compact-button transcript-segment-edit"
+                      onClick={() => beginTranscriptSegmentEdit(segment.id)}
+                      disabled={
+                        editingDisabled ||
+                        isTranscriptSegmentEditDisabled(
+                          editingTranscriptSegmentId,
+                          segment.id,
+                        )
+                      }
+                      aria-label={t("review.editSegment")}
+                      title={t("review.edit")}
+                    >
+                      <Pencil size={16} />
+                    </button>
+                    {notesController ? (() => {
+                      const segmentNote = findTranscriptNoteForSegment(
+                        notesController.notes,
                         segment.id,
-                      )
-                    }
-                    aria-label={t("review.editSegment")}
-                    title={t("review.edit")}
-                  >
-                    <Pencil size={16} />
-                  </button>
-                  {notesController ? (() => {
-                    const segmentNote = findTranscriptNoteForSegment(
-                      notesController.notes,
-                      segment.id,
-                    );
-                    const hasNote = segmentNote !== null;
-                    return (
-                      <button
-                        type="button"
-                        className={`secondary-button compact-button transcript-segment-note${hasNote ? " inserted" : ""}`}
-                        onClick={() => {
-                          if (segmentNote) {
-                            notesController.focusNoteForSegment(segment.id);
-                          } else {
-                            notesController.createNoteForSegment(
-                              segment.id,
-                              segment.text,
-                            );
+                      );
+                      const hasNote = segmentNote !== null;
+                      return (
+                        <button
+                          type="button"
+                          className={`secondary-button compact-button transcript-segment-note${hasNote ? " inserted" : ""}`}
+                          onClick={() => {
+                            if (segmentNote) {
+                              notesController.focusNoteForSegment(segment.id);
+                            } else {
+                              notesController.createNoteForSegment(
+                                segment.id,
+                                segment.text,
+                              );
+                            }
+                          }}
+                          disabled={
+                            editingDisabled || Boolean(editingTranscriptSegmentId)
                           }
-                        }}
-                        disabled={
-                          editingDisabled || Boolean(editingTranscriptSegmentId)
-                        }
-                        aria-label={t(hasNote ? "notes.inserted" : "notes.insert")}
-                        title={t(hasNote ? "notes.inserted" : "notes.insert")}
-                        aria-pressed={hasNote}
-                      >
-                        <StickyNote size={16} aria-hidden="true" />
-                      </button>
-                    );
-                  })() : null}
+                          aria-label={t(hasNote ? "notes.inserted" : "notes.insert")}
+                          title={t(hasNote ? "notes.inserted" : "notes.insert")}
+                          aria-pressed={hasNote}
+                        >
+                          <StickyNote size={16} aria-hidden="true" />
+                        </button>
+                      );
+                    })() : null}
+                  </div>
                 </div>
                 {editingTranscriptSegmentId === segment.id ? (
                   <textarea
