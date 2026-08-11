@@ -42,7 +42,9 @@ import { AppSidebar } from "./features/sidebar/AppSidebar";
 import { SettingsSheet } from "./features/settings/SettingsSheet";
 import { useSettingsController } from "./features/settings/useSettingsController";
 import { LocalTranscriptWorkspace } from "./features/transcript/LocalTranscriptWorkspace";
+import { TranscriptNotesPanel } from "./features/transcript/TranscriptNotesPanel";
 import { useTranscriptDetailController } from "./features/transcript/useTranscriptDetailController";
+import { useTranscriptNotesController } from "./features/transcript/useTranscriptNotesController";
 import { useWindowChromeController } from "./features/window/useWindowChromeController";
 import { useModalFocus } from "./features/modal/useModalFocus";
 import { HeroUploadZone } from "./features/workflow/HeroUploadZone";
@@ -201,6 +203,10 @@ function App() {
     locale: resolvedLocale,
   });
   const annotationsController = useAnnotationsController({
+    workflow,
+    setActionNotice,
+  });
+  const transcriptNotesController = useTranscriptNotesController({
     workflow,
     setActionNotice,
   });
@@ -616,28 +622,38 @@ function App() {
             <>
               <TaskStatusBanner model={taskWorkspaceModel.banner} />
               <div
-                className={`task-workspace-layout${taskWorkspaceModel.ai.visible ? "" : " transcript-only"}`}
+                className={`task-workspace-layout${taskWorkspaceModel.local.canReview ? "" : " transcript-only"}`}
               >
-                <LocalTranscriptWorkspace
-                  model={taskWorkspaceModel.local}
-                  controller={transcriptDetailController}
-                  actionNotice={aiActionNotice ? null : actionNotice}
-                  onLocateArtifact={(artifact) => void locateArtifact(artifact)}
-                  onCancel={() => void cancelCurrentProcessing()}
-                />
-                {taskWorkspaceModel.ai.visible ? (
-                  <AiGenerationWorkspace
-                    model={taskWorkspaceModel.ai}
-                    quotaRemaining={account.llmQuotaRemaining}
-                    notice={aiActionNotice}
-                    onSummaryAction={openSummaryConfirmation}
-                    onInsightsAction={() => void openInsightPreferenceFlow()}
-                    onDissectionAction={dissectionController.openConfirmation}
-                    onViewTarget={(target) => {
-                      setActionNotice(null);
-                      openDetailTab(target);
-                    }}
+                <div className="task-workspace-primary-column">
+                  <LocalTranscriptWorkspace
+                    model={taskWorkspaceModel.local}
+                    controller={transcriptDetailController}
+                    notesController={transcriptNotesController}
+                    actionNotice={aiActionNotice ? null : actionNotice}
+                    onLocateArtifact={(artifact) => void locateArtifact(artifact)}
                     onCancel={() => void cancelCurrentProcessing()}
+                  />
+                  {taskWorkspaceModel.ai.visible ? (
+                    <AiGenerationWorkspace
+                      model={taskWorkspaceModel.ai}
+                      quotaRemaining={account.llmQuotaRemaining}
+                      notice={aiActionNotice}
+                      onSummaryAction={openSummaryConfirmation}
+                      onInsightsAction={() => void openInsightPreferenceFlow()}
+                      onDissectionAction={dissectionController.openConfirmation}
+                      onViewTarget={(target) => {
+                        setActionNotice(null);
+                        openDetailTab(target);
+                      }}
+                      onCancel={() => void cancelCurrentProcessing()}
+                    />
+                  ) : null}
+                </div>
+                {taskWorkspaceModel.local.canReview ? (
+                  <TranscriptNotesPanel
+                    controller={transcriptNotesController}
+                    transcriptSegments={transcriptDetailController.transcriptSegments}
+                    editingDisabled={!taskWorkspaceModel.local.canEdit}
                   />
                 ) : null}
               </div>

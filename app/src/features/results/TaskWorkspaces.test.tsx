@@ -1,5 +1,6 @@
 import { createRef } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { readFileSync } from "node:fs";
 import { beforeAll, describe, expect, test, vi } from "vitest";
 
 import { createGuestAccountStatus } from "../../accountState";
@@ -394,6 +395,19 @@ describe("task domain workspaces", () => {
     expect(markup).toContain('class="transcript-action-bar"');
     expect(markup.match(/class="transcript-segment /g)).toHaveLength(2);
     expect(markup).not.toContain("result-grid");
+  });
+
+  test("composes the transcript, notes, and learning workspaces in the intended layout", () => {
+    const appSource = readFileSync(new URL("../../App.tsx", import.meta.url), "utf8");
+    expect(appSource).toContain("task-workspace-primary-column");
+    expect(appSource).toContain("TranscriptNotesPanel");
+    expect(appSource).toContain("transcriptNotesController");
+    expect(appSource.indexOf("TranscriptNotesPanel")).toBeGreaterThan(
+      appSource.indexOf("LocalTranscriptWorkspace"),
+    );
+    expect(appSource.indexOf("<AnnotationListPanel")).toBeGreaterThan(
+      appSource.indexOf("<TranscriptNotesPanel"),
+    );
   });
 
   test("renders one note action per transcript segment with inserted state", () => {
