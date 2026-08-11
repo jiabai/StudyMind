@@ -524,19 +524,22 @@ function App() {
   return (
     <main className="app-shell">
       <section className="desktop-window" aria-label={tCommon("window.ariaLabel")}>
-        <AppSidebar
-          controller={historyController}
-          workflow={workflow}
-          selectionDisabled={!canRestoreHistory}
-          deletionDisabled={!canDeleteHistory}
-          newTopicDisabled={toolbarNewTaskButtonState.disabled}
-          onNewTopic={startNewTaskFromToolbar}
-          onOpenSettings={openSettings}
-          onOpenAccount={() => openAccountPanel()}
-          onSignOut={() => void signOutAccount()}
-          account={account}
-          accountChipLabel={accountChipLabel}
-        />
+        {account.authenticated ? (
+          <AppSidebar
+            className={loginTransition ? "sidebar-enter" : undefined}
+            controller={historyController}
+            workflow={workflow}
+            selectionDisabled={!canRestoreHistory}
+            deletionDisabled={!canDeleteHistory}
+            newTopicDisabled={toolbarNewTaskButtonState.disabled}
+            onNewTopic={startNewTaskFromToolbar}
+            onOpenSettings={openSettings}
+            onOpenAccount={() => openAccountPanel()}
+            onSignOut={() => void signOutAccount()}
+            account={account}
+            accountChipLabel={accountChipLabel}
+          />
+        ) : null}
         <header className="app-toolbar topbar" data-tauri-drag-region="" onMouseDown={handleToolbarMouseDown}>
           <div className="traffic-lights" role="group" aria-label={tCommon("window.controls")}>
             <button
@@ -612,7 +615,9 @@ function App() {
           ) : (
             <>
               <TaskStatusBanner model={taskWorkspaceModel.banner} />
-              <div className="task-workspace-layout">
+              <div
+                className={`task-workspace-layout${taskWorkspaceModel.ai.visible ? "" : " transcript-only"}`}
+              >
                 <LocalTranscriptWorkspace
                   model={taskWorkspaceModel.local}
                   controller={transcriptDetailController}
@@ -620,19 +625,21 @@ function App() {
                   onLocateArtifact={(artifact) => void locateArtifact(artifact)}
                   onCancel={() => void cancelCurrentProcessing()}
                 />
-                <AiGenerationWorkspace
-                  model={taskWorkspaceModel.ai}
-                  quotaRemaining={account.llmQuotaRemaining}
-                  notice={aiActionNotice}
-                  onSummaryAction={openSummaryConfirmation}
-                  onInsightsAction={() => void openInsightPreferenceFlow()}
-                  onDissectionAction={dissectionController.openConfirmation}
-                  onViewTarget={(target) => {
-                    setActionNotice(null);
-                    openDetailTab(target);
-                  }}
-                  onCancel={() => void cancelCurrentProcessing()}
-                />
+                {taskWorkspaceModel.ai.visible ? (
+                  <AiGenerationWorkspace
+                    model={taskWorkspaceModel.ai}
+                    quotaRemaining={account.llmQuotaRemaining}
+                    notice={aiActionNotice}
+                    onSummaryAction={openSummaryConfirmation}
+                    onInsightsAction={() => void openInsightPreferenceFlow()}
+                    onDissectionAction={dissectionController.openConfirmation}
+                    onViewTarget={(target) => {
+                      setActionNotice(null);
+                      openDetailTab(target);
+                    }}
+                    onCancel={() => void cancelCurrentProcessing()}
+                  />
+                ) : null}
               </div>
               <AnnotationListPanel
                 annotations={annotationsController.annotations}

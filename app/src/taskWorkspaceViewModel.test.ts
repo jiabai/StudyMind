@@ -14,7 +14,12 @@ import {
 } from "./workflow";
 import { createTaskWorkspaceViewModel } from "./taskWorkspaceViewModel";
 
-const TASK_ID = "20260711-120000-youtube-demo";
+const TASK_ID = "20260711-120000-local-lecture";
+const LOCAL_SOURCE = {
+  kind: "local_file",
+  displayName: "Lecture.mp4",
+  mediaKind: "video",
+} as const;
 
 function entitledAccount(overrides: Partial<AccountStatus> = {}): AccountStatus {
   return {
@@ -55,13 +60,10 @@ function transcriptResult(overrides: Partial<WorkerResult> = {}): WorkerResult {
 }
 
 describe("task workspace view model", () => {
-  test("local processing has only download and transcription progress while AI waits", () => {
+  test("local processing has only media and transcription progress while AI waits", () => {
     const workflow = startProcessing(
       createInitialWorkflow(),
-      {
-        kind: "url",
-        url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-      },
+      LOCAL_SOURCE,
     );
 
     const model = createTaskWorkspaceViewModel(workflow, entitledAccount());
@@ -72,6 +74,7 @@ describe("task workspace view model", () => {
       "video_transcribing",
     ]);
     expect(model.ai.phase).toBe("waiting_transcript");
+    expect(model.ai.visible).toBe(false);
     expect(model.ai.summary.status).toBe("locked");
     expect(model.ai.insights.status).toBe("locked");
     expect(model.cancellationOwner).toBe("local");
@@ -80,10 +83,7 @@ describe("task workspace view model", () => {
   test("projects cancellation controls into the workspace that owns the operation", () => {
     const processing = startProcessing(
       createInitialWorkflow(),
-      {
-        kind: "url",
-        url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-      },
+      LOCAL_SOURCE,
     );
 
     const runningModel = createTaskWorkspaceViewModel(
@@ -118,10 +118,7 @@ describe("task workspace view model", () => {
     const workflow = mergeProgressEvent(
       startProcessing(
         createInitialWorkflow(),
-        {
-          kind: "url",
-          url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-        },
+        LOCAL_SOURCE,
       ),
       {
         stage: "video_transcribing",
@@ -152,6 +149,7 @@ describe("task workspace view model", () => {
     expect(model.local.taskId).toBe(TASK_ID);
     expect(model.local.readOnly).toBe(false);
     expect(model.ai.phase).toBe("ready");
+    expect(model.ai.visible).toBe(true);
     expect(model.ai.taskId).toBe(TASK_ID);
     expect(model.ai.summary.status).toBe("available");
     expect(model.ai.insights.status).toBe("available");

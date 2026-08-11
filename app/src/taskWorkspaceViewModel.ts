@@ -239,9 +239,7 @@ export function createTaskWorkspaceViewModel(
       sourceMediaKind:
         workflow.taskSource?.kind === "local_file"
           ? workflow.taskSource.mediaKind
-          : workflow.taskSource?.kind === "url"
-            ? "video"
-            : null,
+          : null,
       phase: localPhase,
       progressSteps: localProgressSteps(workflow),
       canReview: transcriptReady,
@@ -264,6 +262,7 @@ export function createTaskWorkspaceViewModel(
         : null,
     },
     ai: {
+      visible: transcriptReady,
       taskId: workflow.taskId,
       phase: aiPhase,
       availability: aiAvailability(account),

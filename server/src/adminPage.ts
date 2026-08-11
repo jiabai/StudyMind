@@ -602,7 +602,7 @@ function adminShellStyles(locale: Locale): string {
       padding: 2px 9px;
     }
     .badge.active { background: var(--sm-success-soft); border-color: rgba(31, 122, 77, 0.2); color: var(--sm-success); }
-    .badge.redeemed { background: var(--sm-primary-soft); border-color: rgba(22, 104, 220, 0.2); color: var(--sm-primary); }
+    .badge.redeemed { background: var(--sm-primary-soft); border-color: rgba(126, 155, 138, 0.2); color: var(--sm-primary); }
     .badge.inactive,
     .badge.expired,
     .badge.disabled { background: var(--sm-danger-soft); border-color: rgba(180, 35, 24, 0.2); color: var(--sm-danger); }

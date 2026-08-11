@@ -1,13 +1,12 @@
 use crate::worker_runtime::command::WorkerCommandSpec;
 use crate::worker_runtime::supervisor::{
-    hide_child_console_window, terminate_process_tree, CleanupClaim, ProcessInstance,
-    ProcessSupervisor,
+    hide_child_console_window, CleanupClaim, ProcessInstance, ProcessSupervisor, ProcessTreeHandle,
 };
 use std::io::{Read, Write};
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
-use std::process::{Child, ChildStdout, Command, Stdio};
-use std::time::Duration;
+use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::thread::JoinHandle;
 
 pub(super) fn configure_child_process_group(command: &mut Command) {
     #[cfg(unix)]
@@ -23,7 +22,7 @@ pub(super) fn configure_child_process_group(command: &mut Command) {
 
 pub(super) fn spawn_worker_process(
     spec: WorkerCommandSpec,
-) -> Result<(Child, Option<String>), String> {
+) -> Result<(Child, Option<String>, ProcessTreeHandle), String> {
     let WorkerCommandSpec {
         program,
         args,
@@ -52,10 +51,14 @@ pub(super) fn spawn_worker_process(
 
     command
         .spawn()
-        .map(|child| (child, stdin_payload))
+        .map(|child| {
+            let tree = ProcessTreeHandle::attach(&child);
+            (child, stdin_payload, tree)
+        })
         .map_err(|error| error.to_string())
 }
 
+#[allow(dead_code)]
 pub(super) fn deliver_worker_stdin(
     child: &mut Child,
     stdin_payload: Option<String>,
@@ -71,13 +74,41 @@ pub(super) fn deliver_worker_stdin(
         .map_err(|_| "Failed to deliver worker request through stdin.".to_string())
 }
 
+pub(super) fn spawn_worker_stdin_delivery(
+    child: &mut Child,
+    stdin_payload: Option<String>,
+) -> Result<Option<JoinHandle<Result<(), String>>>, String> {
+    let Some(payload) = stdin_payload else {
+        return Ok(None);
+    };
+    let stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| "Failed to open worker stdin pipe.".to_string())?;
+    Ok(Some(std::thread::spawn(move || {
+        deliver_stdin_to_pipe(stdin, payload)
+    })))
+}
+
+fn deliver_stdin_to_pipe(mut stdin: ChildStdin, payload: String) -> Result<(), String> {
+    stdin
+        .write_all(payload.as_bytes())
+        .map_err(|_| "Failed to deliver worker request through stdin.".to_string())
+}
+
 pub(super) fn read_worker_stdout(mut stdout: ChildStdout) -> std::io::Result<Vec<u8>> {
     let mut bytes = Vec::new();
     stdout.read_to_end(&mut bytes).map(|_| bytes)
 }
 
-pub(super) fn terminate_and_reap(child: &mut Child, process_group_id: u32) {
-    let _ = terminate_process_tree(process_group_id);
+pub(super) fn terminate_and_reap(
+    child: &mut Child,
+    process_group_id: u32,
+    tree: &ProcessTreeHandle,
+) {
+    if tree.terminate(process_group_id).is_err() {
+        let _ = child.kill();
+    }
     let _ = child.wait();
 }
 
@@ -85,6 +116,7 @@ pub(super) fn cleanup_registered_child(
     child: &mut Child,
     supervisor: &ProcessSupervisor,
     instance: ProcessInstance,
+    tree: &ProcessTreeHandle,
 ) {
     loop {
         if matches!(child.try_wait(), Ok(Some(_))) {
@@ -92,12 +124,19 @@ pub(super) fn cleanup_registered_child(
         }
         match supervisor.claim_cleanup(instance.instance_id) {
             CleanupClaim::Claimed(claimed) => {
-                let _ = terminate_process_tree(claimed.process_group_id.unwrap_or(claimed.pid));
+                if tree
+                    .terminate(claimed.process_group_id.unwrap_or(claimed.pid))
+                    .is_err()
+                {
+                    let _ = child.kill();
+                }
                 let _ = child.wait();
                 return;
             }
             CleanupClaim::AlreadyTerminating(_) => {
-                std::thread::sleep(Duration::from_millis(10));
+                let _ = child.kill();
+                let _ = child.wait();
+                return;
             }
             CleanupClaim::NotRunning => {
                 let _ = child.wait();

@@ -193,10 +193,10 @@ describe("task domain workspaces", () => {
     expect(markup).toContain("媒体文件和文字稿已保存在本机");
     expect(markup).toContain('aria-label="本地文字稿工作区"');
     expect(markup).toContain('data-task-id="same-task"');
-    expect(markup).toContain('aria-label="智能提炼工作区"');
+    expect(markup).toContain('aria-label="学习整理工作区"');
     expect(markup.match(/data-task-id="same-task"/g)).toHaveLength(2);
     expect(markup).toContain("文字稿校对");
-    expect(markup).toContain("智能提炼");
+    expect(markup).toContain("学习整理");
     expect(markup).not.toContain("Local transcript");
     expect(markup).not.toContain("Cloud AI");
     expect(markup).not.toContain(">本地完成</span>");
@@ -206,8 +206,9 @@ describe("task domain workspaces", () => {
 
   test("keeps meaningful workspace statuses for active and constrained states", () => {
     const processingWorkflow = startProcessing(createInitialWorkflow(), {
-      kind: "url",
-      url: "https://example.invalid/video",
+      kind: "local_file",
+      displayName: "Lecture.mp4",
+      mediaKind: "video",
     });
     const processingModel = createTaskWorkspaceViewModel(processingWorkflow, aiAccount());
     const processingMarkup = renderToStaticMarkup(
@@ -275,7 +276,7 @@ describe("task domain workspaces", () => {
   test("shows motion only for the active local processing stage", () => {
     const extractingWorkflow = startProcessing(
       createInitialWorkflow(),
-      { kind: "url", url: "https://example.invalid/video" },
+      { kind: "local_file", displayName: "Lecture.mp4", mediaKind: "video" },
     );
     const extractingModel = createTaskWorkspaceViewModel(extractingWorkflow, aiAccount());
     const extractingMarkup = renderToStaticMarkup(
@@ -450,21 +451,21 @@ describe("task domain workspaces", () => {
       />,
     );
 
-    expect(markup).toContain("智能提炼");
+    expect(markup).toContain("学习整理");
     expect(markup).toContain("确认后仅发送文字稿片段，视频和音频不会上传");
     expect(markup).toContain('data-ai-target="summary"');
-    expect(markup).toContain("要点总结");
-    expect(markup).toContain("同时生成 Mermaid 思维导图文件");
+    expect(markup).toContain("知识结构");
+    expect(markup).toContain("提炼核心概念并生成 Mermaid 知识图谱");
     expect(markup).toContain('data-ai-target="insights"');
     expect(markup.match(/<article class="ai-target-card/g)).toHaveLength(3);
     expect(markup).toContain('data-ai-target="dissection"');
     expect(markup).toContain("文字稿解剖");
-    expect(markup).toContain("启发灵感");
+    expect(markup).toContain("学习问题");
     expect(markup.indexOf('data-ai-target="dissection"')).toBeLessThan(
       markup.indexOf('data-ai-target="insights"'),
     );
     expect(markup).toContain("AI Credits 余额：8");
-    expect(markup).toContain("一次智能提炼可能消耗多个 Credits。");
+    expect(markup).toContain("一次学习整理可能消耗多个 Credits。");
     expect(markup).not.toContain("当前可用 8 次");
     expect(markup).not.toContain('data-ai-target="mindmap"');
     expect(markup.match(/class="secondary-button ai-target-action"/g)).toHaveLength(3);
@@ -557,7 +558,7 @@ describe("task domain workspaces", () => {
     );
 
     expect(markup).toContain("文字稿解剖尚未生成。");
-    expect(markup).not.toContain("启发灵感尚未生成。");
+    expect(markup).not.toContain("学习问题尚未生成。");
     expect(markup).not.toContain('class="insight-detail-list"');
   });
 

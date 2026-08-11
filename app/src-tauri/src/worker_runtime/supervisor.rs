@@ -1,12 +1,24 @@
 use super::WorkerTimeoutKind;
 use serde::Serialize;
 use std::process::{Command, Output};
-use std::sync::{Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 #[cfg(unix)]
 use std::time::Duration;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
+
+#[cfg(target_os = "windows")]
+use std::os::windows::io::AsRawHandle;
+
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::System::JobObjects::{
+    AssignProcessToJobObject, CreateJobObjectW, SetInformationJobObject, TerminateJobObject,
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+    JobObjectExtendedLimitInformation,
+};
 
 #[cfg(target_os = "windows")]
 const WINDOWS_CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -30,6 +42,82 @@ pub(super) struct ProcessInstance {
     pub(super) instance_id: u64,
     pub(super) pid: u32,
     pub(super) process_group_id: Option<u32>,
+}
+
+#[derive(Clone, Default)]
+pub(super) struct ProcessTreeHandle {
+    #[cfg(target_os = "windows")]
+    job: Option<Arc<WindowsJob>>,
+}
+
+#[cfg(target_os = "windows")]
+struct WindowsJob {
+    handle: HANDLE,
+}
+
+#[cfg(target_os = "windows")]
+unsafe impl Send for WindowsJob {}
+
+#[cfg(target_os = "windows")]
+unsafe impl Sync for WindowsJob {}
+
+#[cfg(target_os = "windows")]
+impl Drop for WindowsJob {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = CloseHandle(self.handle);
+        }
+    }
+}
+
+impl ProcessTreeHandle {
+    pub(super) fn attach(child: &std::process::Child) -> Self {
+        #[cfg(target_os = "windows")]
+        {
+            let job = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
+            if job.is_null() {
+                return Self::default();
+            }
+
+            let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+            limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            let configured = unsafe {
+                SetInformationJobObject(
+                    job,
+                    JobObjectExtendedLimitInformation,
+                    &limits as *const _ as *const _,
+                    std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+                ) != 0
+            };
+            let assigned = configured
+                && unsafe { AssignProcessToJobObject(job, child.as_raw_handle() as HANDLE) != 0 };
+            if !assigned {
+                unsafe {
+                    let _ = CloseHandle(job);
+                }
+                return Self::default();
+            }
+            return Self {
+                job: Some(Arc::new(WindowsJob { handle: job })),
+            };
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = child;
+            Self::default()
+        }
+    }
+
+    pub(super) fn terminate(&self, pid: u32) -> Result<(), String> {
+        #[cfg(target_os = "windows")]
+        if let Some(job) = &self.job {
+            if unsafe { TerminateJobObject(job.handle, 1) } != 0 {
+                return Ok(());
+            }
+        }
+        terminate_process_tree(pid)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -83,6 +171,7 @@ pub(super) enum CancelProcessStatus {
     Cancelling,
     AlreadyCancelling,
     NotRunning,
+    #[allow(dead_code)]
     Failed,
 }
 
@@ -174,7 +263,6 @@ impl ProcessSupervisor {
             .map(|(_, phase)| phase)
     }
 
-    #[cfg(test)]
     pub(super) fn phase_for(&self, instance_id: u64) -> Option<ProcessPhase> {
         self.state
             .lock()
@@ -183,7 +271,6 @@ impl ProcessSupervisor {
             .and_then(|(instance, phase)| (instance.instance_id == instance_id).then_some(phase))
     }
 
-    #[cfg(test)]
     fn claim_cancel(&self) -> CancelClaim {
         let mut state = self.state.lock().expect("process supervisor lock poisoned");
         Self::claim_cancel_locked(&mut state, false)
@@ -428,10 +515,16 @@ pub(super) fn request_process_cancellation(supervisor: &ProcessSupervisor) -> Ca
             status: CancelProcessStatus::NotRunning,
             error: None,
         },
-        CancelRequestOutcome::Failed { error, .. } => CancelProcessResult {
-            status: CancelProcessStatus::Failed,
-            error: Some(error),
-        },
+        CancelRequestOutcome::Failed { error, .. } => {
+            // The runner still needs to observe the cancellation request so it
+            // can use Child::kill as a local fallback when tree termination is
+            // unavailable (for example, taskkill is denied by the host).
+            let _ = supervisor.claim_cancel();
+            CancelProcessResult {
+                status: CancelProcessStatus::Cancelling,
+                error: Some(error),
+            }
+        }
     }
 }
 

@@ -331,7 +331,7 @@ function parseHistorySource(value: unknown): TaskSourceSummary {
   const source = readIpcDataObject(
     value,
     ["kind"],
-    ["url", "displayName", "mediaKind"],
+    ["displayName", "mediaKind"],
     HISTORY_IPC_RESPONSE_INVALID,
   );
   const parsed = parseTaskSourceSummary(source);

@@ -62,20 +62,20 @@ vi.mock("../../insightPreferencesClient", () => ({
 }));
 
 const PROFILE: InspirationProfile = {
-  role: "marketing_sales",
-  domain: "marketing_sales",
-  stage: "manager",
-  cityContext: "new_tier1_city",
-  genderPerspective: "unspecified",
-  platforms: ["douyin"],
+  role: "working_professional",
+  domain: "business_management",
+  stage: "advanced",
+  learningContext: "workplace_training",
+  knowledgeLevel: "familiar",
+  studyMethods: ["note_taking"],
 };
 
 const GENERATION_PREFERENCES: GenerationPreferences = {
-  goal: "content_creation",
-  scenario: "short_video",
-  angles: ["topic_angle"],
-  audience: "beginners",
-  styles: ["direct_sharp"],
+  goal: "organize_notes",
+  scenario: "work_training",
+  angles: ["core_concepts"],
+  audience: "beginner_learner",
+  styles: ["structured"],
   avoid: [],
 };
 
@@ -118,8 +118,9 @@ function createWorkflow(overrides: Partial<WorkflowState> = {}): WorkflowState {
     aiTargetErrors: {},
     composerSource: { kind: "none" },
     taskSource: {
-      kind: "url",
-      url: "https://example.test/video",
+      kind: "local_file",
+      displayName: "Lecture.mp4",
+      mediaKind: "video",
     },
     statusMessage: null,
     progressMessage: null,

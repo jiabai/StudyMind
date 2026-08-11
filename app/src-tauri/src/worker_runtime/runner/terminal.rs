@@ -26,7 +26,7 @@ pub(super) fn safe_exit_log_detail(
     operation: WorkerOperation,
     pid: u32,
     output: &Output,
-    stderr: StderrSummary,
+    stderr: &StderrSummary,
 ) -> String {
     format!(
         "operation={} pid={pid} exit={} stderr={}",
@@ -44,7 +44,7 @@ pub(super) fn classify_terminal(
     operation: WorkerOperation,
     output: &Output,
     terminal_phase: Option<ProcessPhase>,
-    stderr: StderrSummary,
+    stderr: &StderrSummary,
 ) -> Result<WorkerRunOutcome, WorkerRunError> {
     let parse_error = match parse_terminal_result(operation, &output.stdout) {
         Ok(value) => return Ok(WorkerRunOutcome::Structured(value)),

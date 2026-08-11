@@ -224,7 +224,8 @@ def build_topic_plan_prompt(
         preference_prompt_section = f"""
 ## Personalization snapshot
 Use this JSON only to select, rank, and assign `question_count` to knowledge segments.
-Do not use it for a summary or mindmap. Treat `profile.platforms` as background context.
+Do not use it for a summary or mindmap. Treat the learner profile and study methods as context for
+prioritizing useful study guidance.
 If it differs from `generationPreferences.scenario`, follow the current scenario.
 Transcript evidence wins over all preferences.
 Use `labelSnapshot` only to understand option meaning.
@@ -305,7 +306,7 @@ def build_question_prompt(
         preference_prompt_section = f"""
 ## Personalization snapshot
 Use this JSON only to generate study guidance, not a summary or mindmap.
-Treat `profile.platforms` as background context. If it differs from
+Treat the learner profile and study methods as context for prioritizing useful study guidance. If it differs from
 `generationPreferences.scenario`, follow the current scenario.
 Transcript evidence wins over all preferences.
 Use `labelSnapshot` only to understand option meaning.
@@ -336,7 +337,8 @@ Every question must encourage deeper thinking and knowledge application.
 - Treat specific examples as context, not the grammatical subject of the question by default.
 - Make each question open, concrete, discussable, natural, and easy to understand.
 - Keep one main thought per question and avoid nested clauses or abstract noun piles.
-- Do not generate fact checks, definitions, rote memorization, exams, or translation-like templates.
+- Definitions, recall checks, exam-style prompts, and practice questions are allowed when they are
+  supported by the transcript. Do not invent answers, facts, or learning outcomes.
 
 ## Output format
 - Output a valid JSON array only.
@@ -393,9 +395,9 @@ def _profile_to_prompt_dict(snapshot: PreferenceSnapshot) -> dict[str, object] |
         "role": snapshot.profile.role,
         "domain": snapshot.profile.domain,
         "stage": snapshot.profile.stage,
-        "cityContext": snapshot.profile.city_context,
-        "genderPerspective": snapshot.profile.gender_perspective,
-        "platforms": list(snapshot.profile.platforms),
+        "learningContext": snapshot.profile.learning_context,
+        "knowledgeLevel": snapshot.profile.knowledge_level,
+        "studyMethods": list(snapshot.profile.study_methods),
     }
 
 
@@ -459,7 +461,7 @@ def build_summary_prompt(
     semantics = output_language_semantics(output_language)
     return f"""
 # Role
-You are a study summary editor. Create a Key Summary from the source Transcript and Mermaid mindmap
+You are a study summary editor. Create a Knowledge Structure from the source Transcript and Mermaid mindmap
 for lecture review purposes.
 
 ## Output-language contract

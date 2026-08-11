@@ -53,6 +53,7 @@ export const WORKER_ERROR_MESSAGE_CODES = {
   WORKER_EXECUTION_TIMEOUT: "worker.executionTimeout",
   WORKER_REQUEST_TRANSPORT_FAILED: "worker.transportFailed",
   WORKER_PROCESS_FAILED: "worker.processFailed",
+  WORKER_INTERNAL_ERROR: "worker.processFailed",
   WORKER_PROTOCOL_VIOLATION: "worker.processFailed",
   TAURI_COMMAND_FAILED: "worker.processFailed",
 } as const;

@@ -59,8 +59,14 @@ pub(super) fn map_task_worker_result(
             };
             Ok(worker_failure_result(context, code, message))
         }
-        Ok(WorkerRunOutcome::UnstructuredFailure(_)) => {
-            let message = context.failure_policy().unstructured_message;
+        Ok(WorkerRunOutcome::UnstructuredFailure(summary)) => {
+            let policy = context.failure_policy();
+            let message = match summary.exit_code {
+                Some(code) => {
+                    format!("{} exit code: {code}", policy.unstructured_message)
+                }
+                None => policy.unstructured_message.to_string(),
+            };
             Ok(worker_failure_result(
                 context,
                 "WORKER_PROCESS_FAILED",
@@ -91,7 +97,7 @@ pub(super) fn map_task_worker_result(
 fn worker_failure_result(
     context: TaskCommandContext,
     code: &'static str,
-    message: &'static str,
+    message: impl Into<String>,
 ) -> TaskTerminalResult {
     let policy = context.failure_policy();
     TaskTerminalResult::from_value(serde_json::json!({
@@ -106,7 +112,7 @@ fn worker_failure_result(
         "dissection": null,
         "error": {
             "code": code,
-            "message": message,
+            "message": message.into(),
             "stage": policy.stage
         }
     }))
@@ -194,7 +200,10 @@ mod tests {
             assert_eq!(unstructured["status"], status);
             assert_eq!(unstructured["error"]["stage"], stage);
             assert_eq!(unstructured["error"]["code"], "WORKER_PROCESS_FAILED");
-            assert_eq!(unstructured["error"]["message"], message);
+            assert_eq!(
+                unstructured["error"]["message"],
+                format!("{message} exit code: 1")
+            );
             assert!(!unstructured.to_string().contains("review-secret"));
             assert!(!unstructured.to_string().contains("https://"));
         }

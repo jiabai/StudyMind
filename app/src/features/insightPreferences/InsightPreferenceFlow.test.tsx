@@ -7,22 +7,22 @@ import { InsightPreferenceFlow } from "./InsightPreferenceFlow";
 const FLOW: InsightPreferenceFlowState = {
   screen: "confirmation",
   profile: {
-    role: "marketing_sales",
-    domain: "marketing_sales",
-    stage: "manager",
-    cityContext: "new_tier1_city",
-    genderPerspective: "unspecified",
-    platforms: ["douyin"],
+    role: "working_professional",
+    domain: "business_management",
+    stage: "advanced",
+    learningContext: "workplace_training",
+    knowledgeLevel: "familiar",
+    studyMethods: ["note_taking"],
   },
   profileSkipped: false,
   profileResetRequired: false,
   defaultGenerationPreferences: null,
   generationPreferences: {
-    goal: "content_creation",
-    scenario: "short_video",
-    angles: ["topic_angle"],
-    audience: "beginners",
-    styles: ["direct_sharp"],
+    goal: "organize_notes",
+    scenario: "work_training",
+    angles: ["core_concepts"],
+    audience: "beginner_learner",
+    styles: ["structured"],
     avoid: [],
   },
   currentStep: "avoid",
@@ -61,20 +61,20 @@ function renderFlow(
 describe("InsightPreferenceFlow localization", () => {
   test("renders independently localized confirmation copy and actual output language", () => {
     const traditional = renderFlow("zh-TW");
-    expect(traditional).toContain('aria-label="確認靈感啟發"');
+    expect(traditional).toContain('aria-label="確認學習目標"');
     expect(traditional).toContain('data-output-language="zh-TW"');
     expect(traditional).toContain("本次輸出語言");
-    expect(traditional).toContain("市場／銷售");
+    expect(traditional).toContain("商業與管理");
     expect(traditional).toContain("5 字");
 
     const english = renderFlow("en-US");
-    expect(english).toContain('aria-label="Confirm Inspiration"');
+    expect(english).toContain('aria-label="Confirm study goals"');
     expect(english).toContain('data-output-language="en-US"');
     expect(english).toContain("Output language for this run");
-    expect(english).toContain("Marketing / sales");
+    expect(english).toContain("Business and management");
     expect(english).toContain("2 words");
     expect(english).not.toContain("11 words");
-    expect(english).not.toContain("确认启发灵感");
+    expect(english).not.toContain("确认学习目标");
   });
 
   test("keeps the frozen request language visible while a confirmation is busy", () => {
@@ -90,9 +90,9 @@ describe("InsightPreferenceFlow localization", () => {
   });
 
   test.each([
-    ["zh-CN", "本次生成偏好", "你的长期背景", "表达风格", "避免方向"],
-    ["zh-TW", "本次產生偏好", "你的長期背景", "表達風格", "避免方向"],
-    ["en-US", "Preferences for this run", "Your long-term context", "Writing style", "Directions to avoid"],
+    ["zh-CN", "本次学习偏好", "你的学习背景", "讲解方式", "学习输出中避免"],
+    ["zh-TW", "本次學習偏好", "你的學習背景", "講解方式", "學習輸出中避免"],
+    ["en-US", "Study preferences for this run", "Your learning background", "Explanation style", "Avoid in the study output"],
   ] as const)(
     "renders current-run preferences before quiet long-term context in %s",
     (locale, currentTitle, contextTitle, styleLabel, avoidLabel) => {

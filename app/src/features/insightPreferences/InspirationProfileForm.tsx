@@ -26,9 +26,9 @@ const EMPTY_PROFILE: InspirationProfile = {
   role: "unspecified",
   domain: "unspecified",
   stage: "unspecified",
-  cityContext: "unspecified",
-  genderPerspective: "unspecified",
-  platforms: [],
+  learningContext: "unspecified",
+  knowledgeLevel: "unspecified",
+  studyMethods: [],
 };
 
 export function InspirationProfileForm({

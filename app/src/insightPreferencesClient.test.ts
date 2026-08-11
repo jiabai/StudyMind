@@ -11,20 +11,20 @@ import { createInsightPreferenceFlow } from "./insightPreferenceFlow";
 import type { GenerationPreferences, InspirationProfile } from "./insightPreferences";
 
 const PROFILE: InspirationProfile = {
-  role: "marketing_sales",
-  domain: "marketing_sales",
-  stage: "manager",
-  cityContext: "new_tier1_city",
-  genderPerspective: "unspecified",
-  platforms: ["douyin"],
+  role: "working_professional",
+  domain: "business_management",
+  stage: "advanced",
+  learningContext: "workplace_training",
+  knowledgeLevel: "familiar",
+  studyMethods: ["note_taking"],
 };
 
 const GENERATION_PREFERENCES: GenerationPreferences = {
-  goal: "content_creation",
-  scenario: "short_video",
-  angles: ["topic_angle"],
-  audience: "beginners",
-  styles: ["direct_sharp"],
+  goal: "organize_notes",
+  scenario: "work_training",
+  angles: ["core_concepts"],
+  audience: "beginner_learner",
+  styles: ["structured"],
   avoid: [],
 };
 
@@ -73,26 +73,26 @@ describe("insight preferences client", () => {
       ...preferenceState(),
       defaultGenerationPreferences: null,
       legacyGenerationPreferenceSeed: {
-        styles: ["direct_sharp", "storytelling", "grounded"],
-        avoid: ["clickbait"],
+        styles: ["structured", "examples_first", "clear_concise"],
+        avoid: ["unsupported_claims"],
       },
     });
 
     await expect(getInsightPreferences(runner)).resolves.toMatchObject({
       defaultGenerationPreferences: null,
       legacyGenerationPreferenceSeed: {
-        styles: ["direct_sharp", "storytelling", "grounded"],
-        avoid: ["clickbait"],
+        styles: ["structured", "examples_first", "clear_concise"],
+        avoid: ["unsupported_claims"],
       },
     });
   });
 
   test.each([
     { styles: ["unknown_style"], avoid: [] },
-    { styles: ["direct_sharp", "direct_sharp"], avoid: [] },
-    { styles: ["direct_sharp", "storytelling", "grounded", "professional_analysis"], avoid: [] },
-    { styles: [], avoid: ["clickbait", "clickbait"] },
-    { styles: [], avoid: ["clickbait", "academic", "vague", "negative"] },
+    { styles: ["structured", "structured"], avoid: [] },
+    { styles: ["structured", "examples_first", "clear_concise", "deep_explanation"], avoid: [] },
+    { styles: [], avoid: ["unsupported_claims", "unsupported_claims"] },
+    { styles: [], avoid: ["unsupported_claims", "overly_abstract", "off_topic", "unverified"] },
     { styles: [], avoid: ["unknown_avoid"] },
     { styles: [], avoid: [], extra: true },
     { styles: [] },
@@ -109,8 +109,8 @@ describe("insight preferences client", () => {
 
   test.each([
     { styles: Array(1), avoid: [] },
-    { styles: [], avoid: ["clickbait", , "academic"] },
-    { styles: ["direct_sharp", , "storytelling"], avoid: [] },
+    { styles: [], avoid: ["unsupported_claims", , "overly_abstract"] },
+    { styles: ["structured", , "examples_first"], avoid: [] },
   ])("rejects sparse legacy seed arrays and never prefills them: %o", async (seed) => {
     const runner: InsightPreferenceCommandRunner = async () => ({
       ...preferenceState(),

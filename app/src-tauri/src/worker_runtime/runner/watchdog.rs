@@ -1,6 +1,6 @@
 use super::{WorkerOperation, WorkerRunError, WorkerRunErrorKind, WorkerTimeoutKind};
 use crate::worker_runtime::supervisor::{
-    terminate_process_tree, ProcessInstance, ProcessSupervisor, TimeoutRequestOutcome,
+    ProcessInstance, ProcessSupervisor, ProcessTreeHandle, TimeoutRequestOutcome,
 };
 use crate::{append_desktop_log, RuntimePaths};
 use std::sync::{Arc, Condvar, Mutex};
@@ -191,6 +191,7 @@ pub(super) fn start_watchdog(
     policy: WatchdogPolicy,
     retry_backoff: Duration,
     force_start_failure: bool,
+    tree: ProcessTreeHandle,
 ) -> Result<WatchdogHandle, WorkerRunError> {
     let control = Arc::new(WatchdogControl::new());
     let thread_control = Arc::clone(&control);
@@ -211,7 +212,7 @@ pub(super) fn start_watchdog(
                 policy,
                 retry_backoff,
                 &thread_control,
-                |claimed| terminate_process_tree(claimed.process_group_id.unwrap_or(claimed.pid)),
+                move |claimed| tree.terminate(claimed.process_group_id.unwrap_or(claimed.pid)),
             );
         })
         .map_err(|_| {
@@ -258,6 +259,11 @@ pub(super) fn run_watchdog_with_terminator<F>(
                         kind.as_str()
                     ),
                 );
+                // The runner must take over with its direct child handle. Keeping
+                // the phase in Running would make this thread retry forever while
+                // the runner remains blocked in process I/O.
+                let _ = supervisor.claim_timeout(instance.instance_id, kind);
+                return;
             }
             TimeoutRequestOutcome::AlreadyTerminating(_) => {}
             TimeoutRequestOutcome::NotRunning => return,

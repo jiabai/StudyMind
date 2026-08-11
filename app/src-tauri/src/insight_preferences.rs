@@ -10,8 +10,8 @@ use crate::{
 };
 
 pub(crate) const INSIGHT_PREFERENCES_FILE_NAME: &str = "insight-preferences.json";
-const INSIGHT_PREFERENCES_SCHEMA_VERSION: u32 = 2;
-const PROFILE_RESET_REQUIRED_MESSAGE: &str = "灵感档案需要重新设置";
+const INSIGHT_PREFERENCES_SCHEMA_VERSION: u32 = 3;
+const PROFILE_RESET_REQUIRED_MESSAGE: &str = "学习档案需要重新设置";
 const PREFERENCES_READ_ERROR: &str = "Failed to read insight preferences.";
 const PREFERENCES_WRITE_ERROR: &str = "Failed to save insight preferences.";
 
@@ -21,9 +21,9 @@ pub(crate) struct InspirationProfile {
     pub(crate) role: String,
     pub(crate) domain: String,
     pub(crate) stage: String,
-    pub(crate) city_context: String,
-    pub(crate) gender_perspective: String,
-    pub(crate) platforms: Vec<String>,
+    pub(crate) learning_context: String,
+    pub(crate) knowledge_level: String,
+    pub(crate) study_methods: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -37,6 +37,28 @@ struct LegacyInspirationProfileV1 {
     platforms: Vec<String>,
     default_styles: Vec<String>,
     default_avoid: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct LegacyInspirationProfileV2 {
+    role: String,
+    domain: String,
+    stage: String,
+    city_context: String,
+    gender_perspective: String,
+    platforms: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct LegacyGenerationPreferencesV2 {
+    goal: String,
+    scenario: String,
+    angles: Vec<String>,
+    audience: String,
+    styles: Vec<String>,
+    avoid: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -106,7 +128,22 @@ struct LegacyInsightPreferencesFileV1 {
     #[serde(default)]
     profile_skipped: bool,
     #[serde(default)]
-    default_generation_preferences: Option<GenerationPreferences>,
+    default_generation_preferences: Option<LegacyGenerationPreferencesV2>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct LegacyInsightPreferencesFileV2 {
+    #[serde(rename = "schemaVersion")]
+    _schema_version: u32,
+    #[serde(default)]
+    profile: Option<LegacyInspirationProfileV2>,
+    #[serde(default)]
+    profile_skipped: bool,
+    #[serde(default)]
+    default_generation_preferences: Option<LegacyGenerationPreferencesV2>,
+    #[serde(default)]
+    legacy_generation_preference_seed: Option<LegacyGenerationPreferenceSeed>,
 }
 
 #[tauri::command]
@@ -172,7 +209,10 @@ pub(crate) fn load_insight_preferences_from_file(
     }
 
     let (mut file, source) = read_preferences_file(path)?;
-    let legacy_profile_is_invalid = source == PreferencesSource::InvalidLegacyV1;
+    let legacy_profile_is_invalid = matches!(
+        source,
+        PreferencesSource::InvalidLegacyV1 | PreferencesSource::InvalidLegacyV2
+    );
     let profile_is_invalid = legacy_profile_is_invalid
         || file
             .profile
@@ -180,8 +220,11 @@ pub(crate) fn load_insight_preferences_from_file(
             .map(|profile| !is_valid_inspiration_profile(profile))
             .unwrap_or(false);
     let file_was_normalized = normalize_invalid_preferences(&mut file);
-    let should_migrate = source == PreferencesSource::ValidLegacyV1;
-    if profile_is_invalid && source != PreferencesSource::V2 {
+    let should_migrate = matches!(
+        source,
+        PreferencesSource::ValidLegacyV1 | PreferencesSource::ValidLegacyV2
+    );
+    if profile_is_invalid && !matches!(source, PreferencesSource::Current) {
         return Ok(state_from_file(path, file, true));
     }
     if file_was_normalized || should_migrate {
@@ -264,7 +307,10 @@ pub(crate) fn save_default_generation_preferences_to_file(
     }
 
     let (mut file, source) = read_preferences_file_or_default(path)?;
-    if source == PreferencesSource::InvalidLegacyV1 {
+    if matches!(
+        source,
+        PreferencesSource::InvalidLegacyV1 | PreferencesSource::InvalidLegacyV2
+    ) {
         return Err(PROFILE_RESET_REQUIRED_MESSAGE.to_string());
     }
     file.default_generation_preferences = Some(preferences);
@@ -328,15 +374,17 @@ fn read_preferences_file_or_default(
     if path.exists() {
         read_preferences_file(path)
     } else {
-        Ok((InsightPreferencesFile::default(), PreferencesSource::V2))
+        Ok((InsightPreferencesFile::default(), PreferencesSource::Current))
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PreferencesSource {
-    V2,
+    Current,
     ValidLegacyV1,
     InvalidLegacyV1,
+    ValidLegacyV2,
+    InvalidLegacyV2,
 }
 
 fn read_preferences_file(
@@ -345,13 +393,28 @@ fn read_preferences_file(
     let content = fs::read_to_string(path).map_err(|_| PREFERENCES_READ_ERROR.to_string())?;
     let value: serde_json::Value =
         serde_json::from_str(&content).map_err(|_| PREFERENCES_READ_ERROR.to_string())?;
-    if value.get("schemaVersion").is_some() {
-        let file: InsightPreferencesFile =
-            serde_json::from_value(value).map_err(|_| PREFERENCES_READ_ERROR.to_string())?;
-        if file.schema_version != INSIGHT_PREFERENCES_SCHEMA_VERSION {
-            return Err(PREFERENCES_READ_ERROR.to_string());
+    if let Some(schema_version) = value.get("schemaVersion").and_then(|value| value.as_u64()) {
+        if schema_version == INSIGHT_PREFERENCES_SCHEMA_VERSION as u64 {
+            let file: InsightPreferencesFile =
+                serde_json::from_value(value).map_err(|_| PREFERENCES_READ_ERROR.to_string())?;
+            return Ok((file, PreferencesSource::Current));
         }
-        return Ok((file, PreferencesSource::V2));
+        if schema_version == 2 {
+            let legacy: LegacyInsightPreferencesFileV2 =
+                serde_json::from_value(value).map_err(|_| PREFERENCES_READ_ERROR.to_string())?;
+            let invalid = legacy
+                .profile
+                .as_ref()
+                .map(|profile| !is_valid_legacy_inspiration_profile_v2(profile))
+                .unwrap_or(false);
+            let source = if invalid {
+                PreferencesSource::InvalidLegacyV2
+            } else {
+                PreferencesSource::ValidLegacyV2
+            };
+            return Ok((migrate_legacy_v2_preferences(legacy), source));
+        }
+        return Err(PREFERENCES_READ_ERROR.to_string());
     }
 
     let legacy: LegacyInsightPreferencesFileV1 =
@@ -391,7 +454,8 @@ where
 fn migrate_legacy_preferences(legacy: LegacyInsightPreferencesFileV1) -> InsightPreferencesFile {
     let default_generation_preferences = legacy
         .default_generation_preferences
-        .filter(is_valid_generation_preferences);
+        .map(migrate_legacy_generation_preferences_v2)
+        .filter(|preferences| is_valid_generation_preferences(preferences));
     let (profile, legacy_generation_preference_seed) = match legacy.profile {
         Some(profile) => {
             let is_valid = is_valid_legacy_inspiration_profile(&profile);
@@ -401,7 +465,7 @@ fn migrate_legacy_preferences(legacy: LegacyInsightPreferencesFileV1) -> Insight
                     avoid: profile.default_avoid.clone(),
                 })
                 .filter(|seed| !seed.styles.is_empty() || !seed.avoid.is_empty());
-            (Some(profile.into()), seed)
+            (Some(profile.into()), seed.map(migrate_legacy_profile_seed))
         }
         None => (None, None),
     };
@@ -414,17 +478,293 @@ fn migrate_legacy_preferences(legacy: LegacyInsightPreferencesFileV1) -> Insight
     }
 }
 
+fn migrate_legacy_v2_preferences(legacy: LegacyInsightPreferencesFileV2) -> InsightPreferencesFile {
+    let default_generation_preferences = legacy
+        .default_generation_preferences
+        .map(migrate_legacy_generation_preferences_v2)
+        .filter(|preferences| is_valid_generation_preferences(preferences));
+    InsightPreferencesFile {
+        schema_version: INSIGHT_PREFERENCES_SCHEMA_VERSION,
+        profile: legacy.profile.map(Into::into),
+        profile_skipped: legacy.profile_skipped,
+        default_generation_preferences,
+        legacy_generation_preference_seed: legacy
+            .legacy_generation_preference_seed
+            .map(migrate_legacy_seed),
+    }
+}
+
 impl From<LegacyInspirationProfileV1> for InspirationProfile {
     fn from(profile: LegacyInspirationProfileV1) -> Self {
-        Self {
-            role: profile.role,
-            domain: profile.domain,
-            stage: profile.stage,
-            city_context: profile.city_context,
-            gender_perspective: profile.gender_perspective,
-            platforms: profile.platforms,
+        migrate_legacy_profile_fields(
+            &profile.role,
+            &profile.domain,
+            &profile.stage,
+            &profile.city_context,
+            &profile.gender_perspective,
+            &profile.platforms,
+        )
+    }
+}
+
+impl From<LegacyInspirationProfileV2> for InspirationProfile {
+    fn from(profile: LegacyInspirationProfileV2) -> Self {
+        migrate_legacy_profile_fields(
+            &profile.role,
+            &profile.domain,
+            &profile.stage,
+            &profile.city_context,
+            &profile.gender_perspective,
+            &profile.platforms,
+        )
+    }
+}
+
+fn migrate_legacy_profile_fields(
+    role: &str,
+    domain: &str,
+    stage: &str,
+    city_context: &str,
+    gender_perspective: &str,
+    platforms: &[String],
+) -> InspirationProfile {
+    InspirationProfile {
+        role: map_legacy_role(role),
+        domain: map_legacy_domain(domain),
+        stage: map_legacy_stage(stage),
+        learning_context: map_legacy_learning_context(city_context),
+        knowledge_level: map_legacy_knowledge_level(gender_perspective),
+        study_methods: {
+            let mut methods = Vec::new();
+            for method in platforms.iter().filter_map(|value| map_legacy_study_method(value)) {
+                if !methods.contains(&method) {
+                    methods.push(method);
+                }
+            }
+            methods
+        },
+    }
+}
+
+fn migrate_legacy_generation_preferences_v2(
+    preferences: LegacyGenerationPreferencesV2,
+) -> GenerationPreferences {
+    GenerationPreferences {
+        goal: map_legacy_goal(&preferences.goal),
+        scenario: map_legacy_scenario(&preferences.scenario),
+        angles: preferences
+            .angles
+            .iter()
+            .filter_map(|value| map_legacy_angle(value))
+            .collect(),
+        audience: map_legacy_audience(&preferences.audience),
+        styles: preferences
+            .styles
+            .iter()
+            .filter_map(|value| map_legacy_style(value))
+            .collect(),
+        avoid: preferences
+            .avoid
+            .iter()
+            .filter_map(|value| map_legacy_avoid(value))
+            .collect(),
+    }
+}
+
+fn migrate_legacy_seed(seed: LegacyGenerationPreferenceSeed) -> LegacyGenerationPreferenceSeed {
+    let (styles, invalid_styles) = migrate_legacy_seed_values(&seed.styles, map_legacy_style, 3);
+    let (avoid, invalid_avoid) = migrate_legacy_seed_values(&seed.avoid, map_legacy_avoid, 3);
+    LegacyGenerationPreferenceSeed {
+        styles: if invalid_styles {
+            vec!["__invalid_legacy_style__".to_string()]
+        } else {
+            styles
+        },
+        avoid: if invalid_avoid {
+            vec!["__invalid_legacy_avoid__".to_string()]
+        } else {
+            avoid
+        },
+    }
+}
+
+fn migrate_legacy_profile_seed(seed: LegacyGenerationPreferenceSeed) -> LegacyGenerationPreferenceSeed {
+    let mut styles = Vec::new();
+    for style in seed.styles.iter().filter_map(|value| map_legacy_style(value)) {
+        if !styles.contains(&style) {
+            styles.push(style);
         }
     }
+    let mut avoid = Vec::new();
+    for value in seed.avoid.iter().filter_map(|value| map_legacy_avoid(value)) {
+        if !avoid.contains(&value) {
+            avoid.push(value);
+        }
+    }
+    LegacyGenerationPreferenceSeed { styles, avoid }
+}
+
+fn migrate_legacy_seed_values(
+    values: &[String],
+    mapper: fn(&str) -> Option<String>,
+    max: usize,
+) -> (Vec<String>, bool) {
+    let mut mapped = Vec::new();
+    let mut invalid = values.len() > max;
+    for value in values {
+        let Some(value) = mapper(value) else {
+            invalid = true;
+            continue;
+        };
+        if mapped.contains(&value) {
+            invalid = true;
+        } else {
+            mapped.push(value);
+        }
+    }
+    (mapped, invalid)
+}
+
+fn map_legacy_role(value: &str) -> String {
+    match value {
+        "student_researcher" => "student",
+        "teacher_trainer" => "teacher",
+        "investor_business_analyst" => "researcher",
+        "general_learner" => "lifelong_learner",
+        "content_creator" | "product_ops" | "marketing_sales" | "entrepreneur" => {
+            "working_professional"
+        }
+        _ => "unspecified",
+    }
+    .to_string()
+}
+
+fn map_legacy_domain(value: &str) -> String {
+    match value {
+        "technology_rd" => "science_engineering",
+        "marketing_sales" | "product_operations" | "investment_business" => {
+            "business_management"
+        }
+        "education_training" => "education",
+        "content_media" | "management_consulting" | "freelance" => "general_knowledge",
+        "general_perspective" => "unspecified",
+        _ => "general_knowledge",
+    }
+    .to_string()
+}
+
+fn map_legacy_stage(value: &str) -> String {
+    match value {
+        "student" => "beginner",
+        "early_career" => "intermediate",
+        "experienced_professional" | "manager" | "entrepreneur_operator" => "advanced",
+        "retired" => "professional",
+        _ => "unspecified",
+    }
+    .to_string()
+}
+
+fn map_legacy_learning_context(value: &str) -> String {
+    match value {
+        "new_tier1_city" | "tier1_city" | "lower_tier_city" | "county_township" | "overseas" => "self_study",
+        _ => "unspecified",
+    }
+    .to_string()
+}
+
+fn map_legacy_knowledge_level(value: &str) -> String {
+    match value {
+        "female_perspective" | "male_perspective" | "neutral_perspective" => "familiar",
+        _ => "unspecified",
+    }
+    .to_string()
+}
+
+fn map_legacy_study_method(value: &str) -> Option<String> {
+    Some(match value {
+        "course_community" => "discussion",
+        "internal_sharing" => "teach_back",
+        "podcast" => "spaced_repetition",
+        "douyin" | "xiaohongshu" | "wechat_channels" | "bilibili" | "wechat_official_account" => "note_taking",
+        _ => return None,
+    }.to_string())
+}
+
+fn map_legacy_goal(value: &str) -> String {
+    match value {
+        "content_creation" => "organize_notes",
+        "learning_understanding" => "understand_concepts",
+        "review_deconstruction" => "review_weak_points",
+        "business_insight" => "apply_in_practice",
+        "controversy_discussion" => "build_connections",
+        "action_advice" => "apply_in_practice",
+        _ => "understand_concepts",
+    }
+    .to_string()
+}
+
+fn map_legacy_scenario(value: &str) -> String {
+    match value {
+        "personal_notes" => "self_study",
+        "short_video" | "article_official_account" => "class_notes",
+        "livestream_podcast" | "course_community" => "reading_review",
+        "team_sharing" | "client_communication" => "teach_someone",
+        _ => "self_study",
+    }
+    .to_string()
+}
+
+fn map_legacy_angle(value: &str) -> Option<String> {
+    Some(match value {
+        "topic_angle" => "core_concepts",
+        "contrarian_view" => "common_misconceptions",
+        "audience_pain_point" => "examples_cases",
+        "practical_advice" | "reusable_method" => "steps_process",
+        "case_analogy" => "examples_cases",
+        "risk_controversy" => "evidence_reasoning",
+        "trend_judgment" => "cause_effect",
+        "memorable_phrase" => "key_definitions",
+        "cognitive_refresh" => "connections",
+        _ => return None,
+    }.to_string())
+}
+
+fn map_legacy_audience(value: &str) -> String {
+    match value {
+        "self" => "self",
+        "beginners" => "beginner_learner",
+        "peers" => "study_group",
+        "clients" => "teacher",
+        "boss_team" => "study_group",
+        "fans_readers" => "future_self",
+        _ => "self",
+    }
+    .to_string()
+}
+
+fn map_legacy_style(value: &str) -> Option<String> {
+    Some(match value {
+        "direct_sharp" => "clear_concise",
+        "gentle_inspiring" => "socratic",
+        "professional_analysis" => "deep_explanation",
+        "grounded" => "examples_first",
+        "storytelling" => "examples_first",
+        "short_video_friendly" => "clear_concise",
+        "long_form_friendly" => "structured",
+        _ => return None,
+    }.to_string())
+}
+
+fn map_legacy_avoid(value: &str) -> Option<String> {
+    Some(match value {
+        "chicken_soup" => "unsupported_claims",
+        "academic" => "unexplained_jargon",
+        "vague" => "overly_abstract",
+        "clickbait" | "commercialized" => "off_topic",
+        "negative" => "repetition",
+        "grand_narrative" => "unsupported_claims",
+        _ => return None,
+    }.to_string())
 }
 
 fn clear_invalid_default_generation_preferences(file: &mut InsightPreferencesFile) -> bool {
@@ -465,20 +805,49 @@ fn is_valid_inspiration_profile(profile: &InspirationProfile) -> bool {
     is_allowed_single(&profile.role, PROFILE_ROLE_IDS)
         && is_allowed_single(&profile.domain, PROFILE_DOMAIN_IDS)
         && is_allowed_single(&profile.stage, PROFILE_STAGE_IDS)
-        && is_allowed_single(&profile.city_context, PROFILE_CITY_CONTEXT_IDS)
-        && is_allowed_single(&profile.gender_perspective, PROFILE_GENDER_PERSPECTIVE_IDS)
-        && is_allowed_multi(&profile.platforms, PROFILE_PLATFORM_IDS, 0, 3)
+        && is_allowed_single(&profile.learning_context, PROFILE_LEARNING_CONTEXT_IDS)
+        && is_allowed_single(&profile.knowledge_level, PROFILE_KNOWLEDGE_LEVEL_IDS)
+        && is_allowed_multi(&profile.study_methods, PROFILE_STUDY_METHOD_IDS, 0, 3)
 }
 
 fn is_valid_legacy_inspiration_profile(profile: &LegacyInspirationProfileV1) -> bool {
-    is_allowed_single(&profile.role, PROFILE_ROLE_IDS)
-        && is_allowed_single(&profile.domain, PROFILE_DOMAIN_IDS)
-        && is_allowed_single(&profile.stage, PROFILE_STAGE_IDS)
-        && is_allowed_single(&profile.city_context, PROFILE_CITY_CONTEXT_IDS)
-        && is_allowed_single(&profile.gender_perspective, PROFILE_GENDER_PERSPECTIVE_IDS)
-        && is_allowed_multi(&profile.platforms, PROFILE_PLATFORM_IDS, 0, 3)
-        && is_allowed_multi(&profile.default_styles, PROFILE_DEFAULT_STYLE_IDS, 0, 3)
-        && is_allowed_multi(&profile.default_avoid, PROFILE_DEFAULT_AVOID_IDS, 0, 3)
+    is_valid_legacy_profile_fields(
+        &profile.role,
+        &profile.domain,
+        &profile.stage,
+        &profile.city_context,
+        &profile.gender_perspective,
+        &profile.platforms,
+    )
+        && is_allowed_multi(&profile.default_styles, LEGACY_PROFILE_DEFAULT_STYLE_IDS, 0, 3)
+        && is_allowed_multi(&profile.default_avoid, LEGACY_PROFILE_DEFAULT_AVOID_IDS, 0, 3)
+}
+
+fn is_valid_legacy_inspiration_profile_v2(profile: &LegacyInspirationProfileV2) -> bool {
+    is_valid_legacy_profile_fields(
+        &profile.role,
+        &profile.domain,
+        &profile.stage,
+        &profile.city_context,
+        &profile.gender_perspective,
+        &profile.platforms,
+    )
+}
+
+fn is_valid_legacy_profile_fields(
+    role: &str,
+    domain: &str,
+    stage: &str,
+    city_context: &str,
+    gender_perspective: &str,
+    platforms: &[String],
+) -> bool {
+    is_allowed_single(role, LEGACY_PROFILE_ROLE_IDS)
+        && is_allowed_single(domain, LEGACY_PROFILE_DOMAIN_IDS)
+        && is_allowed_single(stage, LEGACY_PROFILE_STAGE_IDS)
+        && is_allowed_single(city_context, LEGACY_PROFILE_CITY_CONTEXT_IDS)
+        && is_allowed_single(gender_perspective, LEGACY_PROFILE_GENDER_PERSPECTIVE_IDS)
+        && is_allowed_multi(platforms, LEGACY_PROFILE_PLATFORM_IDS, 0, 3)
 }
 
 fn is_valid_legacy_generation_preference_seed(seed: &LegacyGenerationPreferenceSeed) -> bool {
@@ -510,6 +879,55 @@ fn is_allowed_multi(values: &[String], allowed: &[&str], min: usize, max: usize)
 }
 
 const PROFILE_ROLE_IDS: &[&str] = &[
+    "student",
+    "working_professional",
+    "teacher",
+    "researcher",
+    "lifelong_learner",
+    "unspecified",
+];
+const PROFILE_DOMAIN_IDS: &[&str] = &[
+    "science_engineering",
+    "business_management",
+    "languages",
+    "social_sciences",
+    "humanities",
+    "education",
+    "exam_prep",
+    "general_knowledge",
+    "unspecified",
+];
+const PROFILE_STAGE_IDS: &[&str] = &[
+    "beginner",
+    "intermediate",
+    "advanced",
+    "professional",
+    "unspecified",
+];
+const PROFILE_LEARNING_CONTEXT_IDS: &[&str] = &[
+    "classroom",
+    "lecture",
+    "self_study",
+    "exam_preparation",
+    "workplace_training",
+    "reading_group",
+    "unspecified",
+];
+const PROFILE_KNOWLEDGE_LEVEL_IDS: &[&str] = &[
+    "new_to_topic",
+    "familiar",
+    "advanced",
+    "unspecified",
+];
+const PROFILE_STUDY_METHOD_IDS: &[&str] = &[
+    "note_taking",
+    "practice_questions",
+    "spaced_repetition",
+    "discussion",
+    "project_application",
+    "teach_back",
+];
+const LEGACY_PROFILE_ROLE_IDS: &[&str] = &[
     "content_creator",
     "product_ops",
     "marketing_sales",
@@ -520,7 +938,7 @@ const PROFILE_ROLE_IDS: &[&str] = &[
     "general_learner",
     "unspecified",
 ];
-const PROFILE_DOMAIN_IDS: &[&str] = &[
+const LEGACY_PROFILE_DOMAIN_IDS: &[&str] = &[
     "content_media",
     "product_operations",
     "marketing_sales",
@@ -532,7 +950,7 @@ const PROFILE_DOMAIN_IDS: &[&str] = &[
     "general_perspective",
     "unspecified",
 ];
-const PROFILE_STAGE_IDS: &[&str] = &[
+const LEGACY_PROFILE_STAGE_IDS: &[&str] = &[
     "student",
     "early_career",
     "experienced_professional",
@@ -541,7 +959,7 @@ const PROFILE_STAGE_IDS: &[&str] = &[
     "retired",
     "unspecified",
 ];
-const PROFILE_CITY_CONTEXT_IDS: &[&str] = &[
+const LEGACY_PROFILE_CITY_CONTEXT_IDS: &[&str] = &[
     "tier1_city",
     "new_tier1_city",
     "lower_tier_city",
@@ -549,13 +967,13 @@ const PROFILE_CITY_CONTEXT_IDS: &[&str] = &[
     "overseas",
     "unspecified",
 ];
-const PROFILE_GENDER_PERSPECTIVE_IDS: &[&str] = &[
+const LEGACY_PROFILE_GENDER_PERSPECTIVE_IDS: &[&str] = &[
     "unspecified",
     "female_perspective",
     "male_perspective",
     "neutral_perspective",
 ];
-const PROFILE_PLATFORM_IDS: &[&str] = &[
+const LEGACY_PROFILE_PLATFORM_IDS: &[&str] = &[
     "douyin",
     "xiaohongshu",
     "wechat_channels",
@@ -565,7 +983,7 @@ const PROFILE_PLATFORM_IDS: &[&str] = &[
     "course_community",
     "internal_sharing",
 ];
-const PROFILE_DEFAULT_STYLE_IDS: &[&str] = &[
+const LEGACY_PROFILE_DEFAULT_STYLE_IDS: &[&str] = &[
     "direct_sharp",
     "gentle_inspiring",
     "professional_analysis",
@@ -574,7 +992,7 @@ const PROFILE_DEFAULT_STYLE_IDS: &[&str] = &[
     "short_video_friendly",
     "long_form_friendly",
 ];
-const PROFILE_DEFAULT_AVOID_IDS: &[&str] = &[
+const LEGACY_PROFILE_DEFAULT_AVOID_IDS: &[&str] = &[
     "chicken_soup",
     "academic",
     "vague",
@@ -584,59 +1002,58 @@ const PROFILE_DEFAULT_AVOID_IDS: &[&str] = &[
     "grand_narrative",
 ];
 const GENERATION_GOAL_IDS: &[&str] = &[
-    "content_creation",
-    "learning_understanding",
-    "review_deconstruction",
-    "business_insight",
-    "controversy_discussion",
-    "action_advice",
+    "understand_concepts",
+    "prepare_for_exam",
+    "organize_notes",
+    "apply_in_practice",
+    "build_connections",
+    "review_weak_points",
 ];
 const GENERATION_SCENARIO_IDS: &[&str] = &[
-    "personal_notes",
-    "short_video",
-    "article_official_account",
-    "livestream_podcast",
-    "team_sharing",
-    "client_communication",
-    "course_community",
+    "class_notes",
+    "self_study",
+    "exam_review",
+    "work_training",
+    "reading_review",
+    "teach_someone",
 ];
 const GENERATION_ANGLE_IDS: &[&str] = &[
-    "topic_angle",
-    "contrarian_view",
-    "audience_pain_point",
-    "practical_advice",
-    "case_analogy",
-    "risk_controversy",
-    "trend_judgment",
-    "reusable_method",
-    "memorable_phrase",
-    "cognitive_refresh",
+    "core_concepts",
+    "key_definitions",
+    "cause_effect",
+    "steps_process",
+    "examples_cases",
+    "compare_contrast",
+    "common_misconceptions",
+    "practice_questions",
+    "evidence_reasoning",
+    "connections",
 ];
 const GENERATION_AUDIENCE_IDS: &[&str] = &[
     "self",
-    "beginners",
-    "peers",
-    "clients",
-    "boss_team",
-    "fans_readers",
+    "beginner_learner",
+    "study_group",
+    "classmate",
+    "teacher",
+    "future_self",
 ];
 const GENERATION_STYLE_IDS: &[&str] = &[
-    "direct_sharp",
-    "gentle_inspiring",
-    "professional_analysis",
-    "grounded",
-    "storytelling",
-    "short_video_friendly",
-    "long_form_friendly",
+    "structured",
+    "clear_concise",
+    "deep_explanation",
+    "examples_first",
+    "socratic",
+    "exam_focused",
+    "action_oriented",
 ];
 const GENERATION_AVOID_IDS: &[&str] = &[
-    "chicken_soup",
-    "academic",
-    "vague",
-    "clickbait",
-    "commercialized",
-    "negative",
-    "grand_narrative",
+    "unsupported_claims",
+    "overly_abstract",
+    "too_much_detail",
+    "repetition",
+    "unexplained_jargon",
+    "off_topic",
+    "unverified",
 ];
 
 #[cfg(test)]
@@ -668,7 +1085,7 @@ mod tests {
         assert_eq!(saved.profile, Some(valid_profile()));
         assert!(!saved.profile_skipped);
         assert_eq!(saved.profile_status, "valid");
-        assert_eq!(read_json(&path)["schemaVersion"], 2);
+        assert_eq!(read_json(&path)["schemaVersion"], 3);
 
         let skipped = skip_inspiration_profile_to_file(&path).expect("skip profile");
         assert_eq!(skipped.profile, None);
@@ -699,7 +1116,7 @@ mod tests {
   },
   "profileSkipped": false,
   "defaultGenerationPreferences": {
-    "goal": "content_creation",
+    "goal": "learning_understanding",
     "scenario": "short_video",
     "angles": ["topic_angle"],
     "audience": "beginners",
@@ -716,7 +1133,7 @@ mod tests {
         assert_eq!(state.profile_status, "invalid");
         assert_eq!(
             state.profile_error,
-            Some("灵感档案需要重新设置".to_string())
+            Some("学习档案需要重新设置".to_string())
         );
         assert_eq!(
             state.default_generation_preferences,
@@ -755,11 +1172,11 @@ mod tests {
     fn save_profile_rejects_invalid_ids_before_writing() {
         let path = temp_file("reject_invalid_profile");
         let mut profile = valid_profile();
-        profile.platforms = vec![
-            "douyin".to_string(),
-            "bilibili".to_string(),
-            "podcast".to_string(),
-            "xiaohongshu".to_string(),
+        profile.study_methods = vec![
+            "note_taking".to_string(),
+            "discussion".to_string(),
+            "spaced_repetition".to_string(),
+            "teach_back".to_string(),
         ];
 
         let error = save_inspiration_profile_to_file(&path, profile).expect_err("reject profile");
@@ -808,7 +1225,7 @@ mod tests {
             state.default_generation_preferences,
             Some(valid_generation_preferences())
         );
-        assert_eq!(written["schemaVersion"], 2);
+        assert_eq!(written["schemaVersion"], 3);
         assert!(fs::read_to_string(&path)
             .expect("read migrated preferences")
             .ends_with('\n'));
@@ -849,13 +1266,13 @@ mod tests {
         assert_eq!(state.default_generation_preferences, None);
         assert_eq!(
             state_json["legacyGenerationPreferenceSeed"]["styles"],
-            serde_json::json!(["direct_sharp", "grounded", "storytelling"])
+            serde_json::json!(["clear_concise", "examples_first"])
         );
         assert_eq!(
             state_json["legacyGenerationPreferenceSeed"]["avoid"],
-            serde_json::json!(["clickbait", "vague"])
+            serde_json::json!(["off_topic", "overly_abstract"])
         );
-        assert_eq!(written["schemaVersion"], 2);
+        assert_eq!(written["schemaVersion"], 3);
         assert_eq!(
             written["legacyGenerationPreferenceSeed"],
             state_json["legacyGenerationPreferenceSeed"]
@@ -902,7 +1319,7 @@ mod tests {
         );
         write_json(&path, &original);
         let mut replacement = valid_generation_preferences();
-        replacement.goal = "learning_understanding".to_string();
+        replacement.goal = "understand_concepts".to_string();
 
         let error = save_default_generation_preferences_to_file(&path, replacement)
             .expect_err("invalid legacy profile must be reset first");
@@ -986,7 +1403,7 @@ mod tests {
             Some(valid_generation_preferences())
         );
         assert!(written.get("legacyGenerationPreferenceSeed").is_none());
-        assert_eq!(written["schemaVersion"], 2);
+        assert_eq!(written["schemaVersion"], 3);
     }
 
     #[test]
@@ -1004,7 +1421,7 @@ mod tests {
             Some(valid_generation_preferences())
         );
         assert!(written.get("legacyGenerationPreferenceSeed").is_none());
-        assert_eq!(written["schemaVersion"], 2);
+        assert_eq!(written["schemaVersion"], 3);
     }
 
     #[test]
@@ -1041,9 +1458,9 @@ mod tests {
     }
 
     #[test]
-    fn valid_three_style_v2_migration_seed_remains_exposed_unchanged() {
+    fn valid_three_style_v2_migration_seed_is_mapped_to_learning_ids() {
         let path = temp_file("valid_three_style_seed");
-        let styles = ["direct_sharp", "grounded", "storytelling"];
+        let styles = ["direct_sharp", "grounded", "professional_analysis"];
         let avoid = ["clickbait", "vague", "academic"];
         write_v2_seed(&path, &styles, &avoid);
 
@@ -1052,13 +1469,21 @@ mod tests {
         assert_eq!(
             state.legacy_generation_preference_seed,
             Some(LegacyGenerationPreferenceSeed {
-                styles: styles.iter().map(|value| (*value).to_string()).collect(),
-                avoid: avoid.iter().map(|value| (*value).to_string()).collect(),
+                styles: vec![
+                    "clear_concise".to_string(),
+                    "examples_first".to_string(),
+                    "deep_explanation".to_string(),
+                ],
+                avoid: vec![
+                    "off_topic".to_string(),
+                    "overly_abstract".to_string(),
+                    "unexplained_jargon".to_string(),
+                ],
             })
         );
         assert_eq!(
             read_json(&path)["legacyGenerationPreferenceSeed"]["styles"],
-            serde_json::json!(styles)
+            serde_json::json!(["clear_concise", "examples_first", "deep_explanation"])
         );
     }
 
@@ -1068,7 +1493,7 @@ mod tests {
         write_v2_seed(&path, &["unknown_style"], &["clickbait"]);
         let serialized = std::cell::RefCell::new(None);
         let mut profile = valid_profile();
-        profile.role = "content_creator".to_string();
+        profile.role = "working_professional".to_string();
 
         let state = save_inspiration_profile_to_file_using_writer(
             &path,
@@ -1090,7 +1515,7 @@ mod tests {
         assert_eq!(state.profile, Some(profile));
         assert_eq!(state.legacy_generation_preference_seed, None);
         assert!(written.get("legacyGenerationPreferenceSeed").is_none());
-        assert_eq!(written["profile"]["role"], "content_creator");
+        assert_eq!(written["profile"]["role"], "working_professional");
     }
 
     #[test]
@@ -1131,8 +1556,8 @@ mod tests {
         let skipped = skip_inspiration_profile_to_file(&skip_path).expect("skip profile");
 
         let expected = Some(LegacyGenerationPreferenceSeed {
-            styles: vec!["grounded".to_string()],
-            avoid: vec!["clickbait".to_string()],
+            styles: vec!["examples_first".to_string()],
+            avoid: vec!["off_topic".to_string()],
         });
         assert_eq!(saved.legacy_generation_preference_seed, expected);
         assert_eq!(skipped.legacy_generation_preference_seed, expected);
@@ -1170,22 +1595,22 @@ mod tests {
 
     fn valid_profile() -> InspirationProfile {
         InspirationProfile {
-            role: "marketing_sales".to_string(),
-            domain: "marketing_sales".to_string(),
-            stage: "manager".to_string(),
-            city_context: "new_tier1_city".to_string(),
-            gender_perspective: "unspecified".to_string(),
-            platforms: vec!["douyin".to_string(), "bilibili".to_string()],
+            role: "working_professional".to_string(),
+            domain: "business_management".to_string(),
+            stage: "advanced".to_string(),
+            learning_context: "self_study".to_string(),
+            knowledge_level: "unspecified".to_string(),
+            study_methods: vec!["note_taking".to_string()],
         }
     }
 
     fn valid_generation_preferences() -> GenerationPreferences {
         GenerationPreferences {
-            goal: "content_creation".to_string(),
-            scenario: "short_video".to_string(),
-            angles: vec!["topic_angle".to_string()],
-            audience: "beginners".to_string(),
-            styles: vec!["direct_sharp".to_string()],
+            goal: "understand_concepts".to_string(),
+            scenario: "class_notes".to_string(),
+            angles: vec!["core_concepts".to_string()],
+            audience: "beginner_learner".to_string(),
+            styles: vec!["clear_concise".to_string()],
             avoid: vec![],
         }
     }
@@ -1278,10 +1703,75 @@ mod tests {
                 "defaultAvoid": default_avoid
             },
             "profileSkipped": false,
-            "defaultGenerationPreferences": defaults
+            "defaultGenerationPreferences": defaults.map(legacy_generation_preferences_json)
         }))
         .expect("serialize v1 preferences")
             + "\n"
+    }
+
+    fn legacy_generation_preferences_json(preferences: GenerationPreferences) -> serde_json::Value {
+        serde_json::json!({
+            "goal": match preferences.goal.as_str() {
+                "understand_concepts" => "learning_understanding",
+                "prepare_for_exam" => "review_deconstruction",
+                "organize_notes" => "content_creation",
+                "apply_in_practice" => "action_advice",
+                "build_connections" => "controversy_discussion",
+                "review_weak_points" => "review_deconstruction",
+                _ => "learning_understanding",
+            },
+            "scenario": match preferences.scenario.as_str() {
+                "class_notes" => "short_video",
+                "self_study" => "personal_notes",
+                "exam_review" => "personal_notes",
+                "work_training" => "team_sharing",
+                "reading_review" => "article_official_account",
+                "teach_someone" => "team_sharing",
+                _ => "personal_notes",
+            },
+            "angles": preferences.angles.iter().filter_map(|value| match value.as_str() {
+                "core_concepts" => Some("topic_angle"),
+                "key_definitions" => Some("memorable_phrase"),
+                "cause_effect" => Some("trend_judgment"),
+                "steps_process" => Some("practical_advice"),
+                "examples_cases" => Some("case_analogy"),
+                "compare_contrast" => Some("cognitive_refresh"),
+                "common_misconceptions" => Some("contrarian_view"),
+                "practice_questions" => Some("reusable_method"),
+                "evidence_reasoning" => Some("risk_controversy"),
+                "connections" => Some("cognitive_refresh"),
+                _ => None,
+            }).collect::<Vec<_>>(),
+            "audience": match preferences.audience.as_str() {
+                "self" => "self",
+                "beginner_learner" => "beginners",
+                "study_group" => "peers",
+                "classmate" => "peers",
+                "teacher" => "clients",
+                "future_self" => "fans_readers",
+                _ => "self",
+            },
+            "styles": preferences.styles.iter().filter_map(|value| match value.as_str() {
+                "structured" => Some("long_form_friendly"),
+                "clear_concise" => Some("direct_sharp"),
+                "deep_explanation" => Some("professional_analysis"),
+                "examples_first" => Some("grounded"),
+                "socratic" => Some("gentle_inspiring"),
+                "exam_focused" => Some("professional_analysis"),
+                "action_oriented" => Some("direct_sharp"),
+                _ => None,
+            }).collect::<Vec<_>>(),
+            "avoid": preferences.avoid.iter().filter_map(|value| match value.as_str() {
+                "unsupported_claims" => Some("chicken_soup"),
+                "overly_abstract" => Some("vague"),
+                "too_much_detail" => Some("academic"),
+                "repetition" => Some("negative"),
+                "unexplained_jargon" => Some("academic"),
+                "off_topic" => Some("clickbait"),
+                "unverified" => Some("grand_narrative"),
+                _ => None,
+            }).collect::<Vec<_>>(),
+        })
     }
 
     fn v2_preferences_json(with_seed: bool, with_defaults: bool) -> String {
@@ -1305,7 +1795,7 @@ mod tests {
         }
         if with_defaults {
             value["defaultGenerationPreferences"] =
-                serde_json::to_value(valid_generation_preferences()).expect("serialize defaults");
+            legacy_generation_preferences_json(valid_generation_preferences());
         }
         serde_json::to_string_pretty(&value).expect("serialize v2 preferences") + "\n"
     }

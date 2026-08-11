@@ -48,9 +48,9 @@ function renderWorkspace() {
 
 describe("AI Synthesis workspace localization", () => {
   test.each([
-    ["zh-CN", "智能提炼工作区", "智能提炼", "要点总结", "启发灵感", "文字稿解剖", "AI Credits 余额："],
-    ["zh-TW", "AI 提煉工作區", "AI 提煉", "重點摘要", "靈感啟發", "逐字稿解剖", "AI Credits 餘額："],
-    ["en-US", "AI Synthesis workspace", "AI Synthesis", "Key Summary", "Inspiration", "Transcript Dissection", "AI Credits balance: 8"],
+    ["zh-CN", "学习整理工作区", "学习整理", "知识结构", "学习问题", "文字稿解剖", "AI Credits 余额："],
+    ["zh-TW", "學習整理工作區", "學習整理", "知識結構", "學習問題", "逐字稿解剖", "AI Credits 餘額："],
+    ["en-US", "AI Synthesis workspace", "Study Synthesis", "Knowledge Structure", "Study Questions", "Transcript Dissection", "AI Credits balance: 8"],
   ] as const)(
     "renders locked terminology and controls in %s",
     async (locale, ariaLabel, title, summary, insights, dissection, balance) => {

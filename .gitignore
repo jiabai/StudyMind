@@ -7,6 +7,16 @@ app/node_modules/
 .venv/
 venv/
 
+# Editor and OS artifacts
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log
+*.swp
+*.swo
+*.tmp
+
 # Build outputs
 app/dist/
 app/src-tauri/target/
@@ -54,25 +64,17 @@ server/prisma/*.db-shm
 /.openclaw/*
 /.openclaw-attachments/*
 /evolution-drafts/*
-/.impeccable.md
 
-# Editor and OS files
-.vscode/
-.idea/
-.DS_Store
-Thumbs.db
+# Local docs and preview artifacts
+/docs/development-environment.md
+/docs/diagnostics/
+/docs/icon-design/
+/docs/previews/
 
-# Logs, caches, and local build artifacts
-*.log
-*.tsbuildinfo
-.coverage
-coverage/
-htmlcov/
-.mypy_cache/
-.pytype/
-.ipynb_checkpoints/
-.cache/
-.vite/
+# Tauri icon build artifacts
+/app/src-tauri/icons/64x64.png
+/app/src-tauri/icons/android/
+/app/src-tauri/icons/ios/
 
 # Local config and secrets
 .env
@@ -94,3 +96,39 @@ __pycache__/
 
 # Local cargo config
 app/src-tauri/.cargo/
+
+# Workspace caches and temporary files
+/cache/
+.parcel-cache/
+.turbo/
+.vite/
+.vitepress/
+
+# Test / coverage
+coverage/
+.nyc_output/
+.coverage
+
+# Lockfiles (don't accidentally commit local lockfiles for other package managers)
+package-lock.json
+server/package-lock.json
+pnpm-lock.yaml
+yarn.lock
+yarn-error.log
+npm-debug.log*
+
+# Python/misc
+.mypy_cache/
+pip-wheel-metadata/
+.tox/
+
+# Docker / container artifacts
+docker-compose.override.yml
+
+# Server build outputs
+/server/dist/
+/server/node_modules/
+
+# Misc
+*.tsbuildinfo
+.cache/

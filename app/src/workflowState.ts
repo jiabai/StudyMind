@@ -92,13 +92,11 @@ export type TranscriptDissection = {
 export type TaskSubmission =
   | { kind: "local_media"; selectionToken: string; title?: string | null };
 
-export type TaskSourceSummary =
-  | { kind: "url"; url: string }
-  | {
-      kind: "local_file";
-      displayName: string;
-      mediaKind: LocalMediaKind;
-    };
+export type TaskSourceSummary = {
+  kind: "local_file";
+  displayName: string;
+  mediaKind: LocalMediaKind;
+};
 
 export type TaskComposerSource =
   | { kind: "none" }
@@ -113,14 +111,6 @@ const UNSAFE_SOURCE_NAME_PATTERN =
 export function parseTaskSourceSummary(value: unknown): TaskSourceSummary | null {
   if (!isPlainRecord(value)) {
     return null;
-  }
-  if (
-    hasExactKeys(value, ["kind", "url"]) &&
-    value.kind === "url" &&
-    typeof value.url === "string" &&
-    value.url.length > 0
-  ) {
-    return { kind: "url", url: value.url };
   }
   if (
     !hasExactKeys(value, ["kind", "displayName", "mediaKind"]) ||
@@ -253,10 +243,7 @@ export function startProcessing(
     taskSource,
     statusMessage: null,
     progressMessage: {
-      messageCode:
-        taskSource.kind === "local_file"
-          ? "local.media.validating"
-          : "video.download.preparing",
+      messageCode: "local.media.validating",
       args: {},
     },
     progressPercent: 12,

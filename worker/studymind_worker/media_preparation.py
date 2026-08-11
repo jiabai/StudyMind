@@ -54,7 +54,7 @@ class MediaPreparationFacade:
         task_context: TaskContext,
     ) -> PreparedMedia:
         request = source.request
-        input_path = Path(request.file_path)
+        input_path = request.source_path
         if not input_path.exists():
             raise MediaPreparationError(
                 "LOCAL_FILE_NOT_FOUND",
@@ -70,7 +70,7 @@ class MediaPreparationFacade:
                 f"ffprobe failed for {input_path.name}: {exc}",
             ) from exc
 
-        audio_path = task_context.audio_path
+        audio_path = task_context.paths.audio_path
         if media_info.is_normalized_pcm_wav and input_path.suffix.lower() == ".wav":
             shutil.copy2(input_path, audio_path)
         else:
@@ -85,16 +85,19 @@ class MediaPreparationFacade:
 
         video_path: Path | None = None
         if input_path.suffix.lower() in VIDEO_SUFFIXES:
-            video_path = task_context.video_path
+            video_path = task_context.paths.video_path_for_extension(
+                request.source_extension,
+            )
             try:
-                staged_file(input_path, video_path)
+                with staged_file(video_path) as staging_path:
+                    shutil.copy2(input_path, staging_path)
             except AtomicFileCommitError as exc:
                 raise MediaPreparationError(
                     "VIDEO_COPY_FAILED",
                     f"Failed to stage video file: {exc}",
                 ) from exc
 
-        subtitle_candidate = find_subtitle_transcript(input_path)
+        subtitle_candidate = find_subtitle_transcript(input_path.parent)
 
         return PreparedMedia(
             video_path=video_path,

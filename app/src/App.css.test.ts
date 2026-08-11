@@ -3,6 +3,10 @@ import { readFileSync } from "node:fs";
 
 const appCss = readFileSync(new URL("./App.css", import.meta.url), "utf-8");
 const appTsx = readFileSync(new URL("./App.tsx", import.meta.url), "utf-8");
+const commonResourcesTs = readFileSync(
+  new URL("./i18n/commonResources.ts", import.meta.url),
+  "utf-8",
+);
 const localTranscriptWorkspaceTsx = readFileSync(
   new URL("./features/transcript/LocalTranscriptWorkspace.tsx", import.meta.url),
   "utf-8",
@@ -63,6 +67,20 @@ describe("App result workspace layout styles", () => {
     expect(taskLayoutRule).toContain("minmax(0, 1.62fr) minmax(360px, 1fr)");
   });
 
+  test("uses a full-width transcript-only layout while local processing is active", () => {
+    const transcriptOnlyRule = getRuleBody([".task-workspace-layout.transcript-only"]);
+
+    expect(transcriptOnlyRule).toContain("grid-template-columns: minmax(0, 1fr);");
+    expect(appTsx).toContain("taskWorkspaceModel.ai.visible ?");
+    expect(appTsx).toContain(
+      'className={`task-workspace-layout${taskWorkspaceModel.ai.visible ? "" : " transcript-only"}`}',
+    );
+  });
+
+  test("does not expose the FrameQ app mark in shared product resources", () => {
+    expect(commonResourcesTs).not.toContain('appMark: "FQ"');
+  });
+
   test("does not retain selectors from the deleted generic result workspace", () => {
     for (const selector of [
       ".result-workspace",
@@ -112,7 +130,7 @@ describe("App result workspace layout styles", () => {
     const historyMainRule = getRuleBody([".history-item-main"]);
     const localWorkspaceRule = getRuleBody([".local-transcript-workspace"]);
 
-    expect(rootRule).toContain("--text-soft: #747982;");
+    expect(rootRule).toContain("--text-soft: #8a857a;");
     expect(rootRule).toContain("--space-3: 12px;");
     expect(rootRule).toContain("--space-4: 16px;");
     expect(rootRule).toContain("--space-6: 24px;");
@@ -159,9 +177,9 @@ describe("App result workspace layout styles", () => {
     expect(targetRule).toContain("border: 0;");
     expect(targetRule).toContain("border-radius: 0;");
     expect(targetDividerRule).toContain("border-top: 1px solid var(--border);");
-    expect(activeTargetRule).toContain("background: #f7fbff;");
+    expect(activeTargetRule).toContain("background: #f3f4ea;");
     expect(activeTargetRule).not.toContain("border-color");
-    expect(failedTargetRule).toContain("background: #fff8f7;");
+    expect(failedTargetRule).toContain("background: #f6ede9;");
     expect(failedTargetRule).not.toContain("border-color");
   });
 
@@ -172,10 +190,10 @@ describe("App result workspace layout styles", () => {
       ".ai-target-action:focus-visible",
     ]);
 
-    expect(actionRule).toContain("background: #eef6ff;");
+    expect(actionRule).toContain("background: #edf0e2;");
     expect(actionRule).toContain("box-shadow: none;");
-    expect(actionRule).toContain("color: #075c9f;");
-    expect(actionFeedbackRule).toContain("border-color: #8cc8ff;");
+    expect(actionRule).toContain("color: #4a6355;");
+    expect(actionFeedbackRule).toContain("border-color: #a9c2a0;");
   });
 
   test("keeps cancel controls in the desktop toolbar system", () => {
@@ -183,11 +201,11 @@ describe("App result workspace layout styles", () => {
     const dangerHoverRule = getRuleBody([".danger-soft:hover"]);
 
     expect(dangerButtonRule).toContain(
-      "background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(239, 241, 245, 0.9));",
+      "background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(237, 234, 224, 0.9));",
     );
     expect(dangerButtonRule).toContain("border-color: var(--border);");
-    expect(dangerButtonRule).toContain("color: #b42318;");
-    expect(dangerHoverRule).toContain("background: #fff7f5;");
+    expect(dangerButtonRule).toContain("color: #a85a52;");
+    expect(dangerHoverRule).toContain("background: #f6ede9;");
   });
 
   test("keeps the desktop toolbar free of duplicated account and settings entries", () => {
@@ -257,7 +275,7 @@ describe("App result workspace layout styles", () => {
     expect(deleteRule).toContain("height: 32px;");
     expect(deleteRule).toContain("width: 32px;");
     expect(deleteRule).toContain("padding: 0;");
-    expect(deleteFeedbackRule).toContain("background: #fff3f1;");
+    expect(deleteFeedbackRule).toContain("background: #f5ebe6;");
     expect(confirmRule).toContain("max-width: 440px;");
     expect(dangerRule).toContain("min-height: 40px;");
     expect(dangerRule).toContain("padding: 0 14px;");
@@ -334,8 +352,8 @@ describe("App result workspace layout styles", () => {
     expect(clockRule).not.toContain("min-width: 126px;");
     expect(clockRule).toContain("font-weight: 760;");
     expect(scrubberRule).toContain("appearance: none;");
-    expect(webkitTrackRule).toContain("#2388f2");
-    expect(webkitTrackRule).toContain("#2fc66d");
+    expect(webkitTrackRule).toContain("#6d8a76");
+    expect(webkitTrackRule).toContain("#5a8a68");
     expect(webkitTrackRule).toContain("height: 8px;");
     expect(webkitThumbRule).toContain("background: transparent;");
     expect(webkitThumbRule).toContain("height: 18px;");
@@ -362,15 +380,15 @@ describe("App result workspace layout styles", () => {
     expect(editRule).toContain("padding: 0;");
     expect(editRule).toContain("align-items: center;");
     expect(editRule).toContain("justify-content: center;");
-    expect(editFeedbackRule).toContain("background: #eef7ff;");
-    expect(editFeedbackRule).toContain("border-color: #b8dcff;");
+    expect(editFeedbackRule).toContain("background: #edf0e2;");
+    expect(editFeedbackRule).toContain("border-color: #c8d6bc;");
   });
 
   test("keeps playback, editing, and keyboard focus visually distinct", () => {
     const activeRule = getRuleBody([".transcript-segment.active"]);
     const editingRule = getRuleBody([".transcript-segment.editing"]);
 
-    expect(activeRule).toContain("background: #eef6ff;");
+    expect(activeRule).toContain("background: #edf0e2;");
     expect(activeRule).toContain("box-shadow: inset 2px 0 0 var(--primary);");
     expect(activeRule).not.toContain("0 0 0 3px");
     expect(editingRule).toContain("background: #fff;");
@@ -411,9 +429,9 @@ describe("App result workspace layout styles", () => {
     expect(navItemRule).toContain("justify-content: center;");
     expect(navItemRule).toContain("padding: 0 14px;");
     expect(navItemRule).toContain("align-items: flex-start;");
-    expect(selectedNavItemRule).toContain("background: rgba(255, 255, 255, 0.86);");
+    expect(selectedNavItemRule).toContain("background: rgba(252, 250, 244, 0.86);");
     expect(sectionsRule).toContain("overflow: auto;");
-    expect(privacyCalloutRule).toContain("background: rgba(248, 249, 252, 0.78);");
+    expect(privacyCalloutRule).toContain("background: rgba(246, 243, 234, 0.78);");
     expect(privacyCalloutRule).toContain("color: var(--text-muted);");
     expect(statusCardRule).toContain("box-shadow: none;");
     expect(summaryListRule).toContain("flex-wrap: wrap;");
@@ -424,10 +442,10 @@ describe("App result workspace layout styles", () => {
     expect(inspirationActionsRule).toContain("display: flex;");
     expect(inspirationActionsRule).toContain("flex-wrap: nowrap;");
     expect(profileClearButtonRule).toContain(
-      "background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(239, 241, 245, 0.9));",
+      "background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(237, 234, 224, 0.9));",
     );
     expect(profileClearButtonRule).toContain("border-color: var(--border);");
-    expect(profileClearButtonRule).toContain("color: #34363b;");
+    expect(profileClearButtonRule).toContain("color: #3a3a33;");
     expect(profileClearButtonRule).toContain("min-height: 36px;");
   });
 
@@ -460,12 +478,12 @@ describe("App result workspace layout styles", () => {
     expect(appSidebarTsx).toContain("clearHistoryNotice");
     expect(noticeRule).toContain("display: flex;");
     expect(noticeRule).toContain("border: 1px solid var(--border);");
-    expect(dangerRule).toContain("color: #98332c;");
-    expect(successRule).toContain("color: #1e6f40;");
+    expect(dangerRule).toContain("color: #9c554d;");
+    expect(successRule).toContain("color: #4d7a5e;");
     expect(closeRule).toContain("height: 20px;");
     expect(closeRule).toContain("width: 20px;");
     expect(closeRule).toContain("padding: 0;");
-    expect(closeHoverRule).toContain("background: rgba(60, 60, 67, 0.08);");
+    expect(closeHoverRule).toContain("background: rgba(95, 88, 72, 0.1);");
   });
 
   test("shows a centered sign-in guide on the home page for guests", () => {

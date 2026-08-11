@@ -12,8 +12,8 @@ export const historyResources = {
       failed: "失败",
     },
     item: {
-      insights_one: "{{formattedCount}} 条灵感",
-      insights_other: "{{formattedCount}} 条灵感",
+      insights_one: "{{formattedCount}} 个学习问题",
+      insights_other: "{{formattedCount}} 个学习问题",
       outputFallback: "outputs",
       localSource: {
         video: "视频文件",
@@ -60,8 +60,8 @@ export const historyResources = {
       failed: "失敗",
     },
     item: {
-      insights_one: "{{formattedCount}} 則靈感",
-      insights_other: "{{formattedCount}} 則靈感",
+      insights_one: "{{formattedCount}} 個學習問題",
+      insights_other: "{{formattedCount}} 個學習問題",
       outputFallback: "outputs",
       localSource: {
         video: "影片檔案",
@@ -108,8 +108,8 @@ export const historyResources = {
       failed: "Failed",
     },
     item: {
-      insights_one: "{{formattedCount}} insight",
-      insights_other: "{{formattedCount}} insights",
+      insights_one: "{{formattedCount}} study question",
+      insights_other: "{{formattedCount}} study questions",
       outputFallback: "outputs",
       localSource: {
         video: "Video file",

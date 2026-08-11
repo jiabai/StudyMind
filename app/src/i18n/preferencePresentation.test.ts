@@ -20,20 +20,20 @@ import {
 import { SUPPORTED_LOCALES } from "./locale";
 
 const PROFILE: InspirationProfile = {
-  role: "content_creator",
-  domain: "content_media",
-  stage: "experienced_professional",
-  cityContext: "new_tier1_city",
-  genderPerspective: "unspecified",
-  platforms: ["douyin"],
+  role: "student",
+  domain: "science_engineering",
+  stage: "intermediate",
+  learningContext: "lecture",
+  knowledgeLevel: "familiar",
+  studyMethods: ["note_taking"],
 };
 
 const GENERATION_PREFERENCES: GenerationPreferences = {
-  goal: "content_creation",
-  scenario: "short_video",
-  angles: ["topic_angle", "practical_advice"],
-  audience: "beginners",
-  styles: ["direct_sharp"],
+  goal: "understand_concepts",
+  scenario: "class_notes",
+  angles: ["core_concepts", "examples_cases"],
+  audience: "beginner_learner",
+  styles: ["structured"],
   avoid: [],
 };
 
@@ -42,7 +42,7 @@ describe("localized preference presentation", () => {
     const labels = SUPPORTED_LOCALES.map(
       (locale) => getPreferenceFieldPresentation(locale, "goal").options[0].label,
     );
-    expect(labels).toEqual(["内容创作", "內容創作", "Content creation"]);
+    expect(labels).toEqual(["理解核心概念", "理解核心概念", "Understand core concepts"]);
 
     const serializedSnapshots = SUPPORTED_LOCALES.map((locale) => {
       const roundTripIds = (
@@ -76,11 +76,9 @@ describe("localized preference presentation", () => {
         role: roundTripIds("role", [PROFILE.role])[0],
         domain: roundTripIds("domain", [PROFILE.domain])[0],
         stage: roundTripIds("stage", [PROFILE.stage])[0],
-        cityContext: roundTripIds("cityContext", [PROFILE.cityContext])[0],
-        genderPerspective: roundTripIds("genderPerspective", [
-          PROFILE.genderPerspective,
-        ])[0],
-        platforms: roundTripIds("platforms", PROFILE.platforms),
+        learningContext: roundTripIds("learningContext", [PROFILE.learningContext])[0],
+        knowledgeLevel: roundTripIds("knowledgeLevel", [PROFILE.knowledgeLevel])[0],
+        studyMethods: roundTripIds("studyMethods", PROFILE.studyMethods),
       };
       expect(generationPreferences).toEqual(GENERATION_PREFERENCES);
       expect(profile).toEqual(PROFILE);
@@ -94,8 +92,8 @@ describe("localized preference presentation", () => {
       );
     });
     expect(new Set(serializedSnapshots)).toHaveLength(1);
-    expect(serializedSnapshots[0]).toContain('"label":"本次目标"');
-    expect(serializedSnapshots[0]).toContain('"label":"内容创作"');
+    expect(serializedSnapshots[0]).toContain('"label":"本次学习目标"');
+    expect(serializedSnapshots[0]).toContain('"label":"理解核心概念"');
   });
 
   test("summarizes profile and generation choices in the requested UI locale", () => {
@@ -103,9 +101,9 @@ describe("localized preference presentation", () => {
       "role",
       "domain",
       "stage",
-      "cityContext",
-      "genderPerspective",
-      "platforms",
+      "learningContext",
+      "knowledgeLevel",
+      "studyMethods",
     ]);
     for (const locale of SUPPORTED_LOCALES) {
       const summary = summarizeInspirationProfile(PROFILE, locale);
@@ -118,18 +116,18 @@ describe("localized preference presentation", () => {
       ).toBe(true);
     }
     expect(summarizeGenerationPreferences(GENERATION_PREFERENCES, "en-US")).toContain(
-      "Goal: Content creation",
+      "Learning goal: Understand core concepts",
     );
     expect(summarizeInspirationProfile(null, "en-US")).toEqual([
-      "Inspiration Profile is not set up",
+      "Learner Profile is not set up",
     ]);
   });
 
   test("validates stable ids without consulting localized labels", () => {
-    expect(isPreferenceOptionId("role", "marketing_sales")).toBe(true);
-    expect(isPreferenceOptionId("role", "市场/销售")).toBe(false);
-    expect(isPreferenceOptionId("role", "市場／銷售")).toBe(false);
-    expect(isPreferenceOptionId("role", "Marketing / sales")).toBe(false);
+    expect(isPreferenceOptionId("role", "teacher")).toBe(true);
+    expect(isPreferenceOptionId("role", "教师/培训者")).toBe(false);
+    expect(isPreferenceOptionId("role", "教師／培訓者")).toBe(false);
+    expect(isPreferenceOptionId("role", "Teacher / trainer")).toBe(false);
   });
 
   test("localizes all actual output-language names without a system sentinel", () => {
@@ -138,20 +136,21 @@ describe("localized preference presentation", () => {
     expect(getOutputLanguageName("en-US", "en-US")).toBe("English (US)");
   });
 
-  test("keeps platform brand labels unchanged across locales", () => {
+  test("keeps study method labels aligned across locales", () => {
     for (const id of [
-      "douyin",
-      "xiaohongshu",
-      "wechat_channels",
-      "bilibili",
-      "wechat_official_account",
+      "note_taking",
+      "practice_questions",
+      "spaced_repetition",
+      "discussion",
+      "project_application",
     ]) {
       const labels = SUPPORTED_LOCALES.map((locale) =>
-        getPreferenceFieldPresentation(locale, "platforms").options.find(
+        getPreferenceFieldPresentation(locale, "studyMethods").options.find(
           (option) => option.id === id,
         )?.label,
       );
-      expect(new Set(labels), id).toHaveLength(1);
+      expect(labels.every((label): label is string => Boolean(label)), id).toBe(true);
+      expect(labels.join(" ")).not.toMatch(/Douyin|Bilibili|Podcast|抖音|哔哩哔哩/);
     }
   });
 
@@ -165,13 +164,13 @@ describe("localized preference presentation", () => {
     expect(settings.defaultSaved_other).toContain("{{count}} items)");
   });
 
-  test("uses the locked AI Synthesis terminology in Credits disclosure", () => {
-    expect(getPreferenceCopy("zh-CN").flow.creditsCostHint).toContain("智能提炼");
-    expect(getPreferenceCopy("zh-TW").flow.creditsCostHint).toContain("AI 提煉");
-    expect(getPreferenceCopy("en-US").flow.creditsCostHint).toContain("AI Synthesis");
-    expect(getPreferenceCopy("zh-CN").flow.quotaDisclosure).toContain("智能提炼");
-    expect(getPreferenceCopy("zh-TW").flow.quotaDisclosure).toContain("AI 提煉");
-    expect(getPreferenceCopy("en-US").flow.quotaDisclosure).toContain("AI Synthesis");
+  test("uses the study synthesis terminology in Credits disclosure", () => {
+    expect(getPreferenceCopy("zh-CN").flow.creditsCostHint).toContain("学习整理");
+    expect(getPreferenceCopy("zh-TW").flow.creditsCostHint).toContain("學習整理");
+    expect(getPreferenceCopy("en-US").flow.creditsCostHint).toContain("study synthesis");
+    expect(getPreferenceCopy("zh-CN").flow.quotaDisclosure).toContain("学习整理");
+    expect(getPreferenceCopy("zh-TW").flow.quotaDisclosure).toContain("學習整理");
+    expect(getPreferenceCopy("en-US").flow.quotaDisclosure).toContain("study synthesis");
   });
 
   test("keeps business ids, canonical prompt semantics, and localized UI copy separated", () => {

@@ -83,8 +83,9 @@ describe("history client", () => {
           id: "task-1",
           created_at: "2026-06-17T10:00:00Z",
           source: {
-            kind: "url",
-            url: "https://www.douyin.com/video/7646789377271647540",
+            kind: "local_file",
+            displayName: "Lecture.mp4",
+            mediaKind: "video",
           },
           status: "completed",
           task_dir: "D:\\StudyMind\\outputs\\tasks\\task-1",
@@ -114,8 +115,9 @@ describe("history client", () => {
         id: "task-1",
         createdAt: "2026-06-17T10:00:00Z",
         source: {
-          kind: "url",
-          url: "https://www.douyin.com/video/7646789377271647540",
+          kind: "local_file",
+          displayName: "Lecture.mp4",
+          mediaKind: "video",
         },
         status: "completed",
         taskDir: "D:\\StudyMind\\outputs\\tasks\\task-1",
@@ -322,8 +324,9 @@ describe("history client", () => {
     const result = historyItemToWorkerResult({
       taskId: "task-2",
       source: {
-        kind: "url",
-        url: "https://www.douyin.com/video/7646789377271647540",
+        kind: "local_file",
+        displayName: "Lecture.mp4",
+        mediaKind: "video",
       },
       status: "partial_completed",
       taskDir: "D:\\StudyMind\\outputs\\tasks\\task-2",

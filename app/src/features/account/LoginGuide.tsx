@@ -84,37 +84,37 @@ function MascotMark() {
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
     >
-      <ellipse cx="120" cy="222" rx="54" ry="6" fill="rgba(10, 132, 255, 0.12)" />
+      <ellipse cx="120" cy="222" rx="54" ry="6" fill="rgba(126, 155, 138, 0.12)" />
       <path
         d="M92 79 L72 34 L112 71"
-        stroke="#0a84ff"
+        stroke="#7e9b8a"
         strokeWidth="4"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
       <path
         d="M148 79 L168 34 L128 71"
-        stroke="#0a84ff"
+        stroke="#7e9b8a"
         strokeWidth="4"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
       <path
         d="M86 176 q0 40 34 40 q34 0 34 -40 Z"
-        fill="rgba(255, 255, 255, 0.72)"
-        stroke="#0a84ff"
+        fill="rgba(252, 250, 244, 0.72)"
+        stroke="#7e9b8a"
         strokeWidth="4"
         strokeLinejoin="round"
       />
       <path
         d="M84 178 q-16 10 -8 28"
-        stroke="#0a84ff"
+        stroke="#7e9b8a"
         strokeWidth="4"
         strokeLinecap="round"
       />
       <path
         d="M156 178 q16 10 8 28"
-        stroke="#0a84ff"
+        stroke="#7e9b8a"
         strokeWidth="4"
         strokeLinecap="round"
       />
@@ -122,8 +122,8 @@ function MascotMark() {
         cx="120"
         cy="118"
         r="48"
-        fill="rgba(255, 255, 255, 0.72)"
-        stroke="#0a84ff"
+        fill="rgba(252, 250, 244, 0.72)"
+        stroke="#7e9b8a"
         strokeWidth="4"
       />
       <rect
@@ -132,8 +132,8 @@ function MascotMark() {
         width="20"
         height="44"
         rx="10"
-        fill="rgba(10, 132, 255, 0.1)"
-        stroke="#0a84ff"
+        fill="rgba(126, 155, 138, 0.1)"
+        stroke="#7e9b8a"
         strokeWidth="4"
       />
       <rect
@@ -142,39 +142,39 @@ function MascotMark() {
         width="20"
         height="44"
         rx="10"
-        fill="rgba(10, 132, 255, 0.1)"
-        stroke="#0a84ff"
+        fill="rgba(126, 155, 138, 0.1)"
+        stroke="#7e9b8a"
         strokeWidth="4"
       />
       <path
         d="M96 100 q24 -10 48 0"
-        stroke="rgba(10, 132, 255, 0.35)"
+        stroke="rgba(126, 155, 138, 0.35)"
         strokeWidth="2.5"
         strokeLinecap="round"
       />
-      <circle cx="104" cy="118" r="5.5" fill="#0a84ff" />
-      <circle cx="136" cy="118" r="5.5" fill="#0a84ff" />
+      <circle cx="104" cy="118" r="5.5" fill="#7e9b8a" />
+      <circle cx="136" cy="118" r="5.5" fill="#7e9b8a" />
       <path
         d="M86 126 q8 6 16 2"
-        stroke="rgba(10, 132, 255, 0.4)"
+        stroke="rgba(126, 155, 138, 0.4)"
         strokeWidth="2.5"
         strokeLinecap="round"
       />
       <path
         d="M138 126 q8 6 16 2"
-        stroke="rgba(10, 132, 255, 0.4)"
+        stroke="rgba(126, 155, 138, 0.4)"
         strokeWidth="2.5"
         strokeLinecap="round"
       />
       <path
         d="M110 134 Q120 143 130 134"
-        stroke="#0a84ff"
+        stroke="#7e9b8a"
         strokeWidth="3.5"
         strokeLinecap="round"
       />
       <path
         d="M106 186 h28 M106 198 h28"
-        stroke="rgba(10, 132, 255, 0.5)"
+        stroke="rgba(126, 155, 138, 0.5)"
         strokeWidth="3"
         strokeLinecap="round"
       />

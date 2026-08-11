@@ -12,8 +12,8 @@ import { buildPreferenceSnapshot } from "./insightPreferences";
 import type { PreferenceSnapshot } from "./insightPreferences";
 import type { WorkerResult } from "./workflow";
 
-const TASK_ID = "20260705-153012-douyin-demo";
-const TASK_DIR = "outputs/tasks/20260705-153012-douyin-demo";
+const TASK_ID = "20260705-153012-local-lecture";
+const TASK_DIR = "outputs/tasks/20260705-153012-local-lecture";
 const DEFAULT_INSIGHT: WorkerResult["insights"][number] = {
   id: 1,
   topic: "为什么流程编排可能比单点模型能力更关键？",
@@ -24,21 +24,21 @@ const DEFAULT_INSIGHT: WorkerResult["insights"][number] = {
 };
 const PREFERENCE_SNAPSHOT: PreferenceSnapshot = buildPreferenceSnapshot({
   profile: {
-    role: "content_creator",
-    domain: "content_media",
-    stage: "experienced_professional",
-    cityContext: "new_tier1_city",
-    genderPerspective: "neutral_perspective",
-    platforms: ["douyin"],
+    role: "working_professional",
+    domain: "business_management",
+    stage: "advanced",
+    learningContext: "workplace_training",
+    knowledgeLevel: "familiar",
+    studyMethods: ["note_taking"],
   },
   profileSkipped: false,
   generationPreferences: {
-    goal: "content_creation",
-    scenario: "short_video",
-    angles: ["topic_angle"],
-    audience: "fans_readers",
-    styles: ["grounded"],
-    avoid: ["clickbait"],
+    goal: "apply_in_practice",
+    scenario: "work_training",
+    angles: ["core_concepts"],
+    audience: "self",
+    styles: ["action_oriented"],
+    avoid: ["unsupported_claims"],
   },
 });
 
@@ -234,12 +234,12 @@ describe("worker client", () => {
       request: { preference_snapshot: PreferenceSnapshot };
     }).request;
     expect(Object.keys(request.preference_snapshot.profile ?? {}).sort()).toEqual([
-      "cityContext",
       "domain",
-      "genderPerspective",
-      "platforms",
+      "knowledgeLevel",
+      "learningContext",
       "role",
       "stage",
+      "studyMethods",
     ]);
     expect(
       request.preference_snapshot.labelSnapshot.profile.map(({ field }) => field),
@@ -247,9 +247,9 @@ describe("worker client", () => {
       "role",
       "domain",
       "stage",
-      "cityContext",
-      "genderPerspective",
-      "platforms",
+      "learningContext",
+      "knowledgeLevel",
+      "studyMethods",
     ]);
     expect(JSON.stringify(request)).not.toMatch(
       /defaultStyles|defaultAvoid|legacyGenerationPreferenceSeed/,

@@ -74,9 +74,9 @@ enum ProfileField {
     Role,
     Domain,
     Stage,
-    CityContext,
-    GenderPerspective,
-    Platforms,
+    LearningContext,
+    KnowledgeLevel,
+    StudyMethods,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
@@ -288,25 +288,25 @@ mod tests {
     #[test]
     fn retry_insights_request_round_trips_preference_snapshot_payload() {
         let payload = serde_json::json!({
-            "task_id": "20260705-153012-douyin-demo",
+            "task_id": "20260705-153012-local-lecture-demo",
             "target": "insights",
             "output_language": "zh-TW",
             "preference_snapshot": {
                 "profile": {
-                    "role": "content_creator",
-                    "domain": "content_media",
-                    "stage": "experienced_professional",
-                    "cityContext": "new_tier1_city",
-                    "genderPerspective": "neutral_perspective",
-                    "platforms": ["douyin"]
+                    "role": "working_professional",
+                    "domain": "business_management",
+                    "stage": "advanced",
+                    "learningContext": "lecture",
+                    "knowledgeLevel": "familiar",
+                    "studyMethods": ["note_taking"]
                 },
                 "profileSkipped": false,
                 "generationPreferences": {
-                    "goal": "content_creation",
-                    "scenario": "short_video",
-                    "angles": ["topic_angle"],
-                    "audience": "fans_readers",
-                    "styles": ["grounded"],
+                    "goal": "understand_concepts",
+                    "scenario": "class_notes",
+                    "angles": ["core_concepts"],
+                    "audience": "self",
+                    "styles": ["structured"],
                     "avoid": []
                 },
                 "labelSnapshot": {
@@ -314,32 +314,32 @@ mod tests {
                         {
                             "field": "role",
                             "label": "Role",
-                            "values": [{"id": "content_creator", "label": "Content creator"}]
+                            "values": [{"id": "working_professional", "label": "Working professional"}]
                         },
                         {
                             "field": "domain",
                             "label": "Domain",
-                            "values": [{"id": "content_media", "label": "Content and media"}]
+                            "values": [{"id": "business_management", "label": "Business and management"}]
                         },
                         {
                             "field": "stage",
                             "label": "Stage",
-                            "values": [{"id": "experienced_professional", "label": "Experienced professional"}]
+                            "values": [{"id": "advanced", "label": "Advanced"}]
                         },
                         {
-                            "field": "cityContext",
-                            "label": "City context",
-                            "values": [{"id": "new_tier1_city", "label": "New tier-1 city"}]
+                            "field": "learningContext",
+                            "label": "Learning context",
+                            "values": [{"id": "lecture", "label": "Lecture"}]
                         },
                         {
-                            "field": "genderPerspective",
-                            "label": "Gender perspective",
-                            "values": [{"id": "neutral_perspective", "label": "Neutral perspective"}]
+                            "field": "knowledgeLevel",
+                            "label": "Knowledge level",
+                            "values": [{"id": "familiar", "label": "Familiar"}]
                         },
                         {
-                            "field": "platforms",
-                            "label": "Platforms",
-                            "values": [{"id": "douyin", "label": "Douyin"}]
+                            "field": "studyMethods",
+                            "label": "Study methods",
+                            "values": [{"id": "note_taking", "label": "Note-taking"}]
                         }
                     ],
                     "generationPreferences": []
@@ -354,18 +354,18 @@ mod tests {
         assert_eq!(serialized["output_language"], "zh-TW");
         assert_eq!(
             serialized["preference_snapshot"]["generationPreferences"]["goal"],
-            "content_creation"
+            "understand_concepts"
         );
         assert_eq!(serialized["preference_snapshot"]["profileSkipped"], false);
         assert_eq!(
             serialized["preference_snapshot"]["profile"],
             serde_json::json!({
-                "role": "content_creator",
-                "domain": "content_media",
-                "stage": "experienced_professional",
-                "cityContext": "new_tier1_city",
-                "genderPerspective": "neutral_perspective",
-                "platforms": ["douyin"]
+                "role": "working_professional",
+                "domain": "business_management",
+                "stage": "advanced",
+                "learningContext": "lecture",
+                "knowledgeLevel": "familiar",
+                "studyMethods": ["note_taking"]
             })
         );
         assert_eq!(
@@ -379,9 +379,9 @@ mod tests {
                 "role",
                 "domain",
                 "stage",
-                "cityContext",
-                "genderPerspective",
-                "platforms"
+                "learningContext",
+                "knowledgeLevel",
+                "studyMethods"
             ]
         );
         let serialized_text = serialized.to_string();

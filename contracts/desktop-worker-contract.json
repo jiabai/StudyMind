@@ -978,87 +978,80 @@
                     "role",
                     "domain",
                     "stage",
-                    "cityContext",
-                    "genderPerspective",
-                    "platforms"
+                    "learningContext",
+                    "knowledgeLevel",
+                    "studyMethods"
                   ],
                   "properties": {
                     "role": {
                       "type": "string",
                       "enum": [
-                        "content_creator",
-                        "product_ops",
-                        "marketing_sales",
-                        "entrepreneur",
-                        "student_researcher",
-                        "teacher_trainer",
-                        "investor_business_analyst",
-                        "general_learner",
+                        "student",
+                        "working_professional",
+                        "teacher",
+                        "researcher",
+                        "lifelong_learner",
                         "unspecified"
                       ]
                     },
                     "domain": {
                       "type": "string",
                       "enum": [
-                        "content_media",
-                        "product_operations",
-                        "marketing_sales",
-                        "education_training",
-                        "technology_rd",
-                        "management_consulting",
-                        "investment_business",
-                        "freelance",
-                        "general_perspective",
+                        "science_engineering",
+                        "business_management",
+                        "languages",
+                        "social_sciences",
+                        "humanities",
+                        "education",
+                        "exam_prep",
+                        "general_knowledge",
                         "unspecified"
                       ]
                     },
                     "stage": {
                       "type": "string",
                       "enum": [
-                        "student",
-                        "early_career",
-                        "experienced_professional",
-                        "manager",
-                        "entrepreneur_operator",
-                        "retired",
+                        "beginner",
+                        "intermediate",
+                        "advanced",
+                        "professional",
                         "unspecified"
                       ]
                     },
-                    "cityContext": {
+                    "learningContext": {
                       "type": "string",
                       "enum": [
-                        "tier1_city",
-                        "new_tier1_city",
-                        "lower_tier_city",
-                        "county_township",
-                        "overseas",
+                        "classroom",
+                        "lecture",
+                        "self_study",
+                        "exam_preparation",
+                        "workplace_training",
+                        "reading_group",
                         "unspecified"
                       ]
                     },
-                    "genderPerspective": {
+                    "knowledgeLevel": {
                       "type": "string",
                       "enum": [
-                        "unspecified",
-                        "female_perspective",
-                        "male_perspective",
-                        "neutral_perspective"
+                        "new_to_topic",
+                        "familiar",
+                        "advanced",
+                        "unspecified"
                       ]
                     },
-                    "platforms": {
+                    "studyMethods": {
                       "type": "array",
                       "maxItems": 3,
                       "uniqueItems": true,
                       "items": {
                         "type": "string",
                         "enum": [
-                          "douyin",
-                          "xiaohongshu",
-                          "wechat_channels",
-                          "bilibili",
-                          "wechat_official_account",
-                          "podcast",
-                          "course_community",
-                          "internal_sharing"
+                          "note_taking",
+                          "practice_questions",
+                          "spaced_repetition",
+                          "discussion",
+                          "project_application",
+                          "teach_back"
                         ]
                       }
                     }
@@ -1084,24 +1077,23 @@
                 "goal": {
                   "type": "string",
                   "enum": [
-                    "content_creation",
-                    "learning_understanding",
-                    "review_deconstruction",
-                    "business_insight",
-                    "controversy_discussion",
-                    "action_advice"
+                    "understand_concepts",
+                    "prepare_for_exam",
+                    "organize_notes",
+                    "apply_in_practice",
+                    "build_connections",
+                    "review_weak_points"
                   ]
                 },
                 "scenario": {
                   "type": "string",
                   "enum": [
-                    "personal_notes",
-                    "short_video",
-                    "article_official_account",
-                    "livestream_podcast",
-                    "team_sharing",
-                    "client_communication",
-                    "course_community"
+                    "class_notes",
+                    "self_study",
+                    "exam_review",
+                    "work_training",
+                    "reading_review",
+                    "teach_someone"
                   ]
                 },
                 "angles": {
@@ -1112,16 +1104,16 @@
                   "items": {
                     "type": "string",
                     "enum": [
-                      "topic_angle",
-                      "contrarian_view",
-                      "audience_pain_point",
-                      "practical_advice",
-                      "case_analogy",
-                      "risk_controversy",
-                      "trend_judgment",
-                      "reusable_method",
-                      "memorable_phrase",
-                      "cognitive_refresh"
+                      "core_concepts",
+                      "key_definitions",
+                      "cause_effect",
+                      "steps_process",
+                      "examples_cases",
+                      "compare_contrast",
+                      "common_misconceptions",
+                      "practice_questions",
+                      "evidence_reasoning",
+                      "connections"
                     ]
                   }
                 },
@@ -1129,11 +1121,11 @@
                   "type": "string",
                   "enum": [
                     "self",
-                    "beginners",
-                    "peers",
-                    "clients",
-                    "boss_team",
-                    "fans_readers"
+                    "beginner_learner",
+                    "study_group",
+                    "classmate",
+                    "teacher",
+                    "future_self"
                   ]
                 },
                 "styles": {
@@ -1144,13 +1136,13 @@
                   "items": {
                     "type": "string",
                     "enum": [
-                      "direct_sharp",
-                      "gentle_inspiring",
-                      "professional_analysis",
-                      "grounded",
-                      "storytelling",
-                      "short_video_friendly",
-                      "long_form_friendly"
+                      "structured",
+                      "clear_concise",
+                      "deep_explanation",
+                      "examples_first",
+                      "socratic",
+                      "exam_focused",
+                      "action_oriented"
                     ]
                   }
                 },
@@ -1161,13 +1153,13 @@
                   "items": {
                     "type": "string",
                     "enum": [
-                      "chicken_soup",
-                      "academic",
-                      "vague",
-                      "clickbait",
-                      "commercialized",
-                      "negative",
-                      "grand_narrative"
+                      "unsupported_claims",
+                      "overly_abstract",
+                      "too_much_detail",
+                      "repetition",
+                      "unexplained_jargon",
+                      "off_topic",
+                      "unverified"
                     ]
                   }
                 }
@@ -1197,9 +1189,9 @@
                           "role",
                           "domain",
                           "stage",
-                          "cityContext",
-                          "genderPerspective",
-                          "platforms"
+                          "learningContext",
+                          "knowledgeLevel",
+                          "studyMethods"
                         ]
                       },
                       "label": {

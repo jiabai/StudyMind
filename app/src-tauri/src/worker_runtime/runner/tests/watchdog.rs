@@ -14,6 +14,7 @@ use super::fixtures::{
 };
 use crate::worker_runtime::result_protocol::{TaskTerminalStatus, ValidatedWorkerResult};
 use crate::worker_runtime::supervisor::ProcessPhase;
+use std::sync::mpsc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -74,12 +75,13 @@ fn watchdog_deadline_selection_prefers_absolute_on_an_exact_tie() {
 }
 
 #[test]
-fn failed_timeout_signal_rolls_back_logs_safely_and_retries_with_backoff() {
+fn failed_timeout_signal_stops_after_one_attempt_and_leaves_timeout_phase() {
     const RAW_FAILURE: &str = "WATCHDOG_RAW_FAILURE_SENTINEL";
     let supervisor = Arc::new(crate::worker_runtime::supervisor::ProcessSupervisor::default());
     let instance = supervisor.start(404).expect("worker starts");
     let control = Arc::new(WatchdogControl::new());
     let attempts = Arc::new(AtomicUsize::new(0));
+    let (completed_tx, completed_rx) = mpsc::channel();
     let paths = test_paths("watchdog-signal-retry");
     let thread_supervisor = Arc::clone(&supervisor);
     let thread_control = Arc::clone(&control);
@@ -102,18 +104,19 @@ fn failed_timeout_signal_rolls_back_logs_safely_and_retries_with_backoff() {
                 Err(RAW_FAILURE.to_string())
             },
         );
+        completed_tx.send(()).expect("watchdog completion is observed");
     });
-    let deadline = Instant::now() + Duration::from_secs(2);
-    while attempts.load(Ordering::SeqCst) < 3 && Instant::now() < deadline {
-        std::thread::yield_now();
-    }
+    let completed = completed_rx
+        .recv_timeout(Duration::from_secs(1))
+        .is_ok();
     control.stop();
     watchdog.join().expect("watchdog exits after stop");
 
-    assert!(attempts.load(Ordering::SeqCst) >= 3);
+    assert!(completed, "watchdog must not retry a failed termination forever");
+    assert_eq!(attempts.load(Ordering::SeqCst), 1);
     assert_eq!(
         supervisor.phase_for(instance.instance_id),
-        Some(ProcessPhase::Running)
+        Some(ProcessPhase::TimingOut(WorkerTimeoutKind::Absolute))
     );
     let log = std::fs::read_to_string(crate::diagnostics::desktop_log_path(&paths))
         .expect("read watchdog log");
@@ -121,7 +124,7 @@ fn failed_timeout_signal_rolls_back_logs_safely_and_retries_with_backoff() {
     assert!(!log.contains(RAW_FAILURE));
     assert_eq!(
         supervisor.finish(instance.instance_id),
-        Some(ProcessPhase::Running)
+        Some(ProcessPhase::TimingOut(WorkerTimeoutKind::Absolute))
     );
 }
 

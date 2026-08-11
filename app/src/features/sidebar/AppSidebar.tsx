@@ -33,6 +33,7 @@ type AppSidebarProps = {
   onSignOut: () => void;
   account: AccountStatus;
   accountChipLabel: string;
+  className?: string;
 };
 
 export function AppSidebar({
@@ -47,6 +48,7 @@ export function AppSidebar({
   onSignOut,
   account,
   accountChipLabel,
+  className,
 }: AppSidebarProps) {
   const { t: tSidebar } = useTranslation("sidebar");
   const { t: tWorkflow } = useTranslation("workflow");
@@ -116,7 +118,7 @@ export function AppSidebar({
 
   if (collapsed) {
     return (
-      <aside className="app-sidebar collapsed" aria-label={tSidebar("ariaLabel")}>
+      <aside className={`app-sidebar collapsed${className ? ` ${className}` : ""}`} aria-label={tSidebar("ariaLabel")}>
         <div className="sidebar-collapse-rail">
           <button
             className="sidebar-collapse-toggle"
@@ -177,7 +179,7 @@ export function AppSidebar({
   }
 
   return (
-    <aside className="app-sidebar expanded" aria-label={tSidebar("ariaLabel")}>
+    <aside className={`app-sidebar expanded${className ? ` ${className}` : ""}`} aria-label={tSidebar("ariaLabel")}>
       <header className="sidebar-header">
         <button
           className="sidebar-collapse-toggle"

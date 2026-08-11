@@ -15,20 +15,20 @@ import type { GenerationPreferences, InspirationProfile } from "./insightPrefere
 import type { InsightPreferenceState } from "./insightPreferencesClient";
 
 const PROFILE: InspirationProfile = {
-  role: "marketing_sales",
-  domain: "marketing_sales",
-  stage: "manager",
-  cityContext: "new_tier1_city",
-  genderPerspective: "unspecified",
-  platforms: ["douyin"],
+  role: "working_professional",
+  domain: "business_management",
+  stage: "advanced",
+  learningContext: "workplace_training",
+  knowledgeLevel: "familiar",
+  studyMethods: ["note_taking"],
 };
 
 const DEFAULT_GENERATION: GenerationPreferences = {
-  goal: "content_creation",
-  scenario: "short_video",
-  angles: ["topic_angle"],
-  audience: "beginners",
-  styles: ["direct_sharp"],
+  goal: "organize_notes",
+  scenario: "work_training",
+  angles: ["core_concepts"],
+  audience: "beginner_learner",
+  styles: ["structured"],
   avoid: [],
 };
 
@@ -50,7 +50,7 @@ describe("insight preference flow", () => {
       profile: null,
       profileSkipped: false,
       profileStatus: "invalid",
-      profileError: "灵感档案需要重新设置",
+      profileError: "学习档案需要重新设置",
       defaultGenerationPreferences: DEFAULT_GENERATION,
     }));
 
@@ -77,8 +77,8 @@ describe("insight preference flow", () => {
       profileStatus: "valid",
       defaultGenerationPreferences: DEFAULT_GENERATION,
       legacyGenerationPreferenceSeed: {
-        styles: ["storytelling"],
-        avoid: ["clickbait"],
+        styles: ["examples_first"],
+        avoid: ["unsupported_claims"],
       },
     }));
 
@@ -92,8 +92,8 @@ describe("insight preference flow", () => {
       profileStatus: "valid",
       defaultGenerationPreferences: null,
       legacyGenerationPreferenceSeed: {
-        styles: ["direct_sharp"],
-        avoid: ["clickbait"],
+        styles: ["structured"],
+        avoid: ["unsupported_claims"],
       },
     }));
 
@@ -105,8 +105,8 @@ describe("insight preference flow", () => {
       scenario: "",
       angles: [],
       audience: "",
-      styles: ["direct_sharp"],
-      avoid: ["clickbait"],
+      styles: ["structured"],
+      avoid: ["unsupported_claims"],
     });
     expect(flow.defaultGenerationPreferences).toBeNull();
   });
@@ -116,27 +116,27 @@ describe("insight preference flow", () => {
       profile: PROFILE,
       profileStatus: "valid",
       legacyGenerationPreferenceSeed: {
-        styles: ["direct_sharp", "storytelling", "grounded"],
+        styles: ["structured", "examples_first", "clear_concise"],
         avoid: [],
       },
     }));
 
-    flow = advanceGenerationStep(selectGenerationOption(flow, "goal", "content_creation"));
-    flow = advanceGenerationStep(selectGenerationOption(flow, "scenario", "short_video"));
-    flow = advanceGenerationStep(selectGenerationOption(flow, "angles", "topic_angle"));
-    flow = advanceGenerationStep(selectGenerationOption(flow, "audience", "beginners"));
+    flow = advanceGenerationStep(selectGenerationOption(flow, "goal", "understand_concepts"));
+    flow = advanceGenerationStep(selectGenerationOption(flow, "scenario", "class_notes"));
+    flow = advanceGenerationStep(selectGenerationOption(flow, "angles", "core_concepts"));
+    flow = advanceGenerationStep(selectGenerationOption(flow, "audience", "beginner_learner"));
 
     expect(flow.currentStep).toBe("styles");
     expect(flow.generationPreferences.styles).toEqual([
-      "direct_sharp",
-      "storytelling",
-      "grounded",
+      "structured",
+      "examples_first",
+      "clear_concise",
     ]);
     expect(flow.canAdvance).toBe(false);
     expect(advanceGenerationStep(flow).currentStep).toBe("styles");
 
-    flow = selectGenerationOption(flow, "styles", "storytelling");
-    expect(flow.generationPreferences.styles).toEqual(["direct_sharp", "grounded"]);
+    flow = selectGenerationOption(flow, "styles", "examples_first");
+    expect(flow.generationPreferences.styles).toEqual(["structured", "clear_concise"]);
     expect(flow.canAdvance).toBe(true);
   });
 
@@ -189,7 +189,7 @@ describe("insight preference flow", () => {
         profile: null,
         profileSkipped: false,
         profileStatus: "invalid",
-        profileError: "灵感档案需要重新设置",
+        profileError: "学习档案需要重新设置",
         defaultGenerationPreferences: DEFAULT_GENERATION,
       })),
     );
@@ -214,7 +214,7 @@ describe("insight preference flow", () => {
     expect(flow.currentStep).toBe("goal");
     expect(flow.canAdvance).toBe(false);
 
-    const withGoal = selectGenerationOption(flow, "goal", "content_creation");
+    const withGoal = selectGenerationOption(flow, "goal", "understand_concepts");
     expect(withGoal.canAdvance).toBe(true);
 
     const scenarioStep = advanceGenerationStep(withGoal);
@@ -234,11 +234,11 @@ describe("insight preference flow", () => {
       })),
     );
 
-    flow = advanceGenerationStep(selectGenerationOption(flow, "goal", "content_creation"));
-    flow = advanceGenerationStep(selectGenerationOption(flow, "scenario", "short_video"));
-    flow = advanceGenerationStep(selectGenerationOption(flow, "angles", "topic_angle"));
-    flow = advanceGenerationStep(selectGenerationOption(flow, "audience", "beginners"));
-    flow = advanceGenerationStep(selectGenerationOption(flow, "styles", "direct_sharp"));
+    flow = advanceGenerationStep(selectGenerationOption(flow, "goal", "understand_concepts"));
+    flow = advanceGenerationStep(selectGenerationOption(flow, "scenario", "class_notes"));
+    flow = advanceGenerationStep(selectGenerationOption(flow, "angles", "core_concepts"));
+    flow = advanceGenerationStep(selectGenerationOption(flow, "audience", "beginner_learner"));
+    flow = advanceGenerationStep(selectGenerationOption(flow, "styles", "structured"));
 
     expect(flow.currentStep).toBe("avoid");
     expect(flow.canAdvance).toBe(true);
@@ -249,7 +249,7 @@ describe("insight preference flow", () => {
     const copy = getQuotaDisclosureCopy("zh-CN");
 
     expect(copy).toContain("1 AI Credit = 1 次云端 LLM API 调用尝试");
-    expect(copy).toContain("一次智能提炼可能消耗多个 Credits");
+    expect(copy).toContain("一次学习整理可能消耗多个 Credits");
     expect(copy).toContain("按实际云端 LLM API 调用扣除 Credits");
     expect(copy).toContain("失败、超时或部分失败的已发起调用仍会扣除 Credits");
     expect(copy).not.toContain("次额度");

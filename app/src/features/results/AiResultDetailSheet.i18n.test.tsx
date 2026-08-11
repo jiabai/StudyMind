@@ -59,9 +59,9 @@ function renderDetails() {
 
 describe("AI result detail localization", () => {
   test.each([
-    ["zh-CN", "启发灵感", "换个方向", "匹配理由", "启发问题", "适合用途"],
-    ["zh-TW", "靈感啟發", "換個方向", "符合原因", "啟發問題", "適合用途"],
-    ["en-US", "Inspiration", "Try Another Direction", "Why it matches", "Questions to explore", "Best use"],
+    ["zh-CN", "学习问题", "换个方向", "匹配理由", "复习与练习问题", "学习用途"],
+    ["zh-TW", "學習問題", "換個方向", "符合原因", "複習與練習問題", "學習用途"],
+    ["en-US", "Study Questions", "Try Another Direction", "Why it matches", "Review and practice questions", "Study use"],
   ] as const)(
     "localizes UI copy in %s without translating generated content",
     async (locale, title, retry, reason, questions, use) => {

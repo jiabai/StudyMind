@@ -117,8 +117,9 @@ function createHistoryItem(overrides: Partial<HistoryItem> = {}): HistoryItem {
   return {
     taskId: "history-task",
     source: {
-      kind: "url",
-      url: "https://www.example.test/history-video",
+      kind: "local_file",
+      displayName: "Lecture.mp4",
+      mediaKind: "video",
     },
     status: "completed",
     taskDir: "D:/StudyMind/outputs/tasks/history-task",

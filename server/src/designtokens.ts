@@ -8,7 +8,7 @@
  * adds page-specific layout that references `var(--sm-*)`.
  *
  * The token values follow an established server-web design pattern with StudyMind's brand
- * primary `#1668dc` (the value aligned with the desktop app).
+ * primary `#7e9b8a` (Morandi sage, aligned with the desktop app).
  *
  * Note: this module is intentionally server-web only. It is NOT imported by the
  * desktop app, which keeps its own token system.
@@ -20,35 +20,35 @@ export function smTokenCss(): string {
     :root {
       color-scheme: light;
       /* surfaces */
-      --sm-bg: #f6f7f8;
+      --sm-bg: #f6f2e7;
       --sm-surface: #ffffff;
-      --sm-surface-soft: #f2f4f7;
+      --sm-surface-soft: #f3f0e8;
       /* text */
-      --sm-text: #1d1d1f;
-      --sm-text-soft: #5f6874;
+      --sm-text: #2a2a24;
+      --sm-text-soft: #7c766a;
       --sm-text-on-primary: #ffffff;
       /* brand / semantic */
-      --sm-primary: #1668dc;
-      --sm-primary-pressed: #0f55b8;
-      --sm-primary-soft: #eef4ff;
-      --sm-focus-ring: rgba(22, 104, 220, 0.22);
-      --sm-link: #1668dc;
-      --sm-success: #1f7a4d;
-      --sm-success-soft: #edf8f2;
-      --sm-danger: #b42318;
-      --sm-danger-soft: #fff4f3;
-      --sm-warning: #9a5b05;
+      --sm-primary: #7e9b8a;
+      --sm-primary-pressed: #64806f;
+      --sm-primary-soft: #edf0e2;
+      --sm-focus-ring: rgba(126, 155, 138, 0.22);
+      --sm-link: #64806f;
+      --sm-success: #4d7a5e;
+      --sm-success-soft: #edf1e7;
+      --sm-danger: #a85a52;
+      --sm-danger-soft: #f6ede9;
+      --sm-warning: #8a6d3f;
       /* lines */
-      --sm-border: #e2e5e9;
-      --sm-border-strong: #cfd6df;
-      --sm-divider: #f0f2f5;
+      --sm-border: #e3dfd3;
+      --sm-border-strong: #d8d2c4;
+      --sm-divider: #efece2;
       /* shape */
       --sm-radius: 8px;
       --sm-radius-sm: 6px;
       --sm-radius-pill: 999px;
       /* elevation */
-      --sm-shadow-card: 0 1px 2px rgba(17, 24, 39, 0.04), 0 6px 20px rgba(17, 24, 39, 0.05);
-      --sm-shadow-raised: 0 10px 40px rgba(17, 24, 39, 0.08);
+      --sm-shadow-card: 0 1px 2px rgba(70, 62, 48, 0.05), 0 6px 20px rgba(70, 62, 48, 0.06);
+      --sm-shadow-raised: 0 10px 40px rgba(70, 62, 48, 0.1);
       /* type */
       --sm-font: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
       --sm-font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;

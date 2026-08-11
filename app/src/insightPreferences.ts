@@ -4,9 +4,9 @@ export type ProfileField =
   | "role"
   | "domain"
   | "stage"
-  | "cityContext"
-  | "genderPerspective"
-  | "platforms";
+  | "learningContext"
+  | "knowledgeLevel"
+  | "studyMethods";
 
 export type GenerationPreferenceField =
   | "goal"
@@ -18,14 +18,17 @@ export type GenerationPreferenceField =
 
 export type PreferenceField = ProfileField | GenerationPreferenceField;
 
-export type InspirationProfile = {
+export type LearnerProfile = {
   role: string;
   domain: string;
   stage: string;
-  cityContext: string;
-  genderPerspective: string;
-  platforms: string[];
+  learningContext: string;
+  knowledgeLevel: string;
+  studyMethods: string[];
 };
+
+/** @deprecated Use LearnerProfile. Kept as an API alias for existing callers. */
+export type InspirationProfile = LearnerProfile;
 
 export type GenerationPreferences = {
   goal: string;
@@ -81,9 +84,9 @@ export const PROFILE_FIELD_ORDER: ProfileField[] = [
   "role",
   "domain",
   "stage",
-  "cityContext",
-  "genderPerspective",
-  "platforms",
+  "learningContext",
+  "knowledgeLevel",
+  "studyMethods",
 ];
 
 export const GENERATION_FIELD_ORDER: GenerationPreferenceField[] = [
@@ -102,54 +105,54 @@ function options(...ids: string[]): OptionDefinition[] {
 const PROFILE_FIELD_CONFIGS: Record<ProfileField, FieldConfig> = {
   role: {
     mode: "single", min: 1, max: 1,
-    options: options("content_creator", "product_ops", "marketing_sales", "entrepreneur", "student_researcher", "teacher_trainer", "investor_business_analyst", "general_learner", "unspecified"),
+    options: options("student", "working_professional", "teacher", "researcher", "lifelong_learner", "unspecified"),
   },
   domain: {
     mode: "single", min: 1, max: 1,
-    options: options("content_media", "product_operations", "marketing_sales", "education_training", "technology_rd", "management_consulting", "investment_business", "freelance", "general_perspective", "unspecified"),
+    options: options("science_engineering", "business_management", "languages", "social_sciences", "humanities", "education", "exam_prep", "general_knowledge", "unspecified"),
   },
   stage: {
     mode: "single", min: 1, max: 1,
-    options: options("student", "early_career", "experienced_professional", "manager", "entrepreneur_operator", "retired", "unspecified"),
+    options: options("beginner", "intermediate", "advanced", "professional", "unspecified"),
   },
-  cityContext: {
+  learningContext: {
     mode: "single", min: 1, max: 1,
-    options: options("tier1_city", "new_tier1_city", "lower_tier_city", "county_township", "overseas", "unspecified"),
+    options: options("classroom", "lecture", "self_study", "exam_preparation", "workplace_training", "reading_group", "unspecified"),
   },
-  genderPerspective: {
+  knowledgeLevel: {
     mode: "single", min: 1, max: 1,
-    options: options("unspecified", "female_perspective", "male_perspective", "neutral_perspective"),
+    options: options("new_to_topic", "familiar", "advanced", "unspecified"),
   },
-  platforms: {
+  studyMethods: {
     mode: "multi", min: 0, max: 3,
-    options: options("douyin", "xiaohongshu", "wechat_channels", "bilibili", "wechat_official_account", "podcast", "course_community", "internal_sharing"),
+    options: options("note_taking", "practice_questions", "spaced_repetition", "discussion", "project_application", "teach_back"),
   },
 };
 
 const GENERATION_FIELD_CONFIGS: Record<GenerationPreferenceField, FieldConfig> = {
   goal: {
     mode: "single", min: 1, max: 1,
-    options: options("content_creation", "learning_understanding", "review_deconstruction", "business_insight", "controversy_discussion", "action_advice"),
+    options: options("understand_concepts", "prepare_for_exam", "organize_notes", "apply_in_practice", "build_connections", "review_weak_points"),
   },
   scenario: {
     mode: "single", min: 1, max: 1,
-    options: options("personal_notes", "short_video", "article_official_account", "livestream_podcast", "team_sharing", "client_communication", "course_community"),
+    options: options("class_notes", "self_study", "exam_review", "work_training", "reading_review", "teach_someone"),
   },
   angles: {
     mode: "multi", min: 1, max: 3,
-    options: options("topic_angle", "contrarian_view", "audience_pain_point", "practical_advice", "case_analogy", "risk_controversy", "trend_judgment", "reusable_method", "memorable_phrase", "cognitive_refresh"),
+    options: options("core_concepts", "key_definitions", "cause_effect", "steps_process", "examples_cases", "compare_contrast", "common_misconceptions", "practice_questions", "evidence_reasoning", "connections"),
   },
   audience: {
     mode: "single", min: 1, max: 1,
-    options: options("self", "beginners", "peers", "clients", "boss_team", "fans_readers"),
+    options: options("self", "beginner_learner", "study_group", "classmate", "teacher", "future_self"),
   },
   styles: {
     mode: "multi", min: 1, max: 2,
-    options: options("direct_sharp", "gentle_inspiring", "professional_analysis", "grounded", "storytelling", "short_video_friendly", "long_form_friendly"),
+    options: options("structured", "clear_concise", "deep_explanation", "examples_first", "socratic", "exam_focused", "action_oriented"),
   },
   avoid: {
     mode: "multi", min: 0, max: 3,
-    options: options("chicken_soup", "academic", "vague", "clickbait", "commercialized", "negative", "grand_narrative"),
+    options: options("unsupported_claims", "overly_abstract", "too_much_detail", "repetition", "unexplained_jargon", "off_topic", "unverified"),
   },
 };
 
@@ -174,17 +177,17 @@ export function validateInspirationProfile(value: unknown): InspirationProfile |
   const role = validateSingleField(value.role, "role");
   const domain = validateSingleField(value.domain, "domain");
   const stage = validateSingleField(value.stage, "stage");
-  const cityContext = validateSingleField(value.cityContext, "cityContext");
-  const genderPerspective = validateSingleField(value.genderPerspective, "genderPerspective");
-  const platforms = validateMultiField(value.platforms, "platforms");
+  const learningContext = validateSingleField(value.learningContext, "learningContext");
+  const knowledgeLevel = validateSingleField(value.knowledgeLevel, "knowledgeLevel");
+  const studyMethods = validateMultiField(value.studyMethods, "studyMethods");
 
   if (
     role === null ||
     domain === null ||
     stage === null ||
-    cityContext === null ||
-    genderPerspective === null ||
-    platforms === null
+    learningContext === null ||
+    knowledgeLevel === null ||
+    studyMethods === null
   ) {
     return null;
   }
@@ -193,9 +196,9 @@ export function validateInspirationProfile(value: unknown): InspirationProfile |
     role,
     domain,
     stage,
-    cityContext,
-    genderPerspective,
-    platforms,
+    learningContext,
+    knowledgeLevel,
+    studyMethods,
   };
 }
 

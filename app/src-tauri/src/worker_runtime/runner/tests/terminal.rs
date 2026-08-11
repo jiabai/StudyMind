@@ -20,7 +20,7 @@ fn structured_result_wins_a_concurrent_cancellation_claim() {
         WorkerOperation::ProcessLocalMedia,
         &output,
         Some(ProcessPhase::Cancelling),
-        StderrSummary::default(),
+        &StderrSummary::default(),
     )
     .expect("structured result remains authoritative");
 
@@ -43,7 +43,7 @@ fn structured_result_wins_a_concurrent_timeout_claim() {
         WorkerOperation::ProcessLocalMedia,
         &output,
         Some(ProcessPhase::TimingOut(WorkerTimeoutKind::Idle)),
-        StderrSummary::default(),
+        &StderrSummary::default(),
     )
     .expect("structured result remains authoritative");
 
@@ -67,7 +67,7 @@ fn timeout_phase_is_classified_only_when_no_structured_result_exists() {
             WorkerOperation::ProcessLocalMedia,
             &output,
             Some(ProcessPhase::TimingOut(WorkerTimeoutKind::Absolute)),
-            StderrSummary::default(),
+            &StderrSummary::default(),
         ),
         Ok(WorkerRunOutcome::TimedOut(WorkerTimeoutKind::Absolute))
     );
@@ -96,7 +96,7 @@ fn terminal_matrix_is_closed_and_deterministic() {
             WorkerOperation::ProcessLocalMedia,
             &malformed_failure,
             Some(ProcessPhase::Cancelling),
-            StderrSummary::default(),
+            &StderrSummary::default(),
         ),
         Ok(WorkerRunOutcome::Cancelled)
     ));
@@ -105,7 +105,7 @@ fn terminal_matrix_is_closed_and_deterministic() {
             WorkerOperation::ProcessLocalMedia,
             &malformed_success,
             Some(ProcessPhase::Running),
-            StderrSummary::default(),
+            &StderrSummary::default(),
         ),
         Err(error) if error.kind == WorkerRunErrorKind::ProtocolViolation
     ));
@@ -114,9 +114,10 @@ fn terminal_matrix_is_closed_and_deterministic() {
             WorkerOperation::ProcessLocalMedia,
             &missing_failure,
             Some(ProcessPhase::Running),
-            StderrSummary {
+            &StderrSummary {
                 had_diagnostic_output: true,
                 reader_failed: false,
+                diagnostic: String::new(),
             },
         ),
         Ok(WorkerRunOutcome::UnstructuredFailure(summary))
@@ -127,7 +128,7 @@ fn terminal_matrix_is_closed_and_deterministic() {
             WorkerOperation::ProcessLocalMedia,
             &malformed_failure,
             Some(ProcessPhase::Running),
-            StderrSummary::default(),
+            &StderrSummary::default(),
         ),
         Err(error)
             if error.kind == WorkerRunErrorKind::ProtocolViolation
@@ -157,9 +158,10 @@ fn lifecycle_log_details_exclude_command_request_paths_and_worker_content() {
         WorkerOperation::ProcessLocalMedia,
         404,
         &output,
-        StderrSummary {
+        &StderrSummary {
             had_diagnostic_output: true,
             reader_failed: false,
+            diagnostic: String::new(),
         },
     );
 

@@ -11,6 +11,7 @@ import {
   getVisibleWorkflowError,
   isProcessingStage,
   mergeProgressEvent,
+  parseTaskSourceSummary,
   requestProcessingCancellation,
   restoreProcessingAfterCancellationFailure,
   startProcessing,
@@ -19,11 +20,12 @@ import {
   type WorkerResult,
 } from "./workflow";
 
-const TASK_ID = "20260705-153012-douyin-demo";
-const TASK_DIR = "outputs/tasks/20260705-153012-douyin-demo";
-const URL_SOURCE = {
-  kind: "url",
-  url: "https://www.douyin.com/video/7524373044106677544",
+const TASK_ID = "20260705-153012-local-lecture";
+const TASK_DIR = "outputs/tasks/20260705-153012-local-lecture";
+const LOCAL_SOURCE = {
+  kind: "local_file",
+  displayName: "Lecture.mp4",
+  mediaKind: "video",
 } as const;
 const LOCAL_COMPOSER_SOURCE = {
   kind: "local_media",
@@ -185,15 +187,24 @@ describe("workflow state model", () => {
     expect(state).not.toHaveProperty("showUrlInput");
   });
 
+  test("rejects URL task sources because StudyMind accepts local media only", () => {
+    expect(
+      parseTaskSourceSummary({
+        kind: "url",
+        url: "https://example.com/video/1",
+      }),
+    ).toBeNull();
+  });
+
   test("starts processing by freezing the closed task source", () => {
-    const state = startProcessing(createInitialWorkflow(), URL_SOURCE);
+    const state = startProcessing(createInitialWorkflow(), LOCAL_SOURCE);
 
     expect(state.stage).toBe("video_extracting");
-    expect(state.taskSource).toEqual(URL_SOURCE);
+    expect(state.taskSource).toEqual(LOCAL_SOURCE);
     expect(state.composerSource).toEqual({ kind: "none" });
     expect(state.statusMessage).toBeNull();
     expect(state.progressMessage).toEqual({
-      messageCode: "video.download.preparing",
+      messageCode: "local.media.validating",
       args: {},
     });
   });
@@ -306,22 +317,22 @@ describe("workflow state model", () => {
       [
         "1. 第一个话题点",
         "匹配理由：匹配理由",
-        "启发问题：第一个启发问题",
-        "适合用途：内容选题",
+        "复习与练习问题：第一个启发问题",
+        "学习用途：内容选题",
         "来源片段：1",
         "",
         "2. 第二个话题点",
         "匹配理由：第二个匹配理由",
-        "启发问题：第二个启发问题",
-        "适合用途：团队分享",
+        "复习与练习问题：第二个启发问题",
+        "学习用途：团队分享",
         "来源片段：2",
       ].join("\n"),
     );
 
     const englishCopy = getDetailText("insights", state, "en-US");
     expect(englishCopy).toContain("Why it matches: 匹配理由");
-    expect(englishCopy).toContain("Questions to explore: 第一个启发问题");
-    expect(englishCopy).toContain("Best use: 内容选题");
+    expect(englishCopy).toContain("Review and practice questions: 第一个启发问题");
+    expect(englishCopy).toContain("Study use: 内容选题");
     expect(englishCopy).toContain("Source segment: 1");
   });
 
@@ -342,7 +353,7 @@ describe("workflow state model", () => {
   });
 
   test("merges worker progress events into the visible workflow state", () => {
-    const state = startProcessing(createInitialWorkflow(), URL_SOURCE);
+    const state = startProcessing(createInitialWorkflow(), LOCAL_SOURCE);
 
     const updated = mergeProgressEvent(state, {
       stage: "video_transcribing",
@@ -360,7 +371,7 @@ describe("workflow state model", () => {
     });
     expect(updated.statusMessage).toBeNull();
     expect(updated.progressPercent).toBe(68);
-    expect(updated.taskSource).toEqual(URL_SOURCE);
+    expect(updated.taskSource).toEqual(LOCAL_SOURCE);
   });
 
   test("starts summary generation without discarding the existing transcript", () => {
@@ -444,7 +455,7 @@ describe("workflow state model", () => {
         ...createInitialWorkflow(),
         composerSource: LOCAL_COMPOSER_SOURCE,
       },
-      URL_SOURCE,
+      LOCAL_SOURCE,
     );
 
     const cancelled = cancelProcessing(state);
@@ -457,13 +468,13 @@ describe("workflow state model", () => {
   });
 
   test("keeps the workflow active while cancellation is pending and restores it when signalling fails", () => {
-    const running = startProcessing(createInitialWorkflow(), URL_SOURCE);
+    const running = startProcessing(createInitialWorkflow(), LOCAL_SOURCE);
 
     const cancelling = requestProcessingCancellation(running);
 
     expect(cancelling.stage).toBe("cancelling");
     expect(cancelling.cancellingFromStage).toBe("video_extracting");
-    expect(cancelling.taskSource).toEqual(URL_SOURCE);
+    expect(cancelling.taskSource).toEqual(LOCAL_SOURCE);
     expect(isProcessingStage(cancelling.stage)).toBe(true);
     expect(cancelling.statusMessage).toBeNull();
     expect(cancelling.progressMessage).toEqual({
@@ -476,14 +487,14 @@ describe("workflow state model", () => {
     expect(restored.statusMessage).toEqual({
       messageCode: "workflow.cancellation.failed",
     });
-    expect(restored.taskSource).toEqual(URL_SOURCE);
+    expect(restored.taskSource).toEqual(LOCAL_SOURCE);
   });
 
   test("returns to input only after cancellation is confirmed", () => {
     const cancelling = requestProcessingCancellation(
       startProcessing(
         createInitialWorkflow(),
-        URL_SOURCE,
+        LOCAL_SOURCE,
       ),
     );
 

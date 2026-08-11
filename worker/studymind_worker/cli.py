@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import traceback
 from collections.abc import Callable, Sequence
 from contextlib import redirect_stdout
 from io import TextIOBase
@@ -69,6 +70,36 @@ def stdin_failure_result(mode: str) -> dict[str, object]:
     }
 
 
+def internal_failure_result(is_model_download: bool, mode: str | None) -> dict[str, object]:
+    """Structured fallback for crashes the business layer did not catch.
+
+    The desktop side keeps the full traceback from stderr; this result only
+    carries a fixed diagnostic code so the UI can show a concrete error.
+    """
+    if is_model_download:
+        return {
+            "status": "failed",
+            "code": "ASR_MODEL_DOWNLOAD_FAILED",
+            "message": "The ASR model download crashed with an unexpected error.",
+        }
+    stage = "insights_generating" if mode == "retry_insights" else "video_extracting"
+    return {
+        "status": "failed",
+        "task_id": None,
+        "task_dir": None,
+        "artifacts": {},
+        "text": "",
+        "summary": "",
+        "insights": [],
+        "transcript": None,
+        "error": {
+            "code": "WORKER_INTERNAL_ERROR",
+            "message": "The worker crashed with an unexpected error. See stderr for the traceback.",
+            "stage": stage,
+        },
+    }
+
+
 def render_result_json(result: dict[str, object]) -> str:
     return json.dumps(result, ensure_ascii=True)
 
@@ -94,6 +125,48 @@ def print_model_download_event(event: dict[str, object]) -> None:
 def run_worker_business(call: Callable[[], dict[str, object]]) -> dict[str, object]:
     with redirect_stdout(sys.stderr):
         return call()
+
+
+def _dispatch(
+    args: argparse.Namespace,
+    is_model_download: bool,
+    stdin_mode: str | None,
+) -> int:
+    request_json: str | None = None
+    if stdin_mode is not None:
+        try:
+            request_json = read_stdin_request(sys.stdin)
+        except (OSError, StdinRequestError):
+            print(render_result_json(stdin_failure_result(stdin_mode)))
+            return 1
+    if is_model_download:
+        result = run_worker_business(
+            lambda: worker_service_module.run_asr_model_download_once(
+                project_root=Path.cwd(),
+                asr_model=args.asr_model,
+                progress_callback=print_model_download_event,
+            )
+        )
+    elif args.process_local_media_stdin:
+        result = run_worker_business(
+            lambda: worker_service_module.run_local_media_once(
+                request_json or "{}",
+                project_root=Path.cwd(),
+                progress_callback=print_progress_event,
+            )
+        )
+    elif args.retry_insights_stdin:
+        result = run_worker_business(
+            lambda: worker_service_module.retry_insights_once(
+                request_json or "{}",
+                project_root=Path.cwd(),
+                progress_callback=print_progress_event,
+            )
+        )
+    else:
+        result = {}
+    print(render_result_json(result))
+    return 1 if is_model_download and result.get("status") == "failed" else 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -137,38 +210,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
         None,
     )
-    request_json: str | None = None
-    if stdin_mode is not None:
-        try:
-            request_json = read_stdin_request(sys.stdin)
-        except (OSError, StdinRequestError):
-            print(render_result_json(stdin_failure_result(stdin_mode)))
-            return 1
-    if is_model_download:
-        result = run_worker_business(
-            lambda: worker_service_module.run_asr_model_download_once(
-                project_root=Path.cwd(),
-                asr_model=args.asr_model,
-                progress_callback=print_model_download_event,
-            )
-        )
-    elif args.process_local_media_stdin:
-        result = run_worker_business(
-            lambda: worker_service_module.run_local_media_once(
-                request_json or "{}",
-                project_root=Path.cwd(),
-                progress_callback=print_progress_event,
-            )
-        )
-    elif args.retry_insights_stdin:
-        result = run_worker_business(
-            lambda: worker_service_module.retry_insights_once(
-                request_json or "{}",
-                project_root=Path.cwd(),
-                progress_callback=print_progress_event,
-            )
-        )
-    else:
-        result = {}
-    print(render_result_json(result))
-    return 1 if is_model_download and result.get("status") == "failed" else 0
+    try:
+        return _dispatch(args, is_model_download, stdin_mode)
+    except Exception:
+        # Top-level fallback: an exception that escaped the business layer
+        # keeps its traceback on stderr (collected into the desktop log) and
+        # also yields a structured failure result so the UI does not only
+        # surface the generic WORKER_PROCESS_FAILED code.
+        traceback.print_exc(file=sys.stderr)
+        print(render_result_json(internal_failure_result(is_model_download, stdin_mode)))
+        return 1

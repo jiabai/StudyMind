@@ -1,7 +1,7 @@
 export const commonFeatureResources = {
   "zh-CN": {
     productName: "StudyMind",
-    appMark: "FQ",
+    appMark: "SM",
     window: {
       ariaLabel: "StudyMind 桌面窗口",
       controls: "窗口操作",
@@ -15,7 +15,7 @@ export const commonFeatureResources = {
   },
   "zh-TW": {
     productName: "StudyMind",
-    appMark: "FQ",
+    appMark: "SM",
     window: {
       ariaLabel: "StudyMind 桌面視窗",
       controls: "視窗操作",
@@ -29,7 +29,7 @@ export const commonFeatureResources = {
   },
   "en-US": {
     productName: "StudyMind",
-    appMark: "FQ",
+    appMark: "SM",
     window: {
       ariaLabel: "StudyMind desktop window",
       controls: "Window controls",

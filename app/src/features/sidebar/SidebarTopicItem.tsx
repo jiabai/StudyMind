@@ -25,9 +25,6 @@ const statusLabelKey: Record<
 const TITLE_MAX_LEN = 80;
 
 function fallbackTopicTitle(item: HistoryListItem): string {
-  if (item.source.kind === "url") {
-    return item.source.url;
-  }
   return item.source.displayName;
 }
 

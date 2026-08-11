@@ -4,8 +4,8 @@ mod terminal;
 mod watchdog;
 
 use process_io::{
-    cleanup_registered_child, deliver_worker_stdin, read_worker_stdout, spawn_worker_process,
-    terminate_and_reap,
+    cleanup_registered_child, read_worker_stdout, spawn_worker_process,
+    spawn_worker_stdin_delivery, terminate_and_reap,
 };
 pub(crate) use progress::ProgressRoute;
 use progress::{read_stderr, StderrSummary};
@@ -23,9 +23,10 @@ use super::supervisor::{
     ProcessSupervisor,
 };
 use crate::{append_desktop_log, summarize_worker_result_for_log, RuntimePaths};
-use std::process::Output;
+use std::process::{Child, ExitStatus, Output};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::thread::JoinHandle;
 use std::time::Duration;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -170,7 +171,7 @@ impl WorkerLane {
             &safe_start_log_detail(operation, &command),
         );
 
-        let (mut child, stdin_payload) = spawn_worker_process(command).map_err(|_| {
+        let (mut child, stdin_payload, tree) = spawn_worker_process(command).map_err(|_| {
             WorkerRunError::new(
                 WorkerRunErrorKind::SpawnFailed,
                 "Worker process failed to start.",
@@ -178,7 +179,7 @@ impl WorkerLane {
         })?;
         let Some(instance) = self.supervisor.start(child.id()) else {
             let pid = child.id();
-            terminate_and_reap(&mut child, pid);
+            terminate_and_reap(&mut child, pid, &tree);
             return Err(WorkerRunError::new(
                 WorkerRunErrorKind::AlreadyRunning,
                 "Another worker operation is already running.",
@@ -193,37 +194,22 @@ impl WorkerLane {
             hooks.watchdog_policy(operation),
             hooks.watchdog_retry_backoff(),
             hooks.force_watchdog_start_failure(),
+            tree.clone(),
         ) {
             Ok(watchdog) => watchdog,
             Err(error) => {
-                cleanup_registered_child(&mut child, self.supervisor.as_ref(), instance);
+                cleanup_registered_child(&mut child, self.supervisor.as_ref(), instance, &tree);
                 instance_guard.finish();
                 return Err(error);
             }
         };
-
-        if deliver_worker_stdin(&mut child, stdin_payload).is_err() {
-            watchdog.stop_and_join();
-            cleanup_registered_child(&mut child, self.supervisor.as_ref(), instance);
-            let phase = instance_guard.finish();
-            if phase == Some(ProcessPhase::Cancelling) {
-                return Ok(WorkerRunOutcome::Cancelled);
-            }
-            if let Some(ProcessPhase::TimingOut(kind)) = phase {
-                return Ok(WorkerRunOutcome::TimedOut(kind));
-            }
-            return Err(WorkerRunError::new(
-                WorkerRunErrorKind::RequestDeliveryFailed,
-                "Worker request delivery failed.",
-            ));
-        }
 
         if hooks.force_missing_stderr {
             drop(child.stderr.take());
         }
         let Some(stdout) = child.stdout.take() else {
             watchdog.stop_and_join();
-            cleanup_registered_child(&mut child, self.supervisor.as_ref(), instance);
+            cleanup_registered_child(&mut child, self.supervisor.as_ref(), instance, &tree);
             instance_guard.finish();
             return Err(WorkerRunError::new(
                 WorkerRunErrorKind::PipeUnavailable,
@@ -232,12 +218,25 @@ impl WorkerLane {
         };
         let Some(stderr) = child.stderr.take() else {
             watchdog.stop_and_join();
-            cleanup_registered_child(&mut child, self.supervisor.as_ref(), instance);
+            cleanup_registered_child(&mut child, self.supervisor.as_ref(), instance, &tree);
             instance_guard.finish();
             return Err(WorkerRunError::new(
                 WorkerRunErrorKind::PipeUnavailable,
                 "Worker stderr pipe was unavailable.",
             ));
+        };
+
+        let stdin_delivery = match spawn_worker_stdin_delivery(&mut child, stdin_payload) {
+            Ok(delivery) => delivery,
+            Err(_) => {
+                watchdog.stop_and_join();
+                cleanup_registered_child(&mut child, self.supervisor.as_ref(), instance, &tree);
+                instance_guard.finish();
+                return Err(WorkerRunError::new(
+                    WorkerRunErrorKind::RequestDeliveryFailed,
+                    "Worker request delivery failed.",
+                ));
+            }
         };
 
         let panic_stdout_reader = hooks.panic_stdout_reader;
@@ -262,8 +261,9 @@ impl WorkerLane {
 
         if hooks.force_wait_failure {
             watchdog.stop_and_join();
-            cleanup_registered_child(&mut child, self.supervisor.as_ref(), instance);
+            cleanup_registered_child(&mut child, self.supervisor.as_ref(), instance, &tree);
             instance_guard.finish();
+            let _ = join_stdin_delivery(stdin_delivery);
             let _ = stdout_reader.join();
             let _ = stderr_reader.join();
             return Err(WorkerRunError::new(
@@ -272,12 +272,17 @@ impl WorkerLane {
             ));
         }
 
-        let status = match child.wait() {
+        let status = match wait_for_worker_process(
+            &mut child,
+            self.supervisor.as_ref(),
+            instance.instance_id,
+        ) {
             Ok(status) => status,
             Err(_) => {
                 watchdog.stop_and_join();
-                cleanup_registered_child(&mut child, self.supervisor.as_ref(), instance);
+                cleanup_registered_child(&mut child, self.supervisor.as_ref(), instance, &tree);
                 instance_guard.finish();
+                let _ = join_stdin_delivery(stdin_delivery);
                 let _ = stdout_reader.join();
                 let _ = stderr_reader.join();
                 return Err(WorkerRunError::new(
@@ -288,6 +293,19 @@ impl WorkerLane {
         };
         watchdog.stop_and_join();
         let terminal_phase = instance_guard.finish();
+        let stdin_result = join_stdin_delivery(stdin_delivery);
+        if stdin_result.is_err() {
+            if terminal_phase == Some(ProcessPhase::Cancelling) {
+                return Ok(WorkerRunOutcome::Cancelled);
+            }
+            if let Some(ProcessPhase::TimingOut(kind)) = terminal_phase {
+                return Ok(WorkerRunOutcome::TimedOut(kind));
+            }
+            return Err(WorkerRunError::new(
+                WorkerRunErrorKind::RequestDeliveryFailed,
+                "Worker request delivery failed.",
+            ));
+        }
         let stdout = stdout_reader
             .join()
             .ok()
@@ -299,8 +317,8 @@ impl WorkerLane {
                 )
             })?;
         let stderr = stderr_reader.join().unwrap_or(StderrSummary {
-            had_diagnostic_output: false,
             reader_failed: true,
+            ..StderrSummary::default()
         });
         let output = Output {
             status,
@@ -310,10 +328,17 @@ impl WorkerLane {
         let _ = append_desktop_log(
             paths,
             &operation.event("exit"),
-            &safe_exit_log_detail(operation, instance.pid, &output, stderr),
+            &safe_exit_log_detail(operation, instance.pid, &output, &stderr),
         );
+        if !stderr.diagnostic.is_empty() {
+            let _ = append_desktop_log(
+                paths,
+                &operation.event("stderr"),
+                &stderr.diagnostic,
+            );
+        }
 
-        let outcome = classify_terminal(operation, &output, terminal_phase, stderr)?;
+        let outcome = classify_terminal(operation, &output, terminal_phase, &stderr)?;
         let terminal = match &outcome {
             WorkerRunOutcome::Structured(_) => "structured",
             WorkerRunOutcome::Cancelled => "cancelled",
@@ -352,6 +377,36 @@ impl WorkerLane {
         );
         Ok(outcome)
     }
+}
+
+fn wait_for_worker_process(
+    child: &mut Child,
+    supervisor: &ProcessSupervisor,
+    instance_id: u64,
+) -> Result<ExitStatus, ()> {
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Ok(status),
+            Ok(None) => {}
+            Err(_) => return Err(()),
+        }
+
+        if matches!(
+            supervisor.phase_for(instance_id),
+            Some(ProcessPhase::Cancelling | ProcessPhase::TimingOut(_))
+        ) {
+            let _ = child.kill();
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn join_stdin_delivery(
+    delivery: Option<JoinHandle<Result<(), String>>>,
+) -> Result<(), String> {
+    delivery
+        .map(|thread| thread.join().unwrap_or_else(|_| Err(String::from("stdin delivery thread failed."))))
+        .unwrap_or(Ok(()))
 }
 
 struct InstanceGuard<'a> {

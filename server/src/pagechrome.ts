@@ -46,11 +46,11 @@ export function renderBrandMark(): string {
 }
 
 /**
- * Inlined favicon SVG for StudyMind. Color (`#1668dc`) matches `--sm-primary`.
+ * Inlined favicon SVG for StudyMind. Color (`#7e9b8a`) matches `--sm-primary`.
  */
 const STUDYMIND_FAVICON_SVG =
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">' +
-  '<rect width="64" height="64" rx="14" fill="#1668dc"/>' +
+  '<rect width="64" height="64" rx="14" fill="#7e9b8a"/>' +
   '<text x="32" y="45" font-family="-apple-system, \'Segoe UI\', system-ui, sans-serif" font-size="36" font-weight="700" text-anchor="middle" fill="#ffffff">SM</text>' +
   "</svg>";
 

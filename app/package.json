@@ -10,7 +10,7 @@
     "test": "vitest run --no-file-parallelism",
     "preview": "vite preview",
     "tauri": "tauri",
-    "tauri:dev": "tauri dev"
+    "tauri:dev": "node ../scripts/tauri-dev-fresh-worker.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

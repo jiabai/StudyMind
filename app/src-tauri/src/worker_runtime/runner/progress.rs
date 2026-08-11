@@ -98,14 +98,32 @@ pub(super) enum ProgressRecord {
     Empty,
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct StderrSummary {
     pub(super) had_diagnostic_output: bool,
     pub(super) reader_failed: bool,
+    /// Non-protocol stderr lines (tracebacks, warnings, tool output) collected
+    /// for desktop diagnostics. Capped to bound log growth.
+    pub(super) diagnostic: String,
+}
+
+const MAX_DIAGNOSTIC_CHARS: usize = 16 * 1024;
+
+fn append_diagnostic_line(buffer: &mut String, line: &str) {
+    if buffer.len() >= MAX_DIAGNOSTIC_CHARS {
+        return;
+    }
+    if !buffer.is_empty() {
+        buffer.push('\n');
+    }
+    buffer.push_str(line);
+    if buffer.len() > MAX_DIAGNOSTIC_CHARS {
+        buffer.truncate(MAX_DIAGNOSTIC_CHARS);
+    }
 }
 
 impl StderrSummary {
-    pub(super) fn marker(self) -> &'static str {
+    pub(super) fn marker(&self) -> &'static str {
         if self.reader_failed {
             "reader_failed"
         } else if self.had_diagnostic_output {
@@ -145,7 +163,10 @@ pub(super) fn read_stderr(
                 };
                 let _ = append_desktop_log(&paths, event, &detail);
             }
-            ProgressRecord::Diagnostic => summary.had_diagnostic_output = true,
+            ProgressRecord::Diagnostic => {
+                summary.had_diagnostic_output = true;
+                append_diagnostic_line(&mut summary.diagnostic, &line);
+            }
             ProgressRecord::Empty => {}
         }
     }

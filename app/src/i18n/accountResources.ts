@@ -51,7 +51,7 @@ export const accountResources = {
       label: "激活码",
       title: "输入管理员发放的激活码",
       description: "兑换成功后将为当前邮箱增加 31 天权益。",
-      placeholder: "FQ-XXXX-XXXX-XXXX-XXXX",
+      placeholder: "SM-XXXX-XXXX-XXXX-XXXX",
     },
     notice: {
       statusRefreshFailed: "账号状态刷新失败，请稍后重试。",
@@ -136,7 +136,7 @@ export const accountResources = {
       label: "啟用碼",
       title: "輸入管理員提供的啟用碼",
       description: "兌換成功後，會為目前信箱增加 31 天權益。",
-      placeholder: "FQ-XXXX-XXXX-XXXX-XXXX",
+      placeholder: "SM-XXXX-XXXX-XXXX-XXXX",
     },
     notice: {
       statusRefreshFailed: "無法重新整理帳號狀態，請稍後再試。",
@@ -221,7 +221,7 @@ export const accountResources = {
       label: "Activation code",
       title: "Enter the activation code from your administrator",
       description: "A successful redemption adds 31 days of access to the current email address.",
-      placeholder: "FQ-XXXX-XXXX-XXXX-XXXX",
+      placeholder: "SM-XXXX-XXXX-XXXX-XXXX",
     },
     notice: {
       statusRefreshFailed: "Account status could not be refreshed. Try again later.",

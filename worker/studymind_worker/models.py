@@ -36,18 +36,18 @@ class InspirationProfile:
     role: str
     domain: str
     stage: str
-    city_context: str
-    gender_perspective: str
-    platforms: tuple[str, ...] = ()
+    learning_context: str
+    knowledge_level: str
+    study_methods: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, object]:
         return {
             "role": self.role,
             "domain": self.domain,
             "stage": self.stage,
-            "cityContext": self.city_context,
-            "genderPerspective": self.gender_perspective,
-            "platforms": list(self.platforms),
+            "learningContext": self.learning_context,
+            "knowledgeLevel": self.knowledge_level,
+            "studyMethods": list(self.study_methods),
         }
 
 

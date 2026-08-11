@@ -570,10 +570,10 @@ export function langSwitcherStyles(): string {
       justify-content: center;
       min-height: 34px;
       padding: 6px 12px;
-      border: 1px solid #d7dce3;
-      border-radius: 7px;
-      background: #ffffff;
-      color: #303743;
+      border: 1px solid var(--sm-border, #d8d2c4);
+      border-radius: var(--sm-radius-sm, 7px);
+      background: var(--sm-surface, #ffffff);
+      color: var(--sm-text, #2a2a24);
       font: inherit;
       font-size: 0.82rem;
       font-weight: 700;
@@ -581,8 +581,8 @@ export function langSwitcherStyles(): string {
       white-space: nowrap;
     }
     .lang-switch:hover {
-      border-color: #c2c9d3;
-      background: #f7f8fa;
+      border-color: var(--sm-border-strong, #d8d2c4);
+      background: var(--sm-surface-soft, #f3f0e8);
     }
   `;
 }
