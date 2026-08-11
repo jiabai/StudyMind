@@ -71,9 +71,33 @@ describe("App result workspace layout styles", () => {
     const transcriptOnlyRule = getRuleBody([".task-workspace-layout.transcript-only"]);
 
     expect(transcriptOnlyRule).toContain("grid-template-columns: minmax(0, 1fr);");
-    expect(appTsx).toContain("taskWorkspaceModel.ai.visible ?");
+    expect(appTsx).toContain("taskWorkspaceModel.local.canReview ?");
     expect(appTsx).toContain(
-      'className={`task-workspace-layout${taskWorkspaceModel.ai.visible ? "" : " transcript-only"}`}',
+      'className={`task-workspace-layout${taskWorkspaceModel.local.canReview ? "" : " transcript-only"}`}',
+    );
+  });
+
+  test("lays out the transcript notes card beside the transcript and below the learning column", () => {
+    const primaryColumnRule = getRuleBody([".task-workspace-primary-column"]);
+    const notesWorkspaceRule = getRuleBody([".transcript-notes-workspace"]);
+    const notesScrollRule = getRuleBody([".transcript-notes-scroll"]);
+    const noteButtonRule = getRuleBody([".transcript-segment-note"]);
+    const insertedButtonRule = getRuleBody([".transcript-segment-note.inserted"]);
+
+    expect(primaryColumnRule).toContain("display: grid;");
+    expect(primaryColumnRule).toContain("gap: var(--space-4);");
+    expect(notesWorkspaceRule).toContain("height: min(760px, calc(100vh - 188px));");
+    expect(notesScrollRule).toContain("overflow-y: auto;");
+    expect(noteButtonRule).toContain("width: 32px;");
+    expect(insertedButtonRule).toContain("color: var(--primary);");
+    expect(appCss).toMatch(
+      /@media \(max-width: 1099px\)[\s\S]*?\.task-workspace-layout\s*\{[\s\S]*?grid-template-columns: minmax\(0, 1fr\);/,
+    );
+    expect(appTsx.indexOf("<TranscriptNotesPanel")).toBeGreaterThan(
+      appTsx.indexOf("<LocalTranscriptWorkspace"),
+    );
+    expect(appTsx.indexOf("<AiGenerationWorkspace")).toBeGreaterThan(
+      appTsx.indexOf("<LocalTranscriptWorkspace"),
     );
   });
 
