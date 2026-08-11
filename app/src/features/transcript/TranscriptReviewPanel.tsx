@@ -6,6 +6,7 @@ import {
   Pause,
   Pencil,
   Play,
+  StickyNote,
 } from "lucide-react";
 import {
   type MouseEvent as ReactMouseEvent,
@@ -26,6 +27,8 @@ import {
   transcriptTimeFromTextOffset,
 } from "../../transcriptReviewState";
 import type { TranscriptDetailController } from "./useTranscriptDetailController";
+import type { TranscriptNotesController } from "./useTranscriptNotesController";
+import { findTranscriptNoteForSegment } from "../../transcriptNotesState";
 
 const AUDIO_TIME_SEPARATOR = " / ";
 
@@ -74,6 +77,7 @@ function estimatedTranscriptTextTime(
 type TranscriptReviewPanelProps = {
   transcriptSource: TranscriptSourceViewModel;
   controller: TranscriptDetailController;
+  notesController?: TranscriptNotesController;
   editingDisabled: boolean;
   readOnlyReason: string | null;
   artifactToolbar?: ReactNode;
@@ -91,6 +95,7 @@ function formatSegmentTime(startMs: number, locale: ReturnType<typeof resolveSys
 export function TranscriptReviewPanel({
   transcriptSource,
   controller,
+  notesController,
   editingDisabled,
   readOnlyReason,
   artifactToolbar,
@@ -292,6 +297,37 @@ export function TranscriptReviewPanel({
                   >
                     <Pencil size={16} />
                   </button>
+                  {notesController ? (() => {
+                    const segmentNote = findTranscriptNoteForSegment(
+                      notesController.notes,
+                      segment.id,
+                    );
+                    const hasNote = segmentNote !== null;
+                    return (
+                      <button
+                        type="button"
+                        className={`secondary-button compact-button transcript-segment-note${hasNote ? " inserted" : ""}`}
+                        onClick={() => {
+                          if (segmentNote) {
+                            notesController.focusNoteForSegment(segment.id);
+                          } else {
+                            notesController.createNoteForSegment(
+                              segment.id,
+                              segment.text,
+                            );
+                          }
+                        }}
+                        disabled={
+                          editingDisabled || Boolean(editingTranscriptSegmentId)
+                        }
+                        aria-label={t(hasNote ? "notes.inserted" : "notes.insert")}
+                        title={t(hasNote ? "notes.inserted" : "notes.insert")}
+                        aria-pressed={hasNote}
+                      >
+                        <StickyNote size={16} aria-hidden="true" />
+                      </button>
+                    );
+                  })() : null}
                 </div>
                 {editingTranscriptSegmentId === segment.id ? (
                   <textarea

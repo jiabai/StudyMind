@@ -13,6 +13,8 @@ import {
 } from "../../workflow";
 import { createTaskWorkspaceViewModel } from "../../taskWorkspaceViewModel";
 import type { TranscriptDetailController } from "../transcript/useTranscriptDetailController";
+import type { TranscriptNotesController } from "../transcript/useTranscriptNotesController";
+import type { TranscriptNote } from "../../transcriptNotesState";
 import { LocalTranscriptWorkspace } from "../transcript/LocalTranscriptWorkspace";
 import { AiGenerationWorkspace } from "./AiGenerationWorkspace";
 import { AiResultDetailSheet } from "./AiResultDetailSheet";
@@ -155,6 +157,29 @@ function transcriptController(): TranscriptDetailController {
     updateTranscriptSegmentDraft: vi.fn(),
     updateFullTranscriptDraft: vi.fn(),
   } as unknown as TranscriptDetailController;
+}
+
+function notesController(notes: TranscriptNote[] = []): TranscriptNotesController {
+  return {
+    activeTaskId: "same-task",
+    notes,
+    notesLoading: false,
+    notesLoadError: null,
+    notesSaving: false,
+    notesSaveError: null,
+    editingNoteId: null,
+    editingNoteContent: "",
+    focusedNoteId: null,
+    retryLoadNotes: vi.fn(),
+    createNoteForSegment: vi.fn(),
+    focusNoteForSegment: vi.fn(),
+    beginNoteEdit: vi.fn(),
+    updateNoteDraft: vi.fn(),
+    cancelNoteEdit: vi.fn(),
+    saveNote: vi.fn(),
+    deleteNote: vi.fn(),
+    clearFocusedNote: vi.fn(),
+  } as TranscriptNotesController;
 }
 
 describe("task domain workspaces", () => {
@@ -369,6 +394,52 @@ describe("task domain workspaces", () => {
     expect(markup).toContain('class="transcript-action-bar"');
     expect(markup.match(/class="transcript-segment /g)).toHaveLength(2);
     expect(markup).not.toContain("result-grid");
+  });
+
+  test("renders one note action per transcript segment with inserted state", () => {
+    const workflow = readyWorkflow();
+    const model = createTaskWorkspaceViewModel(workflow, aiAccount());
+    const markup = renderToStaticMarkup(
+      <LocalTranscriptWorkspace
+        model={model.local}
+        controller={transcriptController()}
+        notesController={notesController([
+          {
+            id: "note-1",
+            transcript_segment_id: "segment-1",
+            source_text: "第一段正式文字稿。",
+            content: "重点",
+            created_at: "2026-08-11T10:00:00+00:00",
+            updated_at: "2026-08-11T10:00:00+00:00",
+          },
+        ])}
+        actionNotice={null}
+        onLocateArtifact={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    expect(markup.match(/class="[^"]*transcript-segment-note/g)).toHaveLength(2);
+    expect(markup).toContain('aria-label="已插入笔记"');
+    expect(markup).toContain('aria-label="插入笔记"');
+    expect(markup).toMatch(/transcript-segment-note inserted/);
+  });
+
+  test("disables note actions when transcript editing is unavailable", () => {
+    const workflow = readyWorkflow();
+    const model = createTaskWorkspaceViewModel(workflow, aiAccount());
+    const markup = renderToStaticMarkup(
+      <LocalTranscriptWorkspace
+        model={{ ...model.local, canEdit: false }}
+        controller={transcriptController()}
+        notesController={notesController()}
+        actionNotice={null}
+        onLocateArtifact={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    expect(markup.match(/class="[^"]*transcript-segment-note[^>]*disabled/g)).toHaveLength(2);
   });
 
   test("hides transcript segments whose text was cleared without changing the saved timeline", () => {

@@ -7,11 +7,13 @@ import type { TaskWorkspaceViewModel } from "../../taskWorkspaceViewModel";
 import type { TaskArtifactKey } from "../../workflow";
 import { TranscriptReviewPanel } from "./TranscriptReviewPanel";
 import type { TranscriptDetailController } from "./useTranscriptDetailController";
+import type { TranscriptNotesController } from "./useTranscriptNotesController";
 import { WorkerErrorNotice } from "../results/WorkerErrorNotice";
 
 type LocalTranscriptWorkspaceProps = {
   model: TaskWorkspaceViewModel["local"];
   controller: TranscriptDetailController;
+  notesController?: TranscriptNotesController;
   actionNotice: UiMessage | null;
   onLocateArtifact: (artifact: Extract<TaskArtifactKey, "video" | "audio">) => void;
   onCancel: () => void;
@@ -20,6 +22,7 @@ type LocalTranscriptWorkspaceProps = {
 export function LocalTranscriptWorkspace({
   model,
   controller,
+  notesController,
   actionNotice,
   onLocateArtifact,
   onCancel,
@@ -93,6 +96,7 @@ export function LocalTranscriptWorkspace({
         <TranscriptReviewPanel
           transcriptSource={model.transcriptSource}
           controller={controller}
+          notesController={notesController}
           editingDisabled={!model.canEdit}
           readOnlyReason={
             model.readOnly ? t("review.readOnlyDuringAi") : null
