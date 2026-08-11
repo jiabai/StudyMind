@@ -101,6 +101,21 @@ describe("App result workspace layout styles", () => {
     );
   });
 
+  test("aligns the annotation card beside the learning workspace", () => {
+    const learningRowRule = getRuleBody([".task-workspace-learning-row"]);
+    const annotationRule = getRuleBody([".task-workspace-learning-row > .annotation-panel"]);
+
+    expect(learningRowRule).toContain("display: grid;");
+    expect(learningRowRule).toContain("gap: var(--space-4);");
+    expect(learningRowRule).toContain(
+      "grid-template-columns: minmax(0, 1fr) minmax(260px, 0.72fr);",
+    );
+    expect(annotationRule).toContain("margin-top: 0;");
+    expect(appCss).toMatch(
+      /@media \(max-width: 1099px\)[\s\S]*?\.task-workspace-learning-row\s*\{[\s\S]*?grid-template-columns: minmax\(0, 1fr\);/,
+    );
+  });
+
   test("does not expose the FrameQ app mark in shared product resources", () => {
     expect(commonResourcesTs).not.toContain('appMark: "FQ"');
   });
