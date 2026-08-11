@@ -19,6 +19,7 @@ mod settings;
 mod task_manifest;
 mod task_rename;
 mod transcript_detail;
+mod transcript_notes_storage;
 mod ui_preferences;
 mod updates;
 mod video_processing;
@@ -106,6 +107,8 @@ pub fn run() {
             task_rename::rename_task_title,
             transcript_detail::load_transcript_detail,
             transcript_detail::save_transcript_edit,
+            transcript_notes_storage::load_transcript_notes,
+            transcript_notes_storage::save_transcript_notes,
             annotation_storage::load_annotations,
             annotation_storage::save_annotations,
             updates::get_update_preferences,
