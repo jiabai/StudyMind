@@ -23,6 +23,26 @@ import { TaskStatusBanner } from "./TaskStatusBanner";
 import { initializeI18n } from "../../i18n/i18n";
 import type { SupportedLocale } from "../../i18n/locale";
 
+function findMatchingDivClose(source: string, openingIndex: number): number {
+  const divTagPattern = /<\/?div\b[^>]*>/g;
+  divTagPattern.lastIndex = openingIndex;
+  let depth = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = divTagPattern.exec(source)) !== null) {
+    if (match[0].startsWith("</")) {
+      depth -= 1;
+      if (depth === 0) {
+        return match.index;
+      }
+    } else if (!match[0].endsWith("/>")) {
+      depth += 1;
+    }
+  }
+
+  return -1;
+}
+
 function readyWorkflow(): WorkflowState {
   return summarizeWorkerResult({
     status: "completed",
@@ -405,9 +425,31 @@ describe("task domain workspaces", () => {
     expect(appSource.indexOf("TranscriptNotesPanel")).toBeGreaterThan(
       appSource.indexOf("LocalTranscriptWorkspace"),
     );
-    expect(appSource.indexOf("<AnnotationListPanel")).toBeGreaterThan(
-      appSource.indexOf("<TranscriptNotesPanel"),
+    const learningRowClassStart = appSource.indexOf(
+      'className="task-workspace-learning-row"',
     );
+    const learningRowStart = appSource.lastIndexOf("<div", learningRowClassStart);
+    const learningRowEnd = findMatchingDivClose(appSource, learningRowStart);
+    const learningRowSource = appSource.slice(learningRowStart, learningRowEnd);
+    const taskLayoutClassStart = appSource.indexOf(
+      "className={`task-workspace-layout",
+    );
+    const taskLayoutStart = appSource.lastIndexOf("<div", taskLayoutClassStart);
+    const taskLayoutEnd = findMatchingDivClose(appSource, taskLayoutStart);
+    const notesStart = appSource.indexOf("<TranscriptNotesPanel");
+    const annotationStart = appSource.indexOf("<AnnotationListPanel");
+
+    expect(learningRowClassStart).toBeGreaterThan(-1);
+    expect(learningRowEnd).toBeGreaterThan(learningRowStart);
+    expect(learningRowSource).toContain("<AiGenerationWorkspace");
+    expect(learningRowSource).toContain("<AnnotationListPanel");
+    expect(learningRowSource.indexOf("<AnnotationListPanel")).toBeGreaterThan(
+      learningRowSource.indexOf("<AiGenerationWorkspace"),
+    );
+    expect(notesStart).toBeGreaterThan(learningRowEnd);
+    expect(notesStart).toBeLessThan(taskLayoutEnd);
+    expect(annotationStart).toBeGreaterThan(learningRowStart);
+    expect(annotationStart).toBeLessThan(learningRowEnd);
   });
 
   test("renders one note action per transcript segment with inserted state", () => {
