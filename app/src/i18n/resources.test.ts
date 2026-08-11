@@ -77,6 +77,36 @@ describe("bundled localization resources", () => {
     }
   });
 
+  test("provides the complete transcript notes key set in every locale", () => {
+    const expectedKeys = [
+      "ariaLabel",
+      "title",
+      "count",
+      "empty",
+      "loading",
+      "loadError",
+      "retry",
+      "insert",
+      "inserted",
+      "edit",
+      "delete",
+      "blank",
+      "orphaned",
+      "save",
+      "cancel",
+      "saving",
+      "saveFailed",
+      "deleteFailed",
+      "contentPlaceholder",
+    ].sort();
+
+    for (const locale of SUPPORTED_LOCALES) {
+      expect(Object.keys(resources[locale].transcript.notes).sort(), locale).toEqual(
+        expectedKeys,
+      );
+    }
+  });
+
   test("contains no empty strings or inline HTML", () => {
     for (const locale of SUPPORTED_LOCALES) {
       for (const namespace of RESOURCE_NAMESPACES) {
