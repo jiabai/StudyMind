@@ -143,7 +143,7 @@ fn recover_task_artifacts_inner(task_dir: &Path) -> Result<RecoveryOutcome, ()> 
     validate_directory(task_dir)?;
     let journal_path = task_dir.join(JOURNAL_FILE_NAME);
     if !path_exists(&journal_path)? {
-        cleanup_closed_orphans_best_effort(task_dir);
+        cleanup_closed_orphans_best_effort(task_dir)?;
         return Ok(RecoveryOutcome::None);
     }
     validate_regular_file(&journal_path)?;
@@ -393,7 +393,8 @@ fn cleanup_paths_best_effort(paths: &[PathBuf]) {
     }
 }
 
-fn cleanup_closed_orphans_best_effort(task_dir: &Path) {
+fn cleanup_closed_orphans_best_effort(task_dir: &Path) -> Result<(), ()> {
+    validate_directory_chain(task_dir)?;
     for relative in ["", "transcript", "transcript/original", "ai"] {
         let directory = if relative.is_empty() {
             task_dir.to_path_buf()
@@ -418,6 +419,7 @@ fn cleanup_closed_orphans_best_effort(task_dir: &Path) {
             }
         }
     }
+    Ok(())
 }
 
 fn closed_material_name(name: &str) -> bool {

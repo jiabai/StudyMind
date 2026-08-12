@@ -139,6 +139,66 @@ fn invalid_transaction_journal_fails_closed_without_echo_or_mutation() {
 }
 
 #[test]
+fn no_journal_recovery_rejects_reparse_task_parent_without_cleaning_backing_orphans() {
+    let output_root = temp_dir("orphan-recovery-reparse-task-parent");
+    let backing_root = temp_dir("orphan-recovery-reparse-task-parent-backing");
+    let task_id = "20260724-120000-local-abcdef123456";
+    let backing_task_dir = write_supported_task(&backing_root, task_id, "abcdef123456");
+    let ai_dir = backing_task_dir.join("ai");
+    fs::create_dir_all(&ai_dir).expect("create ai dir");
+    let transaction_id = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+    let transcript_orphan = backing_task_dir
+        .join("transcript")
+        .join(format!(".StudyMind-artifact-{transaction_id}-0.staging"));
+    let ai_orphan = ai_dir.join(format!(".StudyMind-artifact-{transaction_id}-1.rollback"));
+    fs::write(&transcript_orphan, b"keep transcript orphan\n").expect("write transcript orphan");
+    fs::write(&ai_orphan, b"keep ai orphan\n").expect("write ai orphan");
+
+    let tasks_path = output_root.join("tasks");
+    if let Err(error) = create_directory_reparse(&backing_root.join("tasks"), &tasks_path) {
+        eprintln!(
+            "skipping orphan recovery reparse task-parent regression; junction or symlink creation unavailable: {error}"
+        );
+        return;
+    }
+
+    let error = recover_task_artifacts(&tasks_path.join(task_id))
+        .expect_err("reparse task parent must reject orphan cleanup");
+
+    assert_eq!(error, "Task artifacts could not be recovered safely.");
+    assert!(transcript_orphan.exists());
+    assert!(ai_orphan.exists());
+}
+
+#[test]
+fn no_journal_recovery_rejects_reparse_task_ancestor_without_cleaning_backing_orphans() {
+    let backing_root = temp_dir("orphan-recovery-reparse-task-ancestor-backing");
+    let linked_parent = temp_dir("orphan-recovery-reparse-task-ancestor-link");
+    let linked_root = linked_parent.join("linked-root");
+    let backing_output_root = backing_root.join("output");
+    let task_id = "20260724-120001-local-abcdef123456";
+    let backing_task_dir = write_supported_task(&backing_output_root, task_id, "abcdef123456");
+    let orphan = backing_task_dir
+        .join("transcript")
+        .join(".StudyMind-artifact-ffffffffffffffffffffffffffffffff-0.staging");
+    fs::write(&orphan, b"keep ancestor orphan\n").expect("write ancestor orphan");
+
+    if let Err(error) = create_directory_reparse(&backing_root, &linked_root) {
+        eprintln!(
+            "skipping orphan recovery reparse task-ancestor regression; junction or symlink creation unavailable: {error}"
+        );
+        return;
+    }
+
+    let task_dir = linked_root.join("output").join("tasks").join(task_id);
+    let error = recover_task_artifacts(&task_dir)
+        .expect_err("reparse task ancestor must reject orphan cleanup");
+
+    assert_eq!(error, "Task artifacts could not be recovered safely.");
+    assert!(orphan.exists());
+}
+
+#[test]
 fn rust_atomic_replace_failure_preserves_previous_destination() {
     let directory = temp_dir("atomic-replace-failure");
     let destination = directory.join("StudyMind-task.json");
@@ -324,8 +384,7 @@ fn manifest_round_trip_preserves_unknown_fields() {
     let manifest: TaskManifest = serde_json::from_value(value).expect("manifest");
     let mut encoded = serde_json::to_value(manifest).expect("encoded manifest");
     encoded["future_worker_field"] = json!({"enabled": true});
-    let round_tripped: TaskManifest =
-        serde_json::from_value(encoded).expect("round-trip manifest");
+    let round_tripped: TaskManifest = serde_json::from_value(encoded).expect("round-trip manifest");
     let re_encoded = serde_json::to_value(round_tripped).expect("re-encoded manifest");
     assert_eq!(re_encoded["future_worker_field"]["enabled"], true);
 }
@@ -461,7 +520,8 @@ fn supported_task_scan_isolates_corrupt_and_unsupported_manifests() {
     );
     let corrupt_dir = output_root.join("tasks").join("corrupt-task");
     fs::create_dir_all(&corrupt_dir).expect("create corrupt task");
-    fs::write(corrupt_dir.join("StudyMind-task.json"), b"{not-json").expect("write corrupt manifest");
+    fs::write(corrupt_dir.join("StudyMind-task.json"), b"{not-json")
+        .expect("write corrupt manifest");
     let legacy_dir = output_root.join("tasks").join("legacy-task");
     fs::create_dir_all(&legacy_dir).expect("create legacy task");
     fs::write(
@@ -715,6 +775,34 @@ fn temp_dir(name: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("StudyMind-{name}-{unique}"));
     fs::create_dir_all(&dir).expect("create temp dir");
     dir
+}
+
+#[cfg(windows)]
+fn create_directory_reparse(
+    source: &std::path::Path,
+    link: &std::path::Path,
+) -> std::io::Result<()> {
+    let output = std::process::Command::new("cmd")
+        .args(["/C", "mklink", "/J"])
+        .arg(link)
+        .arg(source)
+        .output()?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(std::io::Error::other(format!(
+            "mklink /J failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        )))
+    }
+}
+
+#[cfg(unix)]
+fn create_directory_reparse(
+    source: &std::path::Path,
+    link: &std::path::Path,
+) -> std::io::Result<()> {
+    std::os::unix::fs::symlink(source, link)
 }
 
 fn write_supported_task(

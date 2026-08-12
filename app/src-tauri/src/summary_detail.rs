@@ -409,7 +409,7 @@ mod tests {
         )
         .expect_err("reparse task parent must be rejected before commit");
 
-        assert_eq!(error, "Task artifacts could not be stored safely.");
+        assert_eq!(error, "Task artifacts could not be recovered safely.");
         assert_eq!(
             fs::read_to_string(backing_task_dir.join("ai").join("summary.md"))
                 .expect("read backing summary"),
