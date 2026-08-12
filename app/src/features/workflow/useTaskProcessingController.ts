@@ -3,6 +3,7 @@ import { useCallback, useRef, useState } from "react";
 import type { AccountStatus } from "../../accountState";
 import { canGenerateAiWithAccount, canProcessWithAccount } from "../../accountState";
 import { historyItemToWorkerResult, type HistoryItem } from "../../historyClient";
+import type { SaveSummaryEditResponse } from "../../summaryClient";
 import type { SaveTranscriptEditResponse } from "../../transcriptDetailClient";
 import { clearLocalMediaSelection } from "../../localMediaClient";
 import type { LocalMediaSelectionView } from "../../localMediaContract";
@@ -138,6 +139,26 @@ export function useTaskProcessingController({
             ...current.artifacts,
             ...saved.artifacts,
           },
+        };
+      });
+    },
+    [],
+  );
+
+  const applySummarySave = useCallback(
+    (expectedTaskId: string | null, saved: SaveSummaryEditResponse) => {
+      setWorkflow((current) => {
+        if (
+          !expectedTaskId ||
+          current.taskId !== expectedTaskId ||
+          saved.task_id !== expectedTaskId
+        ) {
+          return current;
+        }
+
+        return {
+          ...current,
+          summary: saved.summary,
         };
       });
     },
@@ -387,6 +408,7 @@ export function useTaskProcessingController({
     setLocalMediaSelection,
     removeLocalMediaSelection,
     applyTranscriptSave,
+    applySummarySave,
     completeHistoryTaskDeletion,
     restoreHistoryItem,
     retryInsightGeneration,
