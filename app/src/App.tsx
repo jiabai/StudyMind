@@ -624,53 +624,14 @@ function App() {
               <div
                 className={`task-workspace-layout${taskWorkspaceModel.local.canReview ? "" : " transcript-only"}`}
               >
-                <div className="task-workspace-primary-column">
-                  <LocalTranscriptWorkspace
-                    model={taskWorkspaceModel.local}
-                    controller={transcriptDetailController}
-                    notesController={transcriptNotesController}
-                    actionNotice={aiActionNotice ? null : actionNotice}
-                    onLocateArtifact={(artifact) => void locateArtifact(artifact)}
-                    onCancel={() => void cancelCurrentProcessing()}
-                  />
-                  <div className="task-workspace-learning-row">
-                    {taskWorkspaceModel.ai.visible ? (
-                      <AiGenerationWorkspace
-                        model={taskWorkspaceModel.ai}
-                        quotaRemaining={account.llmQuotaRemaining}
-                        notice={aiActionNotice}
-                        onSummaryAction={openSummaryConfirmation}
-                        onInsightsAction={() => void openInsightPreferenceFlow()}
-                        onDissectionAction={dissectionController.openConfirmation}
-                        onViewTarget={(target) => {
-                          setActionNotice(null);
-                          openDetailTab(target);
-                        }}
-                        onCancel={() => void cancelCurrentProcessing()}
-                      />
-                    ) : null}
-                    <AnnotationListPanel
-                      annotations={annotationsController.annotations}
-                      colors={[
-                        { key: "yellow", label: "重点", className: "color-yellow" },
-                        { key: "blue", label: "疑问", className: "color-blue" },
-                        { key: "green", label: "已掌握", className: "color-green" },
-                        { key: "red", label: "待复习", className: "color-red" },
-                      ]}
-                      onJumpTo={(annotation) => {
-                        openDetailTab(annotation.target_tab as "summary" | "insights" | "dissection");
-                        setActiveAnnotationId(annotation.id);
-                      }}
-                      onEdit={(annotation) => {
-                        openDetailTab(annotation.target_tab as "summary" | "insights" | "dissection");
-                        setActiveAnnotationId(annotation.id);
-                      }}
-                      onDelete={(id) => annotationsController.deleteAnnotation(id)}
-                      visible={annotationPanelVisible}
-                      onToggleVisible={() => setAnnotationPanelVisible(!annotationPanelVisible)}
-                    />
-                  </div>
-                </div>
+                <LocalTranscriptWorkspace
+                  model={taskWorkspaceModel.local}
+                  controller={transcriptDetailController}
+                  notesController={transcriptNotesController}
+                  actionNotice={aiActionNotice ? null : actionNotice}
+                  onLocateArtifact={(artifact) => void locateArtifact(artifact)}
+                  onCancel={() => void cancelCurrentProcessing()}
+                />
                 {taskWorkspaceModel.local.canReview ? (
                   <TranscriptNotesPanel
                     controller={transcriptNotesController}
@@ -678,6 +639,43 @@ function App() {
                     editingDisabled={!taskWorkspaceModel.local.canEdit}
                   />
                 ) : null}
+                <div className="task-workspace-learning-row">
+                  {taskWorkspaceModel.ai.visible ? (
+                    <AiGenerationWorkspace
+                      model={taskWorkspaceModel.ai}
+                      quotaRemaining={account.llmQuotaRemaining}
+                      notice={aiActionNotice}
+                      onSummaryAction={openSummaryConfirmation}
+                      onInsightsAction={() => void openInsightPreferenceFlow()}
+                      onDissectionAction={dissectionController.openConfirmation}
+                      onViewTarget={(target) => {
+                        setActionNotice(null);
+                        openDetailTab(target);
+                      }}
+                      onCancel={() => void cancelCurrentProcessing()}
+                    />
+                  ) : null}
+                  <AnnotationListPanel
+                    annotations={annotationsController.annotations}
+                    colors={[
+                      { key: "yellow", label: "重点", className: "color-yellow" },
+                      { key: "blue", label: "疑问", className: "color-blue" },
+                      { key: "green", label: "已掌握", className: "color-green" },
+                      { key: "red", label: "待复习", className: "color-red" },
+                    ]}
+                    onJumpTo={(annotation) => {
+                      openDetailTab(annotation.target_tab as "summary" | "insights" | "dissection");
+                      setActiveAnnotationId(annotation.id);
+                    }}
+                    onEdit={(annotation) => {
+                      openDetailTab(annotation.target_tab as "summary" | "insights" | "dissection");
+                      setActiveAnnotationId(annotation.id);
+                    }}
+                    onDelete={(id) => annotationsController.deleteAnnotation(id)}
+                    visible={annotationPanelVisible}
+                    onToggleVisible={() => setAnnotationPanelVisible(!annotationPanelVisible)}
+                  />
+                </div>
               </div>
             </>
           )}

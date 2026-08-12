@@ -2422,16 +2422,11 @@ h3 {
   min-width: 0;
 }
 
-.task-workspace-primary-column {
-  display: grid;
-  gap: var(--space-4);
-  min-width: 0;
-}
-
 .task-workspace-learning-row {
   display: grid;
   gap: var(--space-4);
-  grid-template-columns: minmax(0, 1fr) minmax(260px, 0.72fr);
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(0, 1.62fr) minmax(360px, 1fr);
   height: min(760px, calc(100vh - 188px));
   min-height: 520px;
   min-width: 0;
@@ -2442,6 +2437,10 @@ h3 {
 }
 
 .task-workspace-layout.transcript-only {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.task-workspace-layout.transcript-only .task-workspace-learning-row {
   grid-template-columns: minmax(0, 1fr);
 }
 

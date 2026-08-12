@@ -81,15 +81,23 @@ describe("App result workspace layout styles", () => {
     );
   });
 
-  test("lays out the transcript notes card beside the transcript and below the learning column", () => {
-    const primaryColumnRule = getRuleBody([".task-workspace-primary-column"]);
+  test("aligns the transcript, notes, learning, and annotation cards on shared columns", () => {
+    const taskLayoutRule = getRuleBody([".task-workspace-layout"]);
+    const learningRowRule = getRuleBody([".task-workspace-learning-row"]);
     const notesWorkspaceRule = getRuleBody([".transcript-notes-workspace"]);
     const notesScrollRule = getRuleBody([".transcript-notes-scroll"]);
     const noteButtonRule = getRuleBody([".transcript-segment-note"]);
     const insertedButtonRule = getRuleBody([".transcript-segment-note.inserted"]);
 
-    expect(primaryColumnRule).toContain("display: grid;");
-    expect(primaryColumnRule).toContain("gap: var(--space-4);");
+    expect(taskLayoutRule).toContain(
+      "grid-template-columns: minmax(0, 1.62fr) minmax(360px, 1fr);",
+    );
+    expect(learningRowRule).toContain("display: grid;");
+    expect(learningRowRule).toContain("gap: var(--space-4);");
+    expect(learningRowRule).toContain("grid-column: 1 / -1;");
+    expect(learningRowRule).toContain(
+      "grid-template-columns: minmax(0, 1.62fr) minmax(360px, 1fr);",
+    );
     expect(notesWorkspaceRule).toContain("height: min(760px, calc(100vh - 188px));");
     expect(notesScrollRule).toContain("overflow-y: auto;");
     expect(noteButtonRule).toContain("width: 32px;");
@@ -112,7 +120,7 @@ describe("App result workspace layout styles", () => {
     expect(learningRowRule).toContain("display: grid;");
     expect(learningRowRule).toContain("gap: var(--space-4);");
     expect(learningRowRule).toContain(
-      "grid-template-columns: minmax(0, 1fr) minmax(260px, 0.72fr);",
+      "grid-template-columns: minmax(0, 1.62fr) minmax(360px, 1fr);",
     );
     expect(annotationRule).toContain("margin-top: 0;");
     expect(appCss).toMatch(

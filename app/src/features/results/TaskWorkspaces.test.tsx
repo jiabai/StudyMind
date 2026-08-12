@@ -419,26 +419,28 @@ describe("task domain workspaces", () => {
 
   test("composes the transcript, notes, and learning workspaces in the intended layout", () => {
     const appSource = readFileSync(new URL("../../App.tsx", import.meta.url), "utf8");
-    expect(appSource).toContain("task-workspace-primary-column");
+    expect(appSource).not.toContain("task-workspace-primary-column");
     expect(appSource).toContain("TranscriptNotesPanel");
     expect(appSource).toContain("transcriptNotesController");
-    expect(appSource.indexOf("TranscriptNotesPanel")).toBeGreaterThan(
-      appSource.indexOf("LocalTranscriptWorkspace"),
-    );
-    const learningRowClassStart = appSource.indexOf(
-      'className="task-workspace-learning-row"',
-    );
-    const learningRowStart = appSource.lastIndexOf("<div", learningRowClassStart);
-    const learningRowEnd = findMatchingDivClose(appSource, learningRowStart);
-    const learningRowSource = appSource.slice(learningRowStart, learningRowEnd);
     const taskLayoutClassStart = appSource.indexOf(
       "className={`task-workspace-layout",
     );
     const taskLayoutStart = appSource.lastIndexOf("<div", taskLayoutClassStart);
     const taskLayoutEnd = findMatchingDivClose(appSource, taskLayoutStart);
+    const learningRowClassStart = appSource.indexOf(
+      'className="task-workspace-learning-row"',
+    );
+    const learningRowStart = appSource.lastIndexOf("<div", learningRowClassStart);
+    const learningRowEnd = findMatchingDivClose(appSource, learningRowStart);
+    const taskLayoutSource = appSource.slice(taskLayoutStart, taskLayoutEnd);
+    const learningRowSource = appSource.slice(learningRowStart, learningRowEnd);
+    const transcriptStart = appSource.indexOf("<LocalTranscriptWorkspace");
     const notesStart = appSource.indexOf("<TranscriptNotesPanel");
     const annotationStart = appSource.indexOf("<AnnotationListPanel");
 
+    expect(taskLayoutSource).toContain("<LocalTranscriptWorkspace");
+    expect(taskLayoutSource).toContain("<TranscriptNotesPanel");
+    expect(taskLayoutSource).toContain('className="task-workspace-learning-row"');
     expect(learningRowClassStart).toBeGreaterThan(-1);
     expect(learningRowEnd).toBeGreaterThan(learningRowStart);
     expect(learningRowSource).toContain("<AiGenerationWorkspace");
@@ -446,7 +448,9 @@ describe("task domain workspaces", () => {
     expect(learningRowSource.indexOf("<AnnotationListPanel")).toBeGreaterThan(
       learningRowSource.indexOf("<AiGenerationWorkspace"),
     );
-    expect(notesStart).toBeGreaterThan(learningRowEnd);
+    expect(transcriptStart).toBeGreaterThan(taskLayoutStart);
+    expect(notesStart).toBeGreaterThan(transcriptStart);
+    expect(notesStart).toBeLessThan(learningRowStart);
     expect(notesStart).toBeLessThan(taskLayoutEnd);
     expect(annotationStart).toBeGreaterThan(learningRowStart);
     expect(annotationStart).toBeLessThan(learningRowEnd);
