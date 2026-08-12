@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Copy, Download, Eye, Pencil, RotateCcw, Save, X } from "lucide-react";
+import { Copy, Download, Eye, Maximize2, Minimize2, Pencil, RotateCcw, Save, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { isSupportedLocale } from "../../i18n/locale";
@@ -50,6 +50,7 @@ export function AiResultDetailSheet({
     saveSummaryDraft = async () => undefined,
   } = controller;
   const [summaryEditorMode, setSummaryEditorMode] = useState<SummaryEditorMode>("preview");
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const hasSummaryArtifact = detailTab === "summary" && Boolean(workflow.artifacts.summary);
 
   useEffect(() => {
@@ -57,6 +58,12 @@ export function AiResultDetailSheet({
       setSummaryEditorMode("preview");
     }
   }, [summaryEditing]);
+
+  useEffect(() => {
+    if (!detailTab) {
+      setIsFullscreen(false);
+    }
+  }, [detailTab]);
 
   const requestCloseDetail = () => {
     if (
@@ -96,10 +103,14 @@ export function AiResultDetailSheet({
   });
 
   return (
-    <div className="modal-backdrop sheet-backdrop" role="presentation" onClick={requestCloseDetail}>
+    <div
+      className={`modal-backdrop sheet-backdrop${isFullscreen ? " detail-fullscreen-backdrop" : ""}`}
+      role="presentation"
+      onClick={requestCloseDetail}
+    >
       <section
         ref={resultDetailModalRef}
-        className="sheet-panel detail-modal ai-result-detail-sheet"
+        className={`sheet-panel detail-modal ai-result-detail-sheet${isFullscreen ? " is-fullscreen" : ""}`}
         aria-label={t("detail.ariaLabel", { title })}
         role="dialog"
         aria-modal="true"
@@ -110,9 +121,19 @@ export function AiResultDetailSheet({
             <p className="section-label">{t("detail.sectionLabel")}</p>
             <h2>{title}</h2>
           </div>
-          <button className="icon-button" type="button" onClick={requestCloseDetail} aria-label={t("detail.closeAria")}>
-            <X size={18} />
-          </button>
+          <div className="modal-header-actions">
+            <button
+              className="icon-button"
+              type="button"
+              onClick={() => setIsFullscreen((current) => !current)}
+              aria-label={t(isFullscreen ? "detail.exitFullscreen" : "detail.fullscreen")}
+            >
+              {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+            </button>
+            <button className="icon-button" type="button" onClick={requestCloseDetail} aria-label={t("detail.closeAria")}>
+              <X size={18} />
+            </button>
+          </div>
         </header>
         <div className="modal-tools">
           <span>{t("detail.localPreview")}</span>

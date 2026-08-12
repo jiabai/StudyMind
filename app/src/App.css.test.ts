@@ -351,6 +351,22 @@ describe("App result workspace layout styles", () => {
     expect(tableRule).toContain("overflow-x: auto;");
   });
 
+  test("supports an in-app fullscreen result dialog without changing its content mode", () => {
+    const fullscreenSheetRule = getRuleBody([".ai-result-detail-sheet.is-fullscreen"]);
+    const fullscreenBackdropRule = getRuleBody([".sheet-backdrop.detail-fullscreen-backdrop"]);
+    const headerActionsRule = getRuleBody([".modal-header-actions"]);
+
+    expect(fullscreenSheetRule).toContain("height: 100%;");
+    expect(fullscreenSheetRule).toContain("max-height: none;");
+    expect(fullscreenSheetRule).toContain("max-width: none;");
+    expect(fullscreenSheetRule).toContain("border-radius: 0;");
+    expect(fullscreenBackdropRule).toContain("padding: 0;");
+    expect(headerActionsRule).toContain("display: flex;");
+    expect(aiResultDetailSheetTsx).toContain("isFullscreen");
+    expect(aiResultDetailSheetTsx).toContain("summaryEditing");
+    expect(aiResultDetailSheetTsx).toContain('role="dialog"');
+  });
+
   test("keeps the transcript audio review bar in the requested single-line player style", () => {
     const barRule = getRuleBody([".audio-review-bar"]);
     const playButtonRule = getRuleBody([".audio-play-button"]);

@@ -103,12 +103,12 @@ function renderDetails() {
 
 describe("AI result detail localization", () => {
   test.each([
-    ["zh-CN", "学习问题", "换个方向", "匹配理由", "复习与练习问题", "学习用途"],
-    ["zh-TW", "學習問題", "換個方向", "符合原因", "複習與練習問題", "學習用途"],
-    ["en-US", "Study Questions", "Try Another Direction", "Why it matches", "Review and practice questions", "Study use"],
+    ["zh-CN", "学习问题", "换个方向", "匹配理由", "复习与练习问题", "学习用途", "全屏显示"],
+    ["zh-TW", "學習問題", "換個方向", "符合原因", "複習與練習問題", "學習用途", "全螢幕顯示"],
+    ["en-US", "Study Questions", "Try Another Direction", "Why it matches", "Review and practice questions", "Study use", "Enter fullscreen"],
   ] as const)(
     "localizes UI copy in %s without translating generated content",
-    async (locale, title, retry, reason, questions, use) => {
+    async (locale, title, retry, reason, questions, use, fullscreen) => {
       await initializeI18n(locale as SupportedLocale);
       const markup = renderDetails();
 
@@ -117,6 +117,7 @@ describe("AI result detail localization", () => {
       expect(markup).toContain(reason);
       expect(markup).toContain(questions);
       expect(markup).toContain(use);
+      expect(markup).toContain(fullscreen);
       expect(markup).toContain(USER_TOPIC);
       expect(markup).toContain("User-provided reason");
       expect(markup).toContain("Question A");

@@ -848,6 +848,12 @@ h3 {
   justify-content: space-between;
 }
 
+.modal-header-actions {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
 .tabs {
   background: var(--surface-subtle);
   border-bottom: 1px solid var(--border);
@@ -2936,6 +2942,17 @@ h3 {
 
 .ai-result-detail-sheet {
   max-width: 860px;
+}
+
+.sheet-backdrop.detail-fullscreen-backdrop {
+  padding: 0;
+}
+
+.ai-result-detail-sheet.is-fullscreen {
+  border-radius: 0;
+  height: 100%;
+  max-height: none;
+  max-width: none;
 }
 
 .dissection-confirmation-sheet {
