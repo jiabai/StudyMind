@@ -47,18 +47,24 @@ export function AnnotationListPanel({
     <div
       className={`task-domain-workspace annotation-panel ${visible ? "visible" : "collapsed"}`}
     >
-      <button
-        className="annotation-panel-toggle"
-        onClick={onToggleVisible}
-        title={visible ? t("annotation.panelToggleExpanded") : t("annotation.panelToggleCollapsed")}
-      >
-        <span className="annotation-panel-icon">📝</span>
-        <span className="annotation-panel-count">{annotations.length}</span>
-      </button>
+      <header className="domain-workspace-header annotation-panel-header">
+        <h2>{t("annotation.panelTitle")}</h2>
+        <div className="annotation-panel-header-actions">
+          <span className="annotation-panel-count">{annotations.length}</span>
+          <button
+            type="button"
+            className="annotation-panel-toggle"
+            onClick={onToggleVisible}
+            title={visible ? t("annotation.panelToggleExpanded") : t("annotation.panelToggleCollapsed")}
+            aria-label={visible ? t("annotation.panelToggleExpanded") : t("annotation.panelToggleCollapsed")}
+          >
+            <span className="annotation-panel-icon">{visible ? "⌃" : "⌄"}</span>
+          </button>
+        </div>
+      </header>
 
       {visible && (
         <div className="annotation-panel-content">
-          <h3 className="annotation-panel-title">{t("annotation.panelTitle")}</h3>
           {annotations.length === 0 ? (
             <p className="annotation-panel-empty">
               {t("annotation.panelEmpty")}

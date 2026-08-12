@@ -140,6 +140,22 @@ describe("App result workspace layout styles", () => {
     expect(annotationContentRule).toContain("max-height: none;");
   });
 
+  test("uses the shared workspace header for the annotation card title", () => {
+    const toggleRule = getRuleBody([".annotation-panel-toggle"]);
+
+    expect(annotationListPanelTsx).toContain(
+      'className="domain-workspace-header annotation-panel-header"',
+    );
+    expect(annotationListPanelTsx).toContain(
+      '<h2>{t("annotation.panelTitle")}</h2>',
+    );
+    expect(annotationListPanelTsx).not.toContain(
+      '<h3 className="annotation-panel-title">',
+    );
+    expect(toggleRule).toContain("display: inline-flex;");
+    expect(toggleRule).toContain("flex-direction: row;");
+  });
+
   test("does not expose the FrameQ app mark in shared product resources", () => {
     expect(commonResourcesTs).not.toContain('appMark: "FQ"');
   });

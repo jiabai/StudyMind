@@ -3979,16 +3979,16 @@ h3 {
 
 .annotation-panel-toggle {
   align-items: center;
-  background: rgba(246, 243, 234, 0.82);
-  border: 0;
-  border-right: 1px solid var(--border);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  display: inline-flex;
+  flex-direction: row;
   justify-content: center;
-  min-width: 52px;
-  padding: 10px 8px;
+  min-height: 30px;
+  min-width: 30px;
+  padding: 4px 8px;
   transition:
     background 120ms ease;
 }
@@ -3998,7 +3998,9 @@ h3 {
 }
 
 .annotation-panel-icon {
-  font-size: 1.1rem;
+  color: var(--text-muted);
+  font-size: 1rem;
+  line-height: 1;
 }
 
 .annotation-panel-count {
@@ -4013,6 +4015,13 @@ h3 {
   justify-content: center;
   min-width: 20px;
   padding: 0 6px;
+}
+
+.annotation-panel-header-actions {
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
 }
 
 .annotation-panel-content {
@@ -4188,24 +4197,6 @@ h3 {
   display: inline-flex;
   font-size: 0.72rem;
   gap: 4px;
-}
-
-@media (max-width: 900px) {
-  .annotation-panel {
-    flex-direction: column;
-  }
-
-  .annotation-panel.collapsed .annotation-panel-toggle {
-    flex-direction: row;
-  }
-
-  .annotation-panel-toggle {
-    border-right: 0;
-    border-bottom: 1px solid var(--border);
-    flex-direction: row;
-    min-width: 0;
-    width: 100%;
-  }
 }
 
 /* === 左侧抽屉（玻璃质感） === */
