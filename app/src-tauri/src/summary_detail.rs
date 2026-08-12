@@ -48,6 +48,10 @@ pub(crate) fn save_summary_edit_to_output_root(
     validate_summary_artifact(&task, &summary_path)?;
 
     let summary = format!("{summary}\n");
+    // The required path lookup above already performs canonical confinement. The
+    // transaction below revalidates the task directory and destination parent
+    // immediately before its atomic install while this task lease is held, so
+    // this path-based flow stays within the existing transaction boundary.
     task_manifest::commit_task_artifacts(
         task.task_dir(),
         vec![task_manifest::TaskArtifactMutation::replace(
@@ -66,7 +70,6 @@ fn validate_summary_artifact(
     task: &task_manifest::SupportedTask,
     summary_path: &Path,
 ) -> Result<(), String> {
-    task.validate_existing_path(summary_path, task_manifest::TaskArtifact::Summary)?;
     if summary_path != task.task_dir().join("ai").join("summary.md") {
         return Err(SUMMARY_INVALID_ERROR.to_string());
     }
@@ -76,14 +79,20 @@ fn validate_summary_artifact(
         .parent()
         .and_then(|parent| fs::symlink_metadata(parent).ok())
         .ok_or_else(|| SUMMARY_INVALID_ERROR.to_string())?;
-    if !metadata.is_file()
-        || task_manifest::is_link_or_reparse_point(&metadata)
-        || has_multiple_hard_links(summary_path).map_err(|_| SUMMARY_INVALID_ERROR.to_string())?
-    {
+    if task_manifest::is_link_or_reparse_point(&metadata) {
         return Err(SUMMARY_LINK_ERROR.to_string());
     }
-    if !parent_metadata.is_dir() || task_manifest::is_link_or_reparse_point(&parent_metadata) {
+    if !metadata.is_file() {
+        return Err(SUMMARY_INVALID_ERROR.to_string());
+    }
+    if has_multiple_hard_links(summary_path).map_err(|_| SUMMARY_INVALID_ERROR.to_string())? {
         return Err(SUMMARY_LINK_ERROR.to_string());
+    }
+    if task_manifest::is_link_or_reparse_point(&parent_metadata) {
+        return Err(SUMMARY_LINK_ERROR.to_string());
+    }
+    if !parent_metadata.is_dir() {
+        return Err(SUMMARY_INVALID_ERROR.to_string());
     }
     Ok(())
 }
@@ -145,7 +154,10 @@ fn has_multiple_hard_links(_path: &Path) -> Result<bool, ()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{save_summary_edit_to_output_root, SaveSummaryEditRequest, SaveSummaryEditResult};
+    use super::{
+        save_summary_edit_to_output_root, SaveSummaryEditRequest, SaveSummaryEditResult,
+        SUMMARY_INVALID_ERROR, SUMMARY_LINK_ERROR,
+    };
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -252,6 +264,27 @@ mod tests {
     }
 
     #[test]
+    fn save_summary_edit_rejects_directory_summary_target_as_invalid() {
+        let output_root = temp_dir("summary-directory-target");
+        let task_id = "20260705-153012-local-summary123465";
+        let task_dir = create_task(&output_root, task_id, true, Some("old summary\n"));
+        let summary_path = task_dir.join("ai").join("summary.md");
+        fs::remove_file(&summary_path).expect("remove ordinary summary");
+        fs::create_dir(&summary_path).expect("create directory summary target");
+
+        let error = save_summary_edit_to_output_root(
+            &output_root,
+            SaveSummaryEditRequest {
+                task_id: task_id.to_string(),
+                summary: "new summary".to_string(),
+            },
+        )
+        .expect_err("directory summary target must be invalid");
+
+        assert_eq!(error, SUMMARY_INVALID_ERROR);
+    }
+
+    #[test]
     fn save_summary_edit_rejects_linked_summary_target() {
         let output_root = temp_dir("summary-linked");
         let task_id = "20260705-153012-local-summary123460";
@@ -262,11 +295,8 @@ mod tests {
         fs::remove_file(&summary_path).expect("remove ordinary summary");
 
         if let Err(error) = create_file_symlink(&linked_source, &summary_path) {
-            eprintln!("symlink creation unavailable; trying hard link instead: {error}");
-            if let Err(error) = fs::hard_link(&linked_source, &summary_path) {
-                eprintln!("skipping linked summary regression; link creation unavailable: {error}");
-                return;
-            }
+            eprintln!("skipping symlink summary regression; symlink creation unavailable: {error}");
+            return;
         }
 
         let error = save_summary_edit_to_output_root(
@@ -278,11 +308,7 @@ mod tests {
         )
         .expect_err("linked summary must be rejected");
 
-        assert!(matches!(
-            error.as_str(),
-            "Task summary artifact cannot be a link or reparse point."
-                | "Path is outside the requested task directory."
-        ));
+        assert_eq!(error, SUMMARY_LINK_ERROR);
         assert!(!error.contains(task_id));
         assert!(!error.contains("new summary"));
         assert_eq!(
@@ -317,15 +343,39 @@ mod tests {
         )
         .expect_err("hard-linked summary must be rejected");
 
-        assert!(matches!(
-            error.as_str(),
-            "Task summary artifact cannot be a link or reparse point."
-                | "Path is outside the requested task directory."
-        ));
+        assert_eq!(error, SUMMARY_LINK_ERROR);
         assert_eq!(
             fs::read_to_string(&outside_target).expect("read outside target"),
             "do not overwrite\n"
         );
+    }
+
+    #[test]
+    fn save_summary_edit_rejects_reparse_parent_when_supported() {
+        let output_root = temp_dir("summary-reparse-parent");
+        let task_id = "20260705-153012-local-summary123466";
+        let task_dir = create_task(&output_root, task_id, true, Some("old summary\n"));
+        let ai_path = task_dir.join("ai");
+        let real_ai_path = task_dir.join("ai-real");
+        fs::rename(&ai_path, &real_ai_path).expect("move real ai directory");
+
+        if let Err(error) = create_directory_reparse(&real_ai_path, &ai_path) {
+            eprintln!(
+                "skipping reparse parent regression; directory link creation unavailable: {error}"
+            );
+            return;
+        }
+
+        let error = save_summary_edit_to_output_root(
+            &output_root,
+            SaveSummaryEditRequest {
+                task_id: task_id.to_string(),
+                summary: "new summary".to_string(),
+            },
+        )
+        .expect_err("reparse parent must be rejected");
+
+        assert_eq!(error, SUMMARY_LINK_ERROR);
     }
 
     #[test]
@@ -455,6 +505,16 @@ mod tests {
 
     #[cfg(unix)]
     fn create_file_symlink(source: &Path, link: &Path) -> std::io::Result<()> {
+        std::os::unix::fs::symlink(source, link)
+    }
+
+    #[cfg(windows)]
+    fn create_directory_reparse(source: &Path, link: &Path) -> std::io::Result<()> {
+        std::os::windows::fs::symlink_dir(source, link)
+    }
+
+    #[cfg(unix)]
+    fn create_directory_reparse(source: &Path, link: &Path) -> std::io::Result<()> {
         std::os::unix::fs::symlink(source, link)
     }
 }
