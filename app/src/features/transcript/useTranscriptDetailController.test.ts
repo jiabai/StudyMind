@@ -13,6 +13,7 @@ import type {
   SaveTranscriptEditResponse,
   TranscriptDetailResponse,
 } from "../../transcriptDetailClient";
+import type { SaveSummaryEditResponse } from "../../summaryClient";
 import type { TranscriptDetailController } from "./useTranscriptDetailController";
 
 type StateUpdater<T> = T | ((current: T) => T);
@@ -26,11 +27,16 @@ const mocks = vi.hoisted(() => ({
   loadTranscriptDetail: vi.fn(),
   revealItemInDir: vi.fn(),
   saveTranscriptEdit: vi.fn(),
+  useSummaryEditorController: vi.fn(),
 }));
 
 vi.mock("../../transcriptDetailClient", () => ({
   loadTranscriptDetail: mocks.loadTranscriptDetail,
   saveTranscriptEdit: mocks.saveTranscriptEdit,
+}));
+
+vi.mock("../results/useSummaryEditorController", () => ({
+  useSummaryEditorController: mocks.useSummaryEditorController,
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -157,6 +163,7 @@ type ControllerHarness = {
   render: () => TranscriptDetailController;
   setWorkflow: (next: WorkflowState) => TranscriptDetailController;
   applyTranscriptSave: ReturnType<typeof vi.fn>;
+  applySummarySave: ReturnType<typeof vi.fn>;
   setActionNotice: ReturnType<typeof vi.fn>;
 };
 
@@ -176,9 +183,23 @@ async function createController({
   }));
   const { useTranscriptDetailController } = await import("./useTranscriptDetailController");
   const applyTranscriptSave = vi.fn();
+  const applySummarySave = vi.fn();
   const setActionNotice = vi.fn<
     (value: SetStateAction<UiMessage | null>) => void
   >();
+  const summaryEditorFields = {
+    summaryEditing: false,
+    summaryDraft: "当前摘要",
+    summaryDirty: false,
+    summarySaving: false,
+    beginSummaryEdit: vi.fn(),
+    cancelSummaryEdit: vi.fn(),
+    updateSummaryDraft: vi.fn(),
+    saveSummaryDraft: vi.fn<
+      (expectedTaskId?: string) => Promise<SaveSummaryEditResponse | void>
+    >(),
+  };
+  mocks.useSummaryEditorController.mockReturnValue(summaryEditorFields);
   let workflow = initialWorkflow;
   const render = () => {
     harness.resetRender();
@@ -186,6 +207,7 @@ async function createController({
       workflow,
       locale: "zh-CN",
       applyTranscriptSave,
+      applySummarySave,
       setActionNotice,
     });
   };
@@ -203,7 +225,13 @@ async function createController({
       expect(render().transcriptSegments.length).toBeGreaterThan(0)
     );
   }
-  return { render, setWorkflow, applyTranscriptSave, setActionNotice };
+  return {
+    render,
+    setWorkflow,
+    applyTranscriptSave,
+    applySummarySave,
+    setActionNotice,
+  };
 }
 
 describe("useTranscriptDetailController segment editing", () => {
@@ -214,6 +242,7 @@ describe("useTranscriptDetailController segment editing", () => {
     mocks.loadTranscriptDetail.mockReset();
     mocks.revealItemInDir.mockReset();
     mocks.saveTranscriptEdit.mockReset();
+    mocks.useSummaryEditorController.mockReset();
     vi.stubGlobal("navigator", {
       clipboard: {
         writeText: mocks.clipboardWriteText,
@@ -230,7 +259,9 @@ describe("useTranscriptDetailController segment editing", () => {
 
     expect(Object.keys(render()).sort()).toEqual([
       "activeTranscriptSegmentId",
+      "beginSummaryEdit",
       "beginTranscriptSegmentEdit",
+      "cancelSummaryEdit",
       "closeDetail",
       "copyDetail",
       "copyTranscript",
@@ -253,7 +284,12 @@ describe("useTranscriptDetailController segment editing", () => {
       "playTranscriptSegment",
       "prepareTranscriptForTaskDeletion",
       "saveTranscriptDraft",
+      "saveSummaryDraft",
       "scrubTranscriptAudio",
+      "summaryDirty",
+      "summaryDraft",
+      "summaryEditing",
+      "summarySaving",
       "toggleTranscriptAudio",
       "transcriptAudioCurrentTime",
       "transcriptAudioDuration",
@@ -271,8 +307,25 @@ describe("useTranscriptDetailController segment editing", () => {
       "transcriptSegmentRefs",
       "transcriptSegments",
       "updateFullTranscriptDraft",
+      "updateSummaryDraft",
       "updateTranscriptSegmentDraft",
     ].sort());
+  });
+
+  test("exposes the summary editor surface and wires its owner inputs", async () => {
+    const { render, applySummarySave, setActionNotice } = await createController();
+
+    expect(render()).toMatchObject({
+      summaryEditing: false,
+      summaryDraft: "当前摘要",
+      summaryDirty: false,
+      summarySaving: false,
+    });
+    expect(mocks.useSummaryEditorController).toHaveBeenLastCalledWith({
+      workflow: expect.objectContaining({ taskId: "task-escape" }),
+      applySummarySave,
+      setActionNotice,
+    });
   });
 
   test("does not load without a current official transcript and resets review state", async () => {

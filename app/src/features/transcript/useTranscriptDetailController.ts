@@ -6,9 +6,11 @@ import {
 
 import type { SupportedLocale } from "../../i18n/locale";
 import type { UiMessage } from "../../i18n/uiMessage";
+import type { SaveSummaryEditResponse } from "../../summaryClient";
 import type { SaveTranscriptEditResponse } from "../../transcriptDetailClient";
 import type { WorkflowState } from "../../workflow";
 import { useArtifactDetailController } from "../results/useArtifactDetailController";
+import { useSummaryEditorController } from "../results/useSummaryEditorController";
 import { useTranscriptDocumentController } from "./useTranscriptDocumentController";
 import { useTranscriptReviewSession } from "./useTranscriptReviewSession";
 
@@ -19,6 +21,10 @@ type UseTranscriptDetailControllerOptions = {
     expectedTaskId: string | null,
     saved: SaveTranscriptEditResponse,
   ) => void;
+  applySummarySave: (
+    expectedTaskId: string | null,
+    saved: SaveSummaryEditResponse,
+  ) => void;
   setActionNotice: Dispatch<SetStateAction<UiMessage | null>>;
 };
 
@@ -26,6 +32,7 @@ export function useTranscriptDetailController({
   workflow,
   locale,
   applyTranscriptSave,
+  applySummarySave,
   setActionNotice,
 }: UseTranscriptDetailControllerOptions) {
   const transcriptDocument = useTranscriptDocumentController({
@@ -38,6 +45,11 @@ export function useTranscriptDetailController({
     locale,
     transcriptDraft: transcriptDocument.transcriptDraft,
     transcriptDirty: transcriptDocument.transcriptDirty,
+    setActionNotice,
+  });
+  const summaryEditor = useSummaryEditorController({
+    workflow,
+    applySummarySave,
     setActionNotice,
   });
   const reviewTaskId =
@@ -75,6 +87,10 @@ export function useTranscriptDetailController({
     transcriptDirty: transcriptDocument.transcriptDirty,
     transcriptLoading: transcriptDocument.transcriptLoading,
     transcriptSaving: transcriptDocument.transcriptSaving,
+    summaryEditing: summaryEditor.summaryEditing,
+    summaryDraft: summaryEditor.summaryDraft,
+    summaryDirty: summaryEditor.summaryDirty,
+    summarySaving: summaryEditor.summarySaving,
     locatedTranscriptRange: transcriptDocument.locatedTranscriptRange,
     activeTranscriptSegmentId:
       transcriptReview.activeTranscriptSegmentId,
@@ -98,6 +114,10 @@ export function useTranscriptDetailController({
     exportDetail: artifactDetail.exportDetail,
     exportTranscript: artifactDetail.exportTranscript,
     saveTranscriptDraft,
+    beginSummaryEdit: summaryEditor.beginSummaryEdit,
+    cancelSummaryEdit: summaryEditor.cancelSummaryEdit,
+    updateSummaryDraft: summaryEditor.updateSummaryDraft,
+    saveSummaryDraft: summaryEditor.saveSummaryDraft,
     playTranscriptSegment: transcriptReview.playTranscriptSegment,
     handleTranscriptAudioMetadata:
       transcriptReview.handleTranscriptAudioMetadata,

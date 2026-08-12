@@ -12,6 +12,7 @@ describe("frontend transcript controller ownership", () => {
   test("matches the approved private owners and stable consumer surface", () => {
     const expectedOwners = [
       "../results/useArtifactDetailController.ts",
+      "../results/useSummaryEditorController.ts",
       "./useTranscriptDocumentController.ts",
       "./useTranscriptReviewSession.ts",
     ];
@@ -25,6 +26,7 @@ describe("frontend transcript controller ownership", () => {
     const review = readSource("./useTranscriptReviewSession.ts");
 
     expect(root).toContain("useArtifactDetailController");
+    expect(root).toContain("useSummaryEditorController");
     expect(root).toContain("useTranscriptDocumentController");
     expect(root).toContain("useTranscriptReviewSession");
     expect(root).not.toContain("loadTranscriptDetail");
