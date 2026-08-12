@@ -1,0 +1,301 @@
+name: Desktop release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to publish
+        required: true
+        type: string
+      release_draft:
+        description: Create a new release as a draft
+        required: false
+        type: boolean
+        default: true
+      build_windows_updater:
+        description: Build Windows installer and updater artifacts
+        required: false
+        type: boolean
+        default: true
+      build_macos_x64:
+        description: Build the Intel macOS DMG
+        required: false
+        type: boolean
+        default: true
+      build_macos_arm64:
+        description: Build the Apple Silicon macOS DMG
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  prepare-release:
+    runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.release.outputs.release_tag }}
+      release_draft: ${{ steps.release.outputs.release_draft }}
+    steps:
+      - name: Verify tag and prepare release
+        id: release
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          PUSH_TAG: ${{ github.ref_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_RELEASE_DRAFT: ${{ inputs.release_draft }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            RELEASE_TAG="$PUSH_TAG"
+            REQUESTED_RELEASE_DRAFT=true
+          else
+            RELEASE_TAG="$INPUT_TAG"
+            REQUESTED_RELEASE_DRAFT="$INPUT_RELEASE_DRAFT"
+          fi
+
+          if [[ -z "$RELEASE_TAG" || "$RELEASE_TAG" != v* ]]; then
+            echo "Release tag must match v*." >&2
+            exit 1
+          fi
+          if [[ "$REQUESTED_RELEASE_DRAFT" != "true" && "$REQUESTED_RELEASE_DRAFT" != "false" ]]; then
+            echo "Release draft input must be true or false." >&2
+            exit 1
+          fi
+
+          gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" >/dev/null
+
+          release_error="$(mktemp)"
+          trap 'rm -f "$release_error"' EXIT
+          if existing_release_draft="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq '.draft' 2>"$release_error")"; then
+            if [[ "$existing_release_draft" != "true" && "$existing_release_draft" != "false" ]]; then
+              echo "Existing release returned an invalid draft state." >&2
+              exit 1
+            fi
+            release_draft="$existing_release_draft"
+          else
+            if ! grep -Eq 'HTTP[[:space:]]+404' "$release_error"; then
+              cat "$release_error" >&2
+              exit 1
+            fi
+            create_args=(
+              --repo "$GITHUB_REPOSITORY"
+              --title "StudyMind $RELEASE_TAG"
+              --notes "StudyMind desktop release $RELEASE_TAG"
+            )
+            if [[ "$REQUESTED_RELEASE_DRAFT" == "true" ]]; then
+              create_args+=(--draft)
+            fi
+            gh release create "$RELEASE_TAG" --verify-tag "${create_args[@]}"
+            release_draft="$REQUESTED_RELEASE_DRAFT"
+          fi
+
+          rm -f "$release_error"
+          trap - EXIT
+          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "release_draft=$release_draft" >> "$GITHUB_OUTPUT"
+
+  windows-updater-artifacts:
+    needs: prepare-release
+    if: ${{ github.event_name == 'push' || inputs.build_windows_updater }}
+    runs-on: windows-latest
+    env:
+      RELEASE_TAG: ${{ needs.prepare-release.outputs.release_tag }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: lts/*
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@6b9c6063abd6010835644d4c2e1bef4cf5cd0fca # v5.4.1
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix app
+
+      - name: Prepare bundled runtime
+        env:
+          STUDYMIND_PYTHON_STANDALONE_URL_WINDOWS_X64: ${{ secrets.STUDYMIND_PYTHON_STANDALONE_URL_WINDOWS_X64 }}
+          STUDYMIND_FFMPEG_ARCHIVE_URL_WINDOWS_X64: ${{ secrets.STUDYMIND_FFMPEG_ARCHIVE_URL_WINDOWS_X64 }}
+        run: node scripts\build-installer.mjs --target windows-x64 --skip-tauri-build
+
+      - name: Build and upload NSIS updater artifacts
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: app
+          tauriScript: npm run tauri
+          tagName: ${{ env.RELEASE_TAG }}
+          releaseName: StudyMind ${{ env.RELEASE_TAG }}
+          releaseBody: StudyMind desktop release ${{ env.RELEASE_TAG }}
+          releaseDraft: ${{ needs.prepare-release.outputs.release_draft == 'true' }}
+          prerelease: false
+          releaseCommitish: ${{ github.sha }}
+          includeUpdaterJson: true
+          updaterJsonPreferNsis: true
+          args: --bundles nsis --target x86_64-pc-windows-msvc
+
+      - name: Normalize and replace updater manifest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          gh release download "$RELEASE_TAG" --pattern latest.json --dir .
+          node scripts/normalize-updater-manifest.mjs latest.json
+          gh release upload "$RELEASE_TAG" latest.json --clobber
+
+  macos-x64:
+    needs: [prepare-release, windows-updater-artifacts]
+    if: ${{ always() && (github.event_name == 'push' || inputs.build_macos_x64) && needs.prepare-release.result == 'success' && (needs.windows-updater-artifacts.result == 'success' || needs.windows-updater-artifacts.result == 'skipped') }}
+    runs-on: macos-15-intel
+    env:
+      RELEASE_TAG: ${{ needs.prepare-release.outputs.release_tag }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: lts/*
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@6b9c6063abd6010835644d4c2e1bef4cf5cd0fca # v5.4.1
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix app
+
+      - name: Prepare bundled runtime
+        env:
+          STUDYMIND_PYTHON_STANDALONE_URL_MACOS_X64: ${{ secrets.STUDYMIND_PYTHON_STANDALONE_URL_MACOS_X64 }}
+          STUDYMIND_FFMPEG_ARCHIVE_URL_MACOS_X64: ${{ secrets.STUDYMIND_FFMPEG_ARCHIVE_URL_MACOS_X64 }}
+          STUDYMIND_FFPROBE_ARCHIVE_URL_MACOS_X64: ${{ secrets.STUDYMIND_FFPROBE_ARCHIVE_URL_MACOS_X64 }}
+        run: node scripts/build-installer.mjs --target macos-x64 --skip-tauri-build
+
+      - name: Build app bundle
+        run: npm --prefix app run tauri -- build --bundles app --target x86_64-apple-darwin
+
+      - name: Smoke-test app bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_PATH="app/src-tauri/target/x86_64-apple-darwin/release/bundle/macos/StudyMind.app"
+          RESOURCES="$APP_PATH/Contents/Resources/resources"
+          PYTHON="$RESOURCES/python/bin/python3"
+
+          test -x "$PYTHON"
+          PYTHONPATH="$RESOURCES/worker" "$PYTHON" -c "import brotli, funasr, funasr_onnx, modelscope, onnxruntime, yt_dlp, studymind_worker"
+          "$RESOURCES/bin/ffmpeg" -version
+          "$RESOURCES/bin/ffprobe" -version
+          if find "$RESOURCES" \( -type d -name '__pycache__' -o -type f -name '*.pyc' \) -print -quit | grep -q .; then
+            echo "Python cache files must not be bundled." >&2
+            exit 1
+          fi
+          codesign --verify --deep --strict "$APP_PATH"
+
+      - name: Create DMG
+        run: bash scripts/make-macos-dmg.sh x86_64-apple-darwin StudyMind
+
+      - name: Upload DMG
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: gh release upload "$RELEASE_TAG" app/src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg --clobber
+
+  macos-arm64:
+    needs: [prepare-release, windows-updater-artifacts]
+    if: ${{ always() && (github.event_name == 'push' || inputs.build_macos_arm64) && needs.prepare-release.result == 'success' && (needs.windows-updater-artifacts.result == 'success' || needs.windows-updater-artifacts.result == 'skipped') }}
+    runs-on: macos-15
+    env:
+      RELEASE_TAG: ${{ needs.prepare-release.outputs.release_tag }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: lts/*
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@6b9c6063abd6010835644d4c2e1bef4cf5cd0fca # v5.4.1
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix app
+
+      - name: Prepare bundled runtime
+        env:
+          STUDYMIND_PYTHON_STANDALONE_URL_MACOS_ARM64: ${{ secrets.STUDYMIND_PYTHON_STANDALONE_URL_MACOS_ARM64 }}
+          STUDYMIND_FFMPEG_ARCHIVE_URL_MACOS_ARM64: ${{ secrets.STUDYMIND_FFMPEG_ARCHIVE_URL_MACOS_ARM64 }}
+          STUDYMIND_FFPROBE_ARCHIVE_URL_MACOS_ARM64: ${{ secrets.STUDYMIND_FFPROBE_ARCHIVE_URL_MACOS_ARM64 }}
+        run: node scripts/build-installer.mjs --target macos-arm64 --skip-tauri-build
+
+      - name: Build app bundle
+        run: npm --prefix app run tauri -- build --bundles app --target aarch64-apple-darwin
+
+      - name: Smoke-test app bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_PATH="app/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/StudyMind.app"
+          RESOURCES="$APP_PATH/Contents/Resources/resources"
+          PYTHON="$RESOURCES/python/bin/python3"
+
+          test -x "$PYTHON"
+          PYTHONPATH="$RESOURCES/worker" "$PYTHON" -c "import brotli, funasr, funasr_onnx, modelscope, onnxruntime, yt_dlp, studymind_worker"
+          "$RESOURCES/bin/ffmpeg" -version
+          "$RESOURCES/bin/ffprobe" -version
+          if find "$RESOURCES" \( -type d -name '__pycache__' -o -type f -name '*.pyc' \) -print -quit | grep -q .; then
+            echo "Python cache files must not be bundled." >&2
+            exit 1
+          fi
+          codesign --verify --deep --strict "$APP_PATH"
+
+      - name: Create DMG
+        run: bash scripts/make-macos-dmg.sh aarch64-apple-darwin StudyMind
+
+      - name: Upload DMG
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: gh release upload "$RELEASE_TAG" app/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg --clobber
