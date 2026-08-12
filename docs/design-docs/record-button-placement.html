@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StudyMind 一键录音 · UI 放置方案</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --surface: #ffffff;
+    --border: #e2e5ea;
+    --text: #1a2332;
+    --muted: #6b7280;
+    --primary: #2563eb;
+    --primary-soft: #eef2ff;
+    --danger: #dc2626;
+    --danger-soft: #fff5f5;
+    --ok: #16a34a;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.65;
+    padding: 40px 20px 60px;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; }
+  header.hero {
+    background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 60%, #3b82f6 100%);
+    color: #fff;
+    border-radius: 20px;
+    padding: 36px 40px;
+    margin-bottom: 28px;
+  }
+  header.hero h1 { font-size: 26px; margin-bottom: 8px; }
+  header.hero p { opacity: 0.9; font-size: 14.5px; max-width: 720px; }
+  .verdict {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 5px solid var(--primary);
+    border-radius: var(--radius);
+    padding: 20px 24px;
+    margin-bottom: 28px;
+  }
+  .verdict h2 { font-size: 17px; margin-bottom: 8px; }
+  .verdict p { font-size: 14.5px; color: #374151; }
+  section { margin-bottom: 34px; }
+  h2.section-title {
+    font-size: 19px;
+    margin-bottom: 14px;
+    padding-left: 12px;
+    border-left: 4px solid var(--primary);
+  }
+  .card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+  }
+  .card h3 { font-size: 15px; margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
+  .card p { font-size: 13.5px; color: var(--muted); }
+  .score { font-size: 13px; font-weight: 700; padding: 2px 10px; border-radius: 999px; }
+  .score.good { background: #dcfce7; color: #166534; }
+  .score.mid { background: #fef9c3; color: #854d0e; }
+  .score.low { background: #fee2e2; color: #991b1b; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--surface);
+    border-radius: var(--radius);
+    overflow: hidden;
+    border: 1px solid var(--border);
+    font-size: 13.5px;
+  }
+  th, td { padding: 12px 14px; text-align: left; border-bottom: 1px solid #eef0f3; vertical-align: top; }
+  th { background: #f3f5f9; font-weight: 600; white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+  .tag { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 999px; }
+  .tag.yes { background: #dcfce7; color: #166534; }
+  .tag.no { background: #fee2e2; color: #991b1b; }
+  .tag.warn { background: #fef9c3; color: #854d0e; }
+  figure {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin: 18px 0;
+  }
+  figure img { width: 100%; height: auto; display: block; border-radius: 10px; }
+  figcaption { font-size: 12.5px; color: var(--muted); margin-top: 10px; text-align: center; }
+  .timeline { border-left: 3px solid var(--primary); margin: 18px 0 0 6px; padding-left: 22px; }
+  .step { position: relative; padding-bottom: 22px; }
+  .step:last-child { padding-bottom: 0; }
+  .step::before {
+    content: "";
+    position: absolute;
+    left: -30px;
+    top: 4px;
+    width: 13px; height: 13px;
+    border-radius: 50%;
+    background: var(--primary);
+    border: 3px solid #dbeafe;
+  }
+  .step h4 { font-size: 14.5px; margin-bottom: 3px; }
+  .step p { font-size: 13.5px; color: var(--muted); }
+  .step code { background: #eef2f7; border-radius: 5px; padding: 1px 6px; font-size: 12.5px; font-family: Consolas, monospace; }
+  .checklist { list-style: none; }
+  .checklist li {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 16px;
+    margin-bottom: 10px;
+    font-size: 13.5px;
+  }
+  .checklist li strong { color: var(--text); }
+  .checklist li .path { color: var(--primary); font-family: Consolas, monospace; font-size: 12.5px; }
+  .checklist li p { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+  .warn-box {
+    background: var(--danger-soft);
+    border: 1px solid #fecaca;
+    border-radius: var(--radius);
+    padding: 16px 20px;
+    font-size: 13.5px;
+    color: #7f1d1d;
+  }
+  .warn-box strong { color: var(--danger); }
+  footer { text-align: center; font-size: 12.5px; color: #9aa3b2; margin-top: 40px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="hero">
+    <h1>🎙 StudyMind 一键录音功能 · UI 放置方案</h1>
+    <p>核心结论：录音入口放在「等待输入」主界面的 HeroUploadZone 内，与「选择本地文件」并列为两种输入方式；录音停止后把音频写入本地临时文件，复用现有「选文件 → 填标题 → 提交」管线，下游转写与 AI 流程零改动。</p>
+  </header>
+
+  <div class="verdict">
+    <h2>结论：主界面输入区（HeroUploadZone）内并列入口</h2>
+    <p>录音在用户心智里是「开始一个新任务」的动作，与上传文件属于同一意图层次。当前 hero 区已经是「点击 / 拖拽 / 最近使用」的输入中枢，把录音入口放在这里，用户一进来就能看到两种开始方式，符合「同层级输入方式并排」的原则，且不需要为录音单独设计导航路径。</p>
+  </div>
+
+  <section>
+    <h2 class="section-title">三个候选位置的对比</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>位置</th>
+          <th>推荐度</th>
+          <th>优点</th>
+          <th>缺点 / 风险</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>A. Hero 上传区内</strong>（拖拽区下方加「开始录音」按钮）</td>
+          <td><span class="tag yes">首选</span></td>
+          <td>与上传文件并列，符合「开始新任务」心智；录完直接进入已有选择/提交流程；改动集中在单个组件</td>
+          <td>需要设计录音中状态（面板切换）；hero 区内容增多，需控制视觉层级</td>
+        </tr>
+        <tr>
+          <td><strong>B. 顶部工具栏</strong>（topbar 右侧，更新按钮旁）</td>
+          <td><span class="tag warn">备选</span></td>
+          <td>全局可达，任何页面（含转写/复习页）都能随时录</td>
+          <td>录音是「新任务输入」，放全局会割裂主流程；录完不知归属哪一步；工具栏空间有限，与更新 chip 挤在一起；桌面 app 顶部还有拖拽区域约束</td>
+        </tr>
+        <tr>
+          <td><strong>C. 侧边栏</strong>（新话题按钮附近加麦克风图标）</td>
+          <td><span class="tag no">不推荐</span></td>
+          <td>侧边栏是任务导航区，看起来「顺路」</td>
+          <td>侧边栏职责是导航/历史，放输入动作违背职责分离；折叠态只剩图标，发现性差；未登录时不渲染侧边栏，入口直接消失</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2 class="section-title">推荐方案：界面示意</h2>
+    <figure>
+      <img src="assets/record-entry-placement.svg" alt="StudyMind 一键录音 UI 放置方案示意图：现状 / 推荐（空闲态新增开始录音按钮）/ 录音中面板">
+      <figcaption>左：现状只有文件选择；中：推荐在拖拽区下方新增「开始录音」入口（次要按钮）；右：点击后 hero 区原地切换为录音面板（脉冲红点 + 计时 + 暂停/停止）</figcaption>
+    </figure>
+    <div class="card-grid" style="margin-top:16px;">
+      <div class="card">
+        <h3><span class="score good">空闲态</span> 次要入口</h3>
+        <p>上传区仍是主 CTA（点击/拖拽），录音按钮作为其下方的描边/深色次要按钮，带麦克风图标 + 文字「开始录音」，避免与文件选择抢主视觉。</p>
+      </div>
+      <div class="card">
+        <h3><span class="score good">录音中</span> 原地切换</h3>
+        <p>hero 区切换为录音面板：脉冲红点 +「录音中」标签 + 等宽字体计时 + 波形动画 + 暂停/停止按钮。状态变化有明确视觉反馈。</p>
+      </div>
+      <div class="card">
+        <h3><span class="score good">停止后</span> 复用管线</h3>
+        <p>停止后把录音写入本地临时音频文件（m4a/wav），调用现有 <code>selectLocalMediaByPath</code>，自动进入「已选文件 → 填标题 → 提交」状态，并写入「最近使用」。</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2 class="section-title">交互状态流转</h2>
+    <div class="timeline">
+      <div class="step">
+        <h4>空闲态</h4>
+        <p>hero 显示「选择文件」大区 + 下方「开始录音」入口（麦克风图标按钮，<code>aria-label</code> 必填）</p>
+      </div>
+      <div class="step">
+        <h4>点击录音 → 请求麦克风权限</h4>
+        <p>首次使用走系统授权；拒绝时在面板内展示错误提示与重试/前往设置路径，不弹裸系统框</p>
+      </div>
+      <div class="step">
+        <h4>录音中</h4>
+        <p>面板展示计时 + 波形 + 暂停/恢复；停止按钮变为主操作；提供「放弃录音」入口（需二次确认或 toast 撤销，防误触丢失）</p>
+      </div>
+      <div class="step">
+        <h4>停止 → 写入本地文件</h4>
+        <p>音频写入临时目录（经 Tauri 侧），调用 <code>selectLocalMediaByPath</code> 完成校验与 token 登记</p>
+      </div>
+      <div class="step">
+        <h4>回到已有流程</h4>
+        <p>hero 呈现「已选文件」状态：文件名、时长、大小，可改名、替换、移除、提交 —— 与上传文件完全一致</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2 class="section-title">实现落点（改动范围很小）</h2>
+    <ul class="checklist">
+      <li>
+        <strong>HeroUploadZone.tsx</strong> <span class="path">app/src/features/workflow/HeroUploadZone.tsx</span>
+        <p>idle 分支新增录音入口；新增 <code>recording</code> 状态与面板；新增「已选录音」展示（时长字段）</p>
+      </li>
+      <li>
+        <strong>新组件 RecordPanel</strong> <span class="path">app/src/features/workflow/RecordPanel.tsx</span>
+        <p>封装录音逻辑（MediaRecorder/后端录音桥）、计时、波形、暂停/停止/放弃；独立便于测试</p>
+      </li>
+      <li>
+        <strong>本地写入桥</strong> <span class="path">app/src/localMediaClient.ts + src-tauri 侧命令</span>
+        <p>新增「保存录音到临时文件」能力，返回路径后复用 <code>selectLocalMediaByPath</code>；同时登记 <code>useRecentMedia</code></p>
+      </li>
+      <li>
+        <strong>i18n</strong> <span class="path">app/src/i18n/workflowResources.ts</span>
+        <p>新增 <code>input.record.*</code> 文案（开始录音 / 录音中 / 暂停 / 停止 / 放弃 / 权限错误等）</p>
+      </li>
+      <li>
+        <strong>无需改动</strong>
+        <p>提交、转写管线、任务状态机、AI 摘要 —— 录音只是新增了一种输入来源，下游全部复用</p>
+      </li>
+    </ul>
+  </section>
+
+  <section>
+    <h2 class="section-title">UX 注意点</h2>
+    <div class="warn-box">
+      <strong>无障碍：</strong>录音按钮必须带 <code>aria-label</code> 与键盘可达（桌面 app 需支持 Enter/Space 触发、Esc 放弃）；录音状态不能只靠红色表达，需配文字「录音中」。<br><br>
+      <strong>防丢失：</strong>停止/放弃录音的路径要清晰；放弃需二次确认或提供「撤销」toast。<br><br>
+      <strong>时长与体积：</strong>建议设上限提示（如 3 小时）与剩余空间检查，避免录完才发现写不下。<br><br>
+      <strong>工具栏快捷键（可选增强）：</strong>可加全局快捷键（如 <code>Ctrl/Cmd + Shift + R</code>）随时唤起录音，作为 hero 入口的补充而非替代。<br><br>
+      <strong>一屏一个主 CTA：</strong>录音按钮样式上弱于文件选择区，保持「上传文件」仍是默认主操作。
+    </div>
+  </section>
+
+  <footer>StudyMind · 一键录音 UI 放置方案 · 基于 app/src 实际代码结构分析 · 2026-08</footer>
+</div>
+</body>
+</html>

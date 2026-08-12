@@ -46,12 +46,6 @@ function renderDetails() {
       actionNotice={null}
       controller={controller}
       workflow={workflow}
-      annotations={[]}
-      annotationsLoading={false}
-      activeAnnotationId={null}
-      onAnnotationAdd={vi.fn()}
-      onAnnotationUpdate={vi.fn()}
-      onAnnotationDelete={vi.fn()}
       onOpenDirectionEditor={vi.fn()}
     />,
   );

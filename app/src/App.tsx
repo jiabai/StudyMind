@@ -36,8 +36,6 @@ import { useTranscriptDissectionController } from "./features/dissection/useTran
 import { AiGenerationWorkspace } from "./features/results/AiGenerationWorkspace";
 import { AiResultDetailSheet } from "./features/results/AiResultDetailSheet";
 import { TaskStatusBanner } from "./features/results/TaskStatusBanner";
-import { AnnotationListPanel } from "./features/results/AnnotationListPanel";
-import { useAnnotationsController } from "./hooks/useAnnotationsController";
 import { AppSidebar } from "./features/sidebar/AppSidebar";
 import { SettingsSheet } from "./features/settings/SettingsSheet";
 import { useSettingsController } from "./features/settings/useSettingsController";
@@ -202,22 +200,10 @@ function App() {
     setActionNotice,
     locale: resolvedLocale,
   });
-  const annotationsController = useAnnotationsController({
-    workflow,
-    setActionNotice,
-  });
   const transcriptNotesController = useTranscriptNotesController({
     workflow,
     setActionNotice,
   });
-  const [annotationPanelVisible, setAnnotationPanelVisible] = useState(true);
-  const [activeAnnotationId, setActiveAnnotationId] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (annotationsController.annotations.length > 0 && workflow.taskId) {
-      void annotationsController.saveAnnotationsToDisk();
-    }
-  }, [annotationsController.annotations, workflow.taskId]);
   const {
     detailTab,
     openDetailTab,
@@ -639,43 +625,21 @@ function App() {
                     editingDisabled={!taskWorkspaceModel.local.canEdit}
                   />
                 ) : null}
-                <div className="task-workspace-learning-row">
-                  {taskWorkspaceModel.ai.visible ? (
-                    <AiGenerationWorkspace
-                      model={taskWorkspaceModel.ai}
-                      quotaRemaining={account.llmQuotaRemaining}
-                      notice={aiActionNotice}
-                      onSummaryAction={openSummaryConfirmation}
-                      onInsightsAction={() => void openInsightPreferenceFlow()}
-                      onDissectionAction={dissectionController.openConfirmation}
-                      onViewTarget={(target) => {
-                        setActionNotice(null);
-                        openDetailTab(target);
-                      }}
-                      onCancel={() => void cancelCurrentProcessing()}
-                    />
-                  ) : null}
-                  <AnnotationListPanel
-                    annotations={annotationsController.annotations}
-                    colors={[
-                      { key: "yellow", label: "重点", className: "color-yellow" },
-                      { key: "blue", label: "疑问", className: "color-blue" },
-                      { key: "green", label: "已掌握", className: "color-green" },
-                      { key: "red", label: "待复习", className: "color-red" },
-                    ]}
-                    onJumpTo={(annotation) => {
-                      openDetailTab(annotation.target_tab as "summary" | "insights" | "dissection");
-                      setActiveAnnotationId(annotation.id);
+                {taskWorkspaceModel.ai.visible ? (
+                  <AiGenerationWorkspace
+                    model={taskWorkspaceModel.ai}
+                    quotaRemaining={account.llmQuotaRemaining}
+                    notice={aiActionNotice}
+                    onSummaryAction={openSummaryConfirmation}
+                    onInsightsAction={() => void openInsightPreferenceFlow()}
+                    onDissectionAction={dissectionController.openConfirmation}
+                    onViewTarget={(target) => {
+                      setActionNotice(null);
+                      openDetailTab(target);
                     }}
-                    onEdit={(annotation) => {
-                      openDetailTab(annotation.target_tab as "summary" | "insights" | "dissection");
-                      setActiveAnnotationId(annotation.id);
-                    }}
-                    onDelete={(id) => annotationsController.deleteAnnotation(id)}
-                    visible={annotationPanelVisible}
-                    onToggleVisible={() => setAnnotationPanelVisible(!annotationPanelVisible)}
+                    onCancel={() => void cancelCurrentProcessing()}
                   />
-                </div>
+                ) : null}
               </div>
             </>
           )}
@@ -823,19 +787,9 @@ function App() {
         actionNotice={actionNotice}
         controller={transcriptDetailController}
         workflow={workflow}
-        annotations={annotationsController.annotations}
-        annotationsLoading={annotationsController.annotationsLoading}
-        activeAnnotationId={activeAnnotationId}
-        onAnnotationAdd={annotationsController.addAnnotation}
-        onAnnotationUpdate={annotationsController.updateAnnotation}
-        onAnnotationDelete={(id) => {
-          annotationsController.deleteAnnotation(id);
-          annotationsController.saveAnnotationsToDisk();
-        }}
         onLocateDissectionChunks={locateDissectionChunks}
         onOpenDirectionEditor={openDirectionEditorFromDetail}
         onOpenDissectionConfirmation={dissectionController.openConfirmation}
-        onAnnotationInteraction={() => setActiveAnnotationId(null)}
       />
 
       <SettingsSheet

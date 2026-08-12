@@ -1,0 +1,151 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" font-family="'Segoe UI','Microsoft YaHei',system-ui,sans-serif">
+  <rect width="1600" height="900" fill="#f7f8fa"/>
+
+  <text x="40" y="52" font-size="28" font-weight="700" fill="#111827">StudyMind · 一键录音功能 UI 放置方案</text>
+  <text x="40" y="80" font-size="16" fill="#6b7280">推荐：输入主界面（HeroUploadZone）内并列入口 · 备选：顶部工具栏全局入口 · 录音停止后复用现有本地文件流程</text>
+
+  <!-- ============ Panel 1: 现状 ============ -->
+  <rect x="40" y="100" width="250" height="34" rx="17" fill="#e5e9f0"/>
+  <text x="165" y="122" font-size="13.5" font-weight="600" fill="#374151" text-anchor="middle">① 现状：输入只有文件选择</text>
+
+  <rect x="60" y="150" width="450" height="480" rx="14" fill="#ffffff" stroke="#d7dce3" stroke-width="1.5"/>
+  <rect x="60" y="150" width="450" height="40" rx="14" fill="#fbfcfe" stroke="#d7dce3" stroke-width="1.5"/>
+  <circle cx="84" cy="170" r="5.5" fill="#ff5f57"/>
+  <circle cx="104" cy="170" r="5.5" fill="#febc2e"/>
+  <circle cx="124" cy="170" r="5.5" fill="#28c840"/>
+  <text x="152" y="175" font-size="14" font-weight="600" fill="#111827">StudyMind</text>
+  <line x1="60" y1="190" x2="510" y2="190" stroke="#eef0f3" stroke-width="1.5"/>
+
+  <text x="100" y="228" font-size="17" font-weight="700" fill="#111827">上传课堂录音 / 录像</text>
+  <text x="100" y="250" font-size="12.5" fill="#6b7280">选择本地音视频，自动转写并生成学习笔记</text>
+
+  <rect x="100" y="272" width="370" height="150" rx="12" fill="#f5f8fc" stroke="#b8c4d6" stroke-width="1.5" stroke-dasharray="7 6"/>
+  <circle cx="285" cy="322" r="26" fill="#e4ecf7"/>
+  <g transform="translate(285,322)" stroke="#3b82f6" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <line x1="0" y1="-10" x2="0" y2="6"/>
+    <path d="M -6 0 L 0 -6 L 6 0"/>
+    <line x1="-7" y1="10" x2="7" y2="10"/>
+  </g>
+  <text x="285" y="366" font-size="14" fill="#374151" text-anchor="middle">点击选择或拖拽文件到此处</text>
+  <text x="285" y="388" font-size="12" fill="#8a94a6" text-anchor="middle">支持 mp3 / wav / m4a / mp4 等</text>
+
+  <text x="100" y="462" font-size="12.5" font-weight="600" fill="#6b7280">最近使用</text>
+  <rect x="100" y="478" width="370" height="26" rx="6" fill="#fafbfc" stroke="#eef0f3"/>
+  <rect x="108" y="484" width="14" height="14" rx="3" fill="#e4ecf7"/>
+  <text x="132" y="496" font-size="12" fill="#374151">课堂录音_第08讲.m4a · 42 MB · 3 小时前</text>
+  <rect x="100" y="508" width="370" height="26" rx="6" fill="#fafbfc" stroke="#eef0f3"/>
+  <rect x="108" y="514" width="14" height="14" rx="3" fill="#e4ecf7"/>
+  <text x="132" y="526" font-size="12" fill="#374151">高等数学_期中复习.mp4 · 1.2 GB · 昨天</text>
+  <rect x="100" y="538" width="370" height="26" rx="6" fill="#fafbfc" stroke="#eef0f3"/>
+  <rect x="108" y="544" width="14" height="14" rx="3" fill="#e4ecf7"/>
+  <text x="132" y="556" font-size="12" fill="#374151">英语听力_Unit 5.mp3 · 18 MB · 2 天前</text>
+
+  <rect x="100" y="600" width="110" height="24" rx="12" fill="#f0f4fa" stroke="#dfe7f2"/>
+  <text x="155" y="616" font-size="12" fill="#4b5563" text-anchor="middle">AI 转写</text>
+  <rect x="220" y="600" width="110" height="24" rx="12" fill="#f0f4fa" stroke="#dfe7f2"/>
+  <text x="275" y="616" font-size="12" fill="#4b5563" text-anchor="middle">本地隐私</text>
+  <rect x="340" y="600" width="110" height="24" rx="12" fill="#f0f4fa" stroke="#dfe7f2"/>
+  <text x="395" y="616" font-size="12" fill="#4b5563" text-anchor="middle">智能摘要</text>
+
+  <text x="285" y="668" font-size="13.5" fill="#6b7280" text-anchor="middle">现在：输入只有一条路径 —— 选择本地文件</text>
+
+  <!-- ============ Panel 2: 推荐 ============ -->
+  <rect x="554" y="100" width="300" height="34" rx="17" fill="#2563eb"/>
+  <text x="704" y="122" font-size="13.5" font-weight="600" fill="#ffffff" text-anchor="middle">② 推荐：空闲态新增『开始录音』入口</text>
+
+  <rect x="574" y="150" width="450" height="480" rx="14" fill="#ffffff" stroke="#d7dce3" stroke-width="1.5"/>
+  <rect x="574" y="150" width="450" height="40" rx="14" fill="#fbfcfe" stroke="#d7dce3" stroke-width="1.5"/>
+  <circle cx="598" cy="170" r="5.5" fill="#ff5f57"/>
+  <circle cx="618" cy="170" r="5.5" fill="#febc2e"/>
+  <circle cx="638" cy="170" r="5.5" fill="#28c840"/>
+  <text x="666" y="175" font-size="14" font-weight="600" fill="#111827">StudyMind</text>
+  <line x1="574" y1="190" x2="1024" y2="190" stroke="#eef0f3" stroke-width="1.5"/>
+
+  <text x="614" y="228" font-size="17" font-weight="700" fill="#111827">上传课堂录音 / 录像</text>
+  <text x="614" y="250" font-size="12.5" fill="#6b7280">选择本地音视频，自动转写并生成学习笔记</text>
+
+  <rect x="614" y="272" width="370" height="100" rx="12" fill="#f5f8fc" stroke="#b8c4d6" stroke-width="1.5" stroke-dasharray="7 6"/>
+  <circle cx="799" cy="306" r="22" fill="#e4ecf7"/>
+  <g transform="translate(799,306)" stroke="#3b82f6" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <line x1="0" y1="-9" x2="0" y2="5"/>
+    <path d="M -5.5 0 L 0 -5 L 5.5 0"/>
+    <line x1="-6" y1="9" x2="6" y2="9"/>
+  </g>
+  <text x="799" y="344" font-size="13.5" fill="#374151" text-anchor="middle">点击选择或拖拽文件到此处</text>
+  <text x="799" y="362" font-size="11.5" fill="#8a94a6" text-anchor="middle">支持 mp3 / wav / m4a / mp4 等</text>
+
+  <rect x="606" y="348" width="152" height="24" rx="12" fill="#ef4444"/>
+  <text x="682" y="364" font-size="11.5" font-weight="600" fill="#ffffff" text-anchor="middle">新增：一键录音</text>
+  <rect x="606" y="376" width="386" height="62" rx="14" fill="none" stroke="#ef4444" stroke-width="2" stroke-dasharray="6 5"/>
+  <rect x="614" y="388" width="370" height="42" rx="10" fill="#111827"/>
+  <g transform="translate(729,409)" stroke="#ffffff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="-4.5" y="-8" width="9" height="16" rx="4.5"/>
+    <line x1="0" y1="8" x2="0" y2="13"/>
+    <path d="M -5.5 11 a 5.5 5.5 0 0 0 11 0"/>
+  </g>
+  <text x="799" y="415" font-size="14.5" font-weight="600" fill="#ffffff" text-anchor="middle">开始录音</text>
+
+  <text x="614" y="464" font-size="12.5" font-weight="600" fill="#6b7280">最近使用</text>
+  <rect x="614" y="470" width="370" height="26" rx="6" fill="#fafbfc" stroke="#eef0f3"/>
+  <rect x="622" y="476" width="14" height="14" rx="3" fill="#e4ecf7"/>
+  <text x="646" y="488" font-size="12" fill="#374151">课堂录音_第08讲.m4a · 42 MB · 3 小时前</text>
+  <rect x="614" y="500" width="370" height="26" rx="6" fill="#fafbfc" stroke="#eef0f3"/>
+  <rect x="622" y="506" width="14" height="14" rx="3" fill="#e4ecf7"/>
+  <text x="646" y="518" font-size="12" fill="#374151">高等数学_期中复习.mp4 · 1.2 GB · 昨天</text>
+
+  <rect x="614" y="596" width="110" height="24" rx="12" fill="#f0f4fa" stroke="#dfe7f2"/>
+  <text x="669" y="612" font-size="12" fill="#4b5563" text-anchor="middle">AI 转写</text>
+  <rect x="734" y="596" width="110" height="24" rx="12" fill="#f0f4fa" stroke="#dfe7f2"/>
+  <text x="789" y="612" font-size="12" fill="#4b5563" text-anchor="middle">本地隐私</text>
+  <rect x="854" y="596" width="110" height="24" rx="12" fill="#f0f4fa" stroke="#dfe7f2"/>
+  <text x="909" y="612" font-size="12" fill="#4b5563" text-anchor="middle">智能摘要</text>
+
+  <text x="799" y="668" font-size="13.5" fill="#6b7280" text-anchor="middle">录音入口与文件选择同级并列，停止后复用现有『选择 → 标题 → 提交』流程</text>
+
+  <!-- ============ Panel 3: 录音中 ============ -->
+  <rect x="1068" y="100" width="260" height="34" rx="17" fill="#dc2626"/>
+  <text x="1198" y="122" font-size="13.5" font-weight="600" fill="#ffffff" text-anchor="middle">③ 录音中：切换为录音面板</text>
+
+  <rect x="1088" y="150" width="450" height="480" rx="14" fill="#ffffff" stroke="#d7dce3" stroke-width="1.5"/>
+  <rect x="1088" y="150" width="450" height="40" rx="14" fill="#fbfcfe" stroke="#d7dce3" stroke-width="1.5"/>
+  <circle cx="1112" cy="170" r="5.5" fill="#ff5f57"/>
+  <circle cx="1132" cy="170" r="5.5" fill="#febc2e"/>
+  <circle cx="1152" cy="170" r="5.5" fill="#28c840"/>
+  <text x="1180" y="175" font-size="14" font-weight="600" fill="#111827">StudyMind</text>
+  <line x1="1088" y1="190" x2="1538" y2="190" stroke="#eef0f3" stroke-width="1.5"/>
+
+  <text x="1128" y="228" font-size="17" font-weight="700" fill="#111827">上传课堂录音 / 录像</text>
+  <text x="1128" y="250" font-size="12.5" fill="#6b7280">选择本地音视频，自动转写并生成学习笔记</text>
+
+  <rect x="1128" y="272" width="370" height="190" rx="12" fill="#fff5f5" stroke="#fecaca" stroke-width="1.5"/>
+  <circle cx="1176" cy="308" r="14" fill="#ef4444" opacity="0.15"/>
+  <circle cx="1176" cy="308" r="8" fill="#ef4444"/>
+  <text x="1196" y="313" font-size="15" font-weight="700" fill="#dc2626">录音中</text>
+  <text x="1313" y="362" font-size="34" font-weight="600" fill="#111827" text-anchor="middle" font-family="'SF Mono',Consolas,monospace">00:12:34</text>
+  <g fill="#ef4444" opacity="0.85">
+    <rect x="1243" y="385" width="8" height="10" rx="3"/>
+    <rect x="1263" y="379" width="8" height="16" rx="3"/>
+    <rect x="1283" y="373" width="8" height="22" rx="3"/>
+    <rect x="1303" y="369" width="8" height="26" rx="3"/>
+    <rect x="1323" y="373" width="8" height="22" rx="3"/>
+    <rect x="1343" y="379" width="8" height="16" rx="3"/>
+    <rect x="1363" y="385" width="8" height="10" rx="3"/>
+  </g>
+  <rect x="1223" y="424" width="84" height="32" rx="16" fill="#ffffff" stroke="#fca5a5" stroke-width="1.5"/>
+  <text x="1265" y="444" font-size="13" font-weight="600" fill="#dc2626" text-anchor="middle">暂停</text>
+  <rect x="1319" y="424" width="84" height="32" rx="16" fill="#dc2626"/>
+  <text x="1361" y="444" font-size="13" font-weight="600" fill="#ffffff" text-anchor="middle">停止</text>
+
+  <text x="1313" y="500" font-size="13" fill="#6b7280" text-anchor="middle">停止后自动写入本地音频文件，进入转写任务流程</text>
+
+  <rect x="1128" y="596" width="110" height="24" rx="12" fill="#f0f4fa" stroke="#dfe7f2"/>
+  <text x="1183" y="612" font-size="12" fill="#4b5563" text-anchor="middle">AI 转写</text>
+  <rect x="1248" y="596" width="110" height="24" rx="12" fill="#f0f4fa" stroke="#dfe7f2"/>
+  <text x="1303" y="612" font-size="12" fill="#4b5563" text-anchor="middle">本地隐私</text>
+  <rect x="1368" y="596" width="110" height="24" rx="12" fill="#f0f4fa" stroke="#dfe7f2"/>
+  <text x="1423" y="612" font-size="12" fill="#4b5563" text-anchor="middle">智能摘要</text>
+
+  <text x="1313" y="668" font-size="13.5" fill="#6b7280" text-anchor="middle">录音面板：脉冲红点 + 计时 + 暂停/停止 · 误触取消需二次确认</text>
+
+  <text x="1590" y="880" font-size="12" fill="#9aa3b2" text-anchor="end">StudyMind · UI 方案示意图 · 2026-08</text>
+</svg>

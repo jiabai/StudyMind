@@ -427,33 +427,19 @@ describe("task domain workspaces", () => {
     );
     const taskLayoutStart = appSource.lastIndexOf("<div", taskLayoutClassStart);
     const taskLayoutEnd = findMatchingDivClose(appSource, taskLayoutStart);
-    const learningRowClassStart = appSource.indexOf(
-      'className="task-workspace-learning-row"',
-    );
-    const learningRowStart = appSource.lastIndexOf("<div", learningRowClassStart);
-    const learningRowEnd = findMatchingDivClose(appSource, learningRowStart);
     const taskLayoutSource = appSource.slice(taskLayoutStart, taskLayoutEnd);
-    const learningRowSource = appSource.slice(learningRowStart, learningRowEnd);
     const transcriptStart = appSource.indexOf("<LocalTranscriptWorkspace");
     const notesStart = appSource.indexOf("<TranscriptNotesPanel");
-    const annotationStart = appSource.indexOf("<AnnotationListPanel");
 
     expect(taskLayoutSource).toContain("<LocalTranscriptWorkspace");
     expect(taskLayoutSource).toContain("<TranscriptNotesPanel");
-    expect(taskLayoutSource).toContain('className="task-workspace-learning-row"');
-    expect(learningRowClassStart).toBeGreaterThan(-1);
-    expect(learningRowEnd).toBeGreaterThan(learningRowStart);
-    expect(learningRowSource).toContain("<AiGenerationWorkspace");
-    expect(learningRowSource).toContain("<AnnotationListPanel");
-    expect(learningRowSource.indexOf("<AnnotationListPanel")).toBeGreaterThan(
-      learningRowSource.indexOf("<AiGenerationWorkspace"),
-    );
+    expect(taskLayoutSource).toContain("<AiGenerationWorkspace");
+    expect(taskLayoutSource).not.toContain("AnnotationListPanel");
+    expect(taskLayoutSource).not.toContain("annotation");
     expect(transcriptStart).toBeGreaterThan(taskLayoutStart);
     expect(notesStart).toBeGreaterThan(transcriptStart);
-    expect(notesStart).toBeLessThan(learningRowStart);
     expect(notesStart).toBeLessThan(taskLayoutEnd);
-    expect(annotationStart).toBeGreaterThan(learningRowStart);
-    expect(annotationStart).toBeLessThan(learningRowEnd);
+    expect(appSource).not.toContain("useAnnotationsController");
   });
 
   test("renders one note action per transcript segment with inserted state", () => {
@@ -639,12 +625,6 @@ describe("task domain workspaces", () => {
         actionNotice={null}
         controller={controller}
         workflow={workflow}
-        annotations={[]}
-        annotationsLoading={false}
-        activeAnnotationId={null}
-        onAnnotationAdd={vi.fn()}
-        onAnnotationUpdate={vi.fn()}
-        onAnnotationDelete={vi.fn()}
         onOpenDirectionEditor={vi.fn()}
         onOpenDissectionConfirmation={vi.fn()}
         onLocateDissectionChunks={vi.fn()}
@@ -676,12 +656,6 @@ describe("task domain workspaces", () => {
         actionNotice={null}
         controller={controller}
         workflow={workflow}
-        annotations={[]}
-        annotationsLoading={false}
-        activeAnnotationId={null}
-        onAnnotationAdd={vi.fn()}
-        onAnnotationUpdate={vi.fn()}
-        onAnnotationDelete={vi.fn()}
         onOpenDirectionEditor={vi.fn()}
         onOpenDissectionConfirmation={vi.fn()}
         onLocateDissectionChunks={vi.fn()}

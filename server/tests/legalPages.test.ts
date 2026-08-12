@@ -31,7 +31,8 @@ describe("StudyMind legal pages", () => {
 
   test("keeps local-first guarantees in the privacy copy without uploading claims", () => {
     const privacy = renderLegalPage("privacy", "zh-CN");
-    expect(privacy).toContain("音视频文件、带时间戳的文字稿、历史课题与标注均保存在你的设备上");
+    expect(privacy).toContain("音视频文件、带时间戳的文字稿与历史课题均保存在你的设备上");
+    expect(privacy).not.toContain("标注");
     expect(privacy).not.toContain("上传你的音视频");
   });
 

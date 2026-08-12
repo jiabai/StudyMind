@@ -4,7 +4,7 @@
 
 **Goal:** 为有分段数据的 Transcript 增加按文字块关联的 Task 笔记，并将【我的笔记】放在【文字稿校对】右侧、【学习整理】放在其下方。
 
-**Architecture:** 新增独立的 TranscriptNote 前端状态、IPC 客户端、Tauri Task 存储和面板组件，不复用现有 SummaryAnnotation。App 负责组合三张工作区卡片；TranscriptReviewPanel 只展示文字块笔记入口；笔记以版本化 JSON 按 Task 保存，文字稿 Artifact 和 Worker 不变。
+**Architecture:** 新增独立的 TranscriptNote 前端状态、IPC 客户端、Tauri Task 存储和面板组件，与 AI 结果生成和展示流程解耦。App 负责组合三张工作区卡片；TranscriptReviewPanel 只展示文字块笔记入口；笔记以版本化 JSON 按 Task 保存，文字稿 Artifact 和 Worker 不变。
 
 **Tech Stack:** React 19、TypeScript、react-i18next、lucide-react、Tauri 2、Rust/serde、Vitest、Cargo test。
 
@@ -321,7 +321,7 @@ fn empty_content_and_schema_mismatch_are_rejected() {
 }
 ```
 
-`create_supported_task` and `notes_path` should be small test-only helpers that create the same minimal `StudyMind-task.json` shape already used by `annotation_storage.rs` tests.
+`create_supported_task` and `notes_path` should be small test-only helpers that create the same minimal `StudyMind-task.json` shape used by the storage module tests.
 
 - [ ] **Step 2: Run the focused Rust tests to verify they fail**
 
@@ -782,7 +782,7 @@ git commit -m "feat: add note actions to transcript segments"
 
 - [ ] **Step 1: Mount the notes controller in App**
 
-Import and call the hook beside `useAnnotationsController`:
+Import and call the hook beside the other task-scoped controllers:
 
 ```tsx
 import { useTranscriptNotesController } from "./features/transcript/useTranscriptNotesController";
@@ -794,7 +794,7 @@ const transcriptNotesController = useTranscriptNotesController({
 });
 ```
 
-Do not add notes to the annotation autosave effect; the notes controller owns its own save lifecycle.
+The notes controller owns its own save lifecycle.
 
 - [ ] **Step 2: Wrap the local and AI workspaces into a primary column**
 
@@ -837,11 +837,11 @@ Replace the current direct siblings with this structure:
 </div>
 ```
 
-Keep `AnnotationListPanel` after this layout, unchanged and full width.
+Keep the transcript notes panel in the workspace layout without coupling it to AI result rendering.
 
 - [ ] **Step 3: Add a layout assertion without changing existing workspace semantics**
 
-Extend the workspace markup test or add a focused structural test that reads `App.tsx` as the existing CSS tests do. Assert the presence and order of `task-workspace-primary-column`, `TranscriptNotesPanel`, `notesController`, and the existing `AnnotationListPanel` after the workspace layout.
+Extend the workspace markup test or add a focused structural test that reads `App.tsx` as the existing CSS tests do. Assert the presence and order of `task-workspace-primary-column`, `TranscriptNotesPanel`, and `notesController`, and assert that the removed AI-result annotation surface is not mounted.
 
 - [ ] **Step 4: Run the workspace tests**
 
@@ -1039,5 +1039,5 @@ git commit -m "feat: add task scoped transcript notes"
 - Design coverage: layout, unique segment association, blank creation, second-click editing, inline save/cancel, deletion, orphan retention, Task persistence, full-editor boundary, read-only AI state, IPC storage, localization, accessibility, responsive layout, and tests are each assigned to a task above.
 - Type consistency: `TranscriptNote` is defined once in `app/src/transcriptNotesState.ts`; the IPC client, controller, panel, and segment icon all consume that type. Rust uses the same six serialized field names and the same schema version.
 - Placeholder scan: the plan contains no `TBD`, `TODO`, or unspecified implementation step. Every verification command names an exact command and expected result.
-- Scope check: no Worker changes, no SummaryAnnotation migration, no AI prompt changes, and no cross-Task notes are included.
-- Safety check: only the new Task notes sidecar is written; Transcript Artifact and existing AI annotation storage remain untouched.
+- Scope check: no Worker changes, no AI prompt changes, and no cross-Task notes are included.
+- Safety check: only the new Task notes sidecar is written; Transcript Artifact and AI result generation remain untouched.

@@ -15,10 +15,6 @@ const transcriptReviewPanelTsx = readFileSync(
   new URL("./features/transcript/TranscriptReviewPanel.tsx", import.meta.url),
   "utf-8",
 );
-const annotationListPanelTsx = readFileSync(
-  new URL("./features/results/AnnotationListPanel.tsx", import.meta.url),
-  "utf-8",
-);
 const aiResultDetailSheetTsx = readFileSync(
   new URL("./features/results/AiResultDetailSheet.tsx", import.meta.url),
   "utf-8",
@@ -81,21 +77,14 @@ describe("App result workspace layout styles", () => {
     );
   });
 
-  test("aligns the transcript, notes, learning, and annotation cards on shared columns", () => {
+  test("aligns the transcript, notes, and learning workspaces on shared columns", () => {
     const taskLayoutRule = getRuleBody([".task-workspace-layout"]);
-    const learningRowRule = getRuleBody([".task-workspace-learning-row"]);
     const notesWorkspaceRule = getRuleBody([".transcript-notes-workspace"]);
     const notesScrollRule = getRuleBody([".transcript-notes-scroll"]);
     const noteButtonRule = getRuleBody([".transcript-segment-note"]);
     const insertedButtonRule = getRuleBody([".transcript-segment-note.inserted"]);
 
     expect(taskLayoutRule).toContain(
-      "grid-template-columns: minmax(0, 1.62fr) minmax(360px, 1fr);",
-    );
-    expect(learningRowRule).toContain("display: grid;");
-    expect(learningRowRule).toContain("gap: var(--space-4);");
-    expect(learningRowRule).toContain("grid-column: 1 / -1;");
-    expect(learningRowRule).toContain(
       "grid-template-columns: minmax(0, 1.62fr) minmax(360px, 1fr);",
     );
     expect(notesWorkspaceRule).toContain("height: min(760px, calc(100vh - 188px));");
@@ -113,47 +102,11 @@ describe("App result workspace layout styles", () => {
     );
   });
 
-  test("aligns the annotation card beside the learning workspace", () => {
-    const learningRowRule = getRuleBody([".task-workspace-learning-row"]);
-    const annotationRule = getRuleBody([".task-workspace-learning-row > .annotation-panel"]);
-
-    expect(learningRowRule).toContain("display: grid;");
-    expect(learningRowRule).toContain("gap: var(--space-4);");
-    expect(learningRowRule).toContain(
-      "grid-template-columns: minmax(0, 1.62fr) minmax(360px, 1fr);",
-    );
-    expect(annotationRule).toContain("margin-top: 0;");
-    expect(appCss).toMatch(
-      /@media \(max-width: 1099px\)[\s\S]*?\.task-workspace-learning-row\s*\{[\s\S]*?grid-template-columns: minmax\(0, 1fr\);/,
-    );
-  });
-
-  test("gives the annotation card the shared workspace surface and height", () => {
-    const learningRowRule = getRuleBody([".task-workspace-learning-row"]);
-    const annotationContentRule = getRuleBody([".annotation-panel-content"]);
-
-    expect(annotationListPanelTsx).toContain(
-      'className={`task-domain-workspace annotation-panel ${visible ? "visible" : "collapsed"}`}',
-    );
-    expect(learningRowRule).toContain("height: min(760px, calc(100vh - 188px));");
-    expect(learningRowRule).toContain("min-height: 520px;");
-    expect(annotationContentRule).toContain("max-height: none;");
-  });
-
-  test("uses the shared workspace header for the annotation card title", () => {
-    const toggleRule = getRuleBody([".annotation-panel-toggle"]);
-
-    expect(annotationListPanelTsx).toContain(
-      'className="domain-workspace-header annotation-panel-header"',
-    );
-    expect(annotationListPanelTsx).toContain(
-      '<h2>{t("annotation.panelTitle")}</h2>',
-    );
-    expect(annotationListPanelTsx).not.toContain(
-      '<h3 className="annotation-panel-title">',
-    );
-    expect(toggleRule).toContain("display: inline-flex;");
-    expect(toggleRule).toContain("flex-direction: row;");
+  test("does not retain the removed annotation feature", () => {
+    expect(appTsx).not.toContain("AnnotationListPanel");
+    expect(appTsx).not.toContain("useAnnotationsController");
+    expect(appTsx).not.toContain("annotationsController");
+    expect(appCss).not.toContain("annotation");
   });
 
   test("does not expose the FrameQ app mark in shared product resources", () => {
@@ -385,13 +338,14 @@ describe("App result workspace layout styles", () => {
     expect(transcriptReviewPanelTsx).not.toContain("controls\n");
   });
 
-  test("renders summary markdown through the markdown content component", () => {
+  test("renders summary markdown through the sanitized markdown renderer", () => {
     const markdownRule = getRuleBody([".markdown-content"]);
     const headingRule = getRuleBody([".markdown-content :is(h1, h2, h3, h4)"]);
     const tableRule = getRuleBody([".markdown-content table"]);
 
-    expect(aiResultDetailSheetTsx).toContain("MarkdownContent");
-    expect(aiResultDetailSheetTsx).toContain('markdown={workflow.summary}');
+    expect(aiResultDetailSheetTsx).toContain("ReactMarkdown");
+    expect(aiResultDetailSheetTsx).toContain("rehypeSanitize");
+    expect(aiResultDetailSheetTsx).toContain("workflow.summary.trim()");
     expect(markdownRule).toContain("white-space: normal;");
     expect(markdownRule).toContain("overflow-wrap: anywhere;");
     expect(headingRule).toContain("line-height: 1.35;");

@@ -3,7 +3,6 @@ use tauri::Manager;
 use tauri_plugin_deep_link::DeepLinkExt;
 
 mod account;
-mod annotation_storage;
 mod asr_model;
 mod atomic_files;
 mod deep_link;
@@ -109,8 +108,6 @@ pub fn run() {
             transcript_detail::save_transcript_edit,
             transcript_notes_storage::load_transcript_notes,
             transcript_notes_storage::save_transcript_notes,
-            annotation_storage::load_annotations,
-            annotation_storage::save_annotations,
             updates::get_update_preferences,
             updates::save_update_preferences,
             updates::get_update_delivery,
