@@ -167,7 +167,7 @@ export function AiResultDetailSheet({
           </div>
         </div>
         {renderedActionNotice ? <p className="action-notice" role="status" aria-live="polite">{renderedActionNotice}</p> : null}
-        <div className="modal-content">
+        <div className={`modal-content${summaryEditing && hasSummaryArtifact ? " summary-editor-content" : ""}`}>
           {detailTab === "summary" ? (
             summaryEditing && hasSummaryArtifact ? (
               <div className="summary-editor">

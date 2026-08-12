@@ -1238,6 +1238,11 @@ h3 {
   white-space: pre-wrap;
 }
 
+.modal-content.summary-editor-content {
+  display: flex;
+  flex-direction: column;
+}
+
 .modal-content ol {
   display: grid;
   gap: 12px;

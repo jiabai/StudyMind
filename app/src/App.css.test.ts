@@ -367,6 +367,14 @@ describe("App result workspace layout styles", () => {
     expect(aiResultDetailSheetTsx).toContain('role="dialog"');
   });
 
+  test("lets the summary editor consume the detail content height", () => {
+    const editorContentRule = getRuleBody([".modal-content.summary-editor-content"]);
+
+    expect(editorContentRule).toContain("display: flex;");
+    expect(editorContentRule).toContain("flex-direction: column;");
+    expect(aiResultDetailSheetTsx).toContain("summary-editor-content");
+  });
+
   test("keeps the transcript audio review bar in the requested single-line player style", () => {
     const barRule = getRuleBody([".audio-review-bar"]);
     const playButtonRule = getRuleBody([".audio-play-button"]);
