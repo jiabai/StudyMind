@@ -1,4 +1,5 @@
-import { Copy, Download, RotateCcw, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Copy, Download, Eye, Pencil, RotateCcw, Save, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import type { SummaryAnnotation } from "../../annotationClient";
@@ -9,6 +10,9 @@ import type { TranscriptDetailController } from "../transcript/useTranscriptDeta
 import { useModalFocus } from "../modal/useModalFocus";
 import { AnnotatedMarkdownContent } from "./AnnotatedMarkdownContent";
 import { DissectionReport } from "./DissectionReport";
+import { MarkdownContent } from "./MarkdownContent";
+
+type SummaryEditorMode = "edit" | "preview";
 
 type AiResultDetailSheetProps = {
   actionNotice: UiMessage | null;
@@ -55,7 +59,53 @@ export function AiResultDetailSheet({
     ? i18n.resolvedLanguage
     : "en-US";
   const renderedActionNotice = renderUiMessage(locale, actionNotice);
-  const { detailTab, closeDetail, copyDetail, exportDetail, exportPath } = controller;
+  const {
+    detailTab,
+    closeDetail,
+    copyDetail,
+    exportDetail,
+    exportPath,
+    summaryEditing = false,
+    summaryDraft = workflow.summary,
+    summaryDirty = false,
+    summarySaving = false,
+    beginSummaryEdit = () => undefined,
+    cancelSummaryEdit = () => undefined,
+    updateSummaryDraft = () => undefined,
+    saveSummaryDraft = () => Promise.resolve(),
+  } = controller;
+  const [summaryEditorMode, setSummaryEditorMode] = useState<SummaryEditorMode>("preview");
+  const hasSummaryArtifact =
+    detailTab === "summary" && Boolean(workflow.artifacts.summary);
+
+  useEffect(() => {
+    if (!summaryEditing) {
+      setSummaryEditorMode("preview");
+    }
+  }, [summaryEditing]);
+
+  const requestCloseDetail = () => {
+    if (
+      detailTab === "summary" &&
+      summaryEditing &&
+      summaryDirty &&
+      !window.confirm(t("detail.summaryDiscardConfirm"))
+    ) {
+      return;
+    }
+    closeDetail();
+  };
+
+  const handleBeginSummaryEdit = () => {
+    beginSummaryEdit();
+    setSummaryEditorMode("edit");
+  };
+
+  const handleCancelSummaryEdit = () => {
+    cancelSummaryEdit();
+    setSummaryEditorMode("preview");
+  };
+
   const resultDetailModalRef = useModalFocus<HTMLElement>(
     detailTab === "summary" || detailTab === "insights" || detailTab === "dissection",
   );
@@ -78,7 +128,7 @@ export function AiResultDetailSheet({
   ).length;
 
   return (
-    <div className="modal-backdrop sheet-backdrop" role="presentation" onClick={closeDetail}>
+    <div className="modal-backdrop sheet-backdrop" role="presentation" onClick={requestCloseDetail}>
       <section
         ref={resultDetailModalRef}
         className="sheet-panel detail-modal ai-result-detail-sheet"
@@ -102,7 +152,7 @@ export function AiResultDetailSheet({
           <button
             className="icon-button"
             type="button"
-            onClick={closeDetail}
+            onClick={requestCloseDetail}
             aria-label={t("detail.closeAria")}
           >
             <X size={18} />
@@ -111,7 +161,7 @@ export function AiResultDetailSheet({
         <div className="modal-tools">
           <span>
             {t("detail.localPreview")}
-            {detailTab === "summary" && (
+            {detailTab === "summary" && !summaryEditing && (
               <span className="annotation-hint">
                 {annotationsLoading
                   ? t("annotation.loadingHint")
@@ -120,6 +170,12 @@ export function AiResultDetailSheet({
             )}
           </span>
           <div className="tool-actions">
+            {hasSummaryArtifact && !summaryEditing ? (
+              <button type="button" onClick={handleBeginSummaryEdit}>
+                <Pencil size={16} />
+                <span>{t("detail.edit")}</span>
+              </button>
+            ) : null}
             <button type="button" onClick={copyDetail} disabled={!controller.detailText}>
               <Copy size={16} />
               <span>{t("detail.copy")}</span>
@@ -153,18 +209,85 @@ export function AiResultDetailSheet({
         ) : null}
         <div className="modal-content">
           {detailTab === "summary" ? (
-            <AnnotatedMarkdownContent
-              markdown={workflow.summary}
-              emptyText={t("detail.summaryEmpty")}
-              targetTab="summary"
-              annotations={annotations}
-              onAddAnnotation={(tab, anchor, idx, content, color) => {
-                onAnnotationAdd(tab, anchor, idx, content, color);
-              }}
-              onUpdateAnnotation={onAnnotationUpdate}
-              onDeleteAnnotation={onAnnotationDelete}
-              activeAnnotationId={activeAnnotationId}
-            />
+            summaryEditing && hasSummaryArtifact ? (
+              <div className="summary-editor">
+                <div className="summary-editor-tabs" role="tablist" aria-label={t("detail.summaryEditAria")}>
+                  <button
+                    className={summaryEditorMode === "edit" ? "selected" : ""}
+                    type="button"
+                    role="tab"
+                    aria-selected={summaryEditorMode === "edit"}
+                    onClick={() => setSummaryEditorMode("edit")}
+                  >
+                    <Pencil size={15} />
+                    <span>{t("detail.edit")}</span>
+                  </button>
+                  <button
+                    className={summaryEditorMode === "preview" ? "selected" : ""}
+                    type="button"
+                    role="tab"
+                    aria-selected={summaryEditorMode === "preview"}
+                    onClick={() => setSummaryEditorMode("preview")}
+                  >
+                    <Eye size={15} />
+                    <span>{t("detail.preview")}</span>
+                  </button>
+                </div>
+                <p className="summary-editor-hint">{t("detail.summaryEditorHint")}</p>
+                {summaryEditorMode === "edit" ? (
+                  <textarea
+                    className="summary-editor-textarea"
+                    aria-label={t("detail.summaryEditAria")}
+                    value={summaryDraft}
+                    onChange={(event) => updateSummaryDraft(event.target.value)}
+                    disabled={summarySaving}
+                  />
+                ) : (
+                  <MarkdownContent
+                    markdown={summaryDraft}
+                    emptyText={t("detail.summaryEmpty")}
+                  />
+                )}
+                <div className="summary-editor-actions">
+                  {summarySaving ? (
+                    <span className="summary-editor-status" role="status" aria-live="polite">
+                      {t("detail.summarySaving")}
+                    </span>
+                  ) : null}
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={handleCancelSummaryEdit}
+                    disabled={summarySaving}
+                  >
+                    <X size={16} />
+                    <span>{t("detail.cancel")}</span>
+                  </button>
+                  <button
+                    className="primary-button"
+                    type="button"
+                    onClick={() => void saveSummaryDraft()}
+                    disabled={summarySaving}
+                  >
+                    <Save size={16} />
+                    <span>{summarySaving ? t("detail.summarySaving") : t("detail.save")}</span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <AnnotatedMarkdownContent
+                markdown={workflow.summary}
+                emptyText={t("detail.summaryEmpty")}
+                targetTab="summary"
+                annotations={annotations}
+                onAddAnnotation={(tab, anchor, idx, content, color) => {
+                  onAnnotationAdd(tab, anchor, idx, content, color);
+                }}
+                onUpdateAnnotation={onAnnotationUpdate}
+                onDeleteAnnotation={onAnnotationDelete}
+                activeAnnotationId={activeAnnotationId}
+              />
+            )
           ) : detailTab === "dissection" ? (
             workflow.dissection ? (
               <DissectionReport

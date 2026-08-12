@@ -1,4 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
+import { readFileSync } from "node:fs";
 import { describe, expect, test, vi } from "vitest";
 
 import { initializeI18n } from "../../i18n/i18n";
@@ -8,6 +9,61 @@ import type { TranscriptDetailController } from "../transcript/useTranscriptDeta
 import { AiResultDetailSheet } from "./AiResultDetailSheet";
 
 const USER_TOPIC = "Keep 用户原文 unchanged";
+
+function renderSummaryDetails({
+  artifacts = { summary: "ai/summary.md" },
+  summaryEditing = false,
+  summaryDraft = "# Draft summary",
+}: {
+  artifacts?: Record<string, string>;
+  summaryEditing?: boolean;
+  summaryDraft?: string;
+} = {}) {
+  const workflow = summarizeWorkerResult({
+    status: "completed",
+    task_id: "task-summary",
+    task_dir: "D:/StudyMind/tasks/task-summary",
+    artifacts,
+    text: "Transcript",
+    summary: "# Saved summary",
+    insights: [],
+    transcript: null,
+    dissection: null,
+    dissection_source_status: null,
+    error: null,
+  });
+  const controller = {
+    detailTab: "summary",
+    closeDetail: vi.fn(),
+    copyDetail: vi.fn(),
+    exportDetail: vi.fn(),
+    exportPath: "D:/StudyMind/tasks/task-summary/ai/summary.md",
+    detailText: workflow.summary,
+    summaryEditing,
+    summaryDraft,
+    summaryDirty: false,
+    summarySaving: false,
+    beginSummaryEdit: vi.fn(),
+    cancelSummaryEdit: vi.fn(),
+    updateSummaryDraft: vi.fn(),
+    saveSummaryDraft: vi.fn(),
+  } as unknown as TranscriptDetailController;
+
+  return renderToStaticMarkup(
+    <AiResultDetailSheet
+      actionNotice={null}
+      controller={controller}
+      workflow={workflow}
+      annotations={[]}
+      annotationsLoading={false}
+      activeAnnotationId={null}
+      onAnnotationAdd={vi.fn()}
+      onAnnotationUpdate={vi.fn()}
+      onAnnotationDelete={vi.fn()}
+      onOpenDirectionEditor={vi.fn()}
+    />
+  );
+}
 
 function renderDetails() {
   const workflow = summarizeWorkerResult({
@@ -79,4 +135,24 @@ describe("AI result detail localization", () => {
       expect(markup).toContain("Question B");
     },
   );
+
+  test("shows the local summary edit action only when the summary artifact exists", async () => {
+    await initializeI18n("zh-CN");
+    expect(renderSummaryDetails()).toContain(">编辑</span>");
+    expect(renderSummaryDetails({ artifacts: {} })).not.toContain(">编辑</span>");
+  });
+
+  test("renders the draft editor and wires save to the controller", async () => {
+    await initializeI18n("en-US");
+    const markup = renderSummaryDetails({ summaryEditing: true, summaryDraft: "## Draft" });
+    const source = readFileSync(new URL("./AiResultDetailSheet.tsx", import.meta.url), "utf8");
+
+    expect(markup).toContain(">Draft</h2>");
+    expect(markup).toContain("Edit");
+    expect(markup).toContain("Preview");
+    expect(markup).toContain("Save");
+    expect(source).toContain("saveSummaryDraft");
+    expect(source).toContain("MarkdownContent");
+    expect(source).toContain("summaryEditorHint");
+  });
 });
