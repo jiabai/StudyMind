@@ -76,7 +76,7 @@ pub(crate) fn commit_task_artifacts(
     task_dir: &Path,
     mutations: Vec<TaskArtifactMutation>,
 ) -> Result<(), String> {
-    validate_directory(task_dir).map_err(|_| COMMIT_ERROR.to_string())?;
+    validate_directory_chain(task_dir).map_err(|_| COMMIT_ERROR.to_string())?;
     recover_task_artifacts(task_dir)?;
     let mutations =
         validate_mutations(task_dir, mutations).map_err(|_| COMMIT_ERROR.to_string())?;
@@ -85,7 +85,12 @@ pub(crate) fn commit_task_artifacts(
         .map_err(|_| COMMIT_ERROR.to_string())?;
     let material_paths = material_paths(task_dir, &entries);
 
+    validate_commit_paths(task_dir, &entries).map_err(|_| COMMIT_ERROR.to_string())?;
     if prepare_materials(task_dir, &entries, &mutations).is_err() {
+        cleanup_paths_best_effort(&material_paths);
+        return Err(COMMIT_ERROR.to_string());
+    }
+    if validate_materialized_commit(task_dir, &entries).is_err() {
         cleanup_paths_best_effort(&material_paths);
         return Err(COMMIT_ERROR.to_string());
     }
@@ -103,6 +108,7 @@ pub(crate) fn commit_task_artifacts(
 
     let apply_result = (|| {
         for entry in &prepared.entries {
+            validate_materialized_entry(task_dir, entry)?;
             let destination = destination_path(task_dir, &entry.destination);
             match &entry.staging {
                 Some(staging) => {
@@ -363,6 +369,7 @@ fn load_all_rollbacks(
 }
 
 fn write_journal(task_dir: &Path, journal: &TransactionJournal) -> Result<(), ()> {
+    validate_directory_chain(task_dir)?;
     let mut bytes = serde_json::to_vec_pretty(journal).map_err(|_| ())?;
     bytes.push(b'\n');
     atomic_write(&task_dir.join(JOURNAL_FILE_NAME), &bytes).map_err(|_| ())
@@ -457,8 +464,16 @@ fn ensure_destination_parent(task_dir: &Path, destination: &str) -> Result<(), (
     }
     let path = destination_path(task_dir, destination);
     let parent = path.parent().ok_or(())?;
+    validate_directory_chain(task_dir)?;
     fs::create_dir_all(parent).map_err(|_| ())?;
-    validate_directory(task_dir)?;
+    validate_destination_parent(task_dir, destination)
+}
+
+fn validate_destination_parent(task_dir: &Path, destination: &str) -> Result<(), ()> {
+    if !allowed_destination(destination) {
+        return Err(());
+    }
+    validate_directory_chain(task_dir)?;
     let mut current = task_dir.to_path_buf();
     for component in destination
         .split('/')
@@ -466,6 +481,35 @@ fn ensure_destination_parent(task_dir: &Path, destination: &str) -> Result<(), (
     {
         current.push(component);
         validate_directory(&current)?;
+    }
+    Ok(())
+}
+
+fn validate_commit_paths(task_dir: &Path, entries: &[TransactionEntry]) -> Result<(), ()> {
+    validate_directory_chain(task_dir)?;
+    for entry in entries {
+        validate_destination_parent(task_dir, &entry.destination)?;
+        validate_optional_regular_file(&destination_path(task_dir, &entry.destination))?;
+    }
+    Ok(())
+}
+
+fn validate_materialized_commit(task_dir: &Path, entries: &[TransactionEntry]) -> Result<(), ()> {
+    validate_commit_paths(task_dir, entries)?;
+    for entry in entries {
+        validate_materialized_entry(task_dir, entry)?;
+    }
+    Ok(())
+}
+
+fn validate_materialized_entry(task_dir: &Path, entry: &TransactionEntry) -> Result<(), ()> {
+    validate_destination_parent(task_dir, &entry.destination)?;
+    validate_optional_regular_file(&destination_path(task_dir, &entry.destination))?;
+    if let Some(staging) = &entry.staging {
+        validate_regular_file(&task_dir.join(staging))?;
+    }
+    if let Some(rollback) = &entry.rollback {
+        validate_regular_file(&task_dir.join(rollback))?;
     }
     Ok(())
 }
@@ -509,6 +553,16 @@ fn validate_directory(path: &Path) -> Result<(), ()> {
     } else {
         Err(())
     }
+}
+
+fn validate_directory_chain(path: &Path) -> Result<(), ()> {
+    for ancestor in path.ancestors() {
+        if ancestor.as_os_str().is_empty() {
+            break;
+        }
+        validate_directory(ancestor)?;
+    }
+    Ok(())
 }
 
 fn validate_regular_file(path: &Path) -> Result<(), ()> {

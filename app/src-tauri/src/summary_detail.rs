@@ -285,7 +285,7 @@ mod tests {
     }
 
     #[test]
-    fn save_summary_edit_rejects_linked_summary_target() {
+    fn save_summary_edit_rejects_linked_summary_target_when_symlink_supported() {
         let output_root = temp_dir("summary-linked");
         let task_id = "20260705-153012-local-summary123460";
         let task_dir = create_task(&output_root, task_id, true, Some("old summary\n"));
@@ -294,6 +294,9 @@ mod tests {
         fs::write(&linked_source, "source summary\n").expect("write linked source");
         fs::remove_file(&summary_path).expect("remove ordinary summary");
 
+        // Windows without Developer Mode or SeCreateSymbolicLinkPrivilege cannot
+        // create this fixture; record an explicit environment skip and do not
+        // substitute a hard link for the symlink coverage.
         if let Err(error) = create_file_symlink(&linked_source, &summary_path) {
             eprintln!("skipping symlink summary regression; symlink creation unavailable: {error}");
             return;
@@ -327,6 +330,8 @@ mod tests {
         let outside_target = outside_root.join("outside-summary.md");
         fs::write(&outside_target, "do not overwrite\n").expect("write outside target");
 
+        // Keep hard-link coverage independent; never substitute a symlink when
+        // this filesystem cannot create a hard link.
         if let Err(error) = fs::hard_link(&outside_target, &summary_path) {
             eprintln!(
                 "skipping hard-link summary regression; hard-link creation unavailable: {error}"
@@ -351,7 +356,7 @@ mod tests {
     }
 
     #[test]
-    fn save_summary_edit_rejects_reparse_parent_when_supported() {
+    fn save_summary_edit_rejects_reparse_parent_when_junction_or_symlink_supported() {
         let output_root = temp_dir("summary-reparse-parent");
         let task_id = "20260705-153012-local-summary123466";
         let task_dir = create_task(&output_root, task_id, true, Some("old summary\n"));
@@ -359,9 +364,11 @@ mod tests {
         let real_ai_path = task_dir.join("ai-real");
         fs::rename(&ai_path, &real_ai_path).expect("move real ai directory");
 
+        // Windows uses a junction here, so the regression remains runnable
+        // without symlink privilege; other link creation failures are explicit skips.
         if let Err(error) = create_directory_reparse(&real_ai_path, &ai_path) {
             eprintln!(
-                "skipping reparse parent regression; directory link creation unavailable: {error}"
+                "skipping reparse parent regression; junction or symlink creation unavailable: {error}"
             );
             return;
         }
@@ -376,6 +383,38 @@ mod tests {
         .expect_err("reparse parent must be rejected");
 
         assert_eq!(error, SUMMARY_LINK_ERROR);
+    }
+
+    #[test]
+    fn save_summary_edit_rejects_reparse_task_parent_before_commit_when_supported() {
+        let output_root = temp_dir("summary-reparse-task-parent");
+        let backing_root = temp_dir("summary-reparse-task-parent-backing");
+        let task_id = "20260705-153012-local-summary123467";
+        let backing_task_dir = create_task(&backing_root, task_id, true, Some("old summary\n"));
+        let tasks_path = output_root.join("tasks");
+
+        // Windows uses a junction here; if the environment cannot create one,
+        // this regression is explicitly skipped rather than faking a link.
+        if let Err(error) = create_directory_reparse(&backing_root.join("tasks"), &tasks_path) {
+            eprintln!("skipping reparse task-parent regression; junction or symlink creation unavailable: {error}");
+            return;
+        }
+
+        let error = save_summary_edit_to_output_root(
+            &output_root,
+            SaveSummaryEditRequest {
+                task_id: task_id.to_string(),
+                summary: "new summary".to_string(),
+            },
+        )
+        .expect_err("reparse task parent must be rejected before commit");
+
+        assert_eq!(error, "Task artifacts could not be stored safely.");
+        assert_eq!(
+            fs::read_to_string(backing_task_dir.join("ai").join("summary.md"))
+                .expect("read backing summary"),
+            "old summary\n"
+        );
     }
 
     #[test]
@@ -510,7 +549,21 @@ mod tests {
 
     #[cfg(windows)]
     fn create_directory_reparse(source: &Path, link: &Path) -> std::io::Result<()> {
-        std::os::windows::fs::symlink_dir(source, link)
+        // Junctions exercise Windows reparse-point handling without requiring
+        // SeCreateSymbolicLinkPrivilege. File symlink tests above stay symlink-only.
+        let output = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(link)
+            .arg(source)
+            .output()?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(std::io::Error::other(format!(
+                "mklink /J failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            )))
+        }
     }
 
     #[cfg(unix)]
