@@ -377,7 +377,7 @@ mod tests {
         let detail = crate::history::load_history_detail_from_output_root(&output_root, request)
             .expect("load history detail");
 
-        assert_eq!(detail.summary, "# Saved summary\n");
+        assert_eq!(detail.summary, "# Saved summary");
     }
 
     #[test]
