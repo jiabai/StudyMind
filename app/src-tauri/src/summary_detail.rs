@@ -9,6 +9,7 @@ const SUMMARY_LINK_ERROR: &str = "Task summary artifact cannot be a link or repa
 const SUMMARY_INVALID_ERROR: &str = "Task summary artifact is invalid.";
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct SaveSummaryEditRequest {
     #[serde(alias = "taskId")]
     pub(crate) task_id: String,
@@ -199,6 +200,18 @@ mod tests {
         .expect_err("blank summary must be rejected");
 
         assert_eq!(error, "Summary cannot be empty.");
+    }
+
+    #[test]
+    fn save_summary_edit_request_rejects_unknown_fields() {
+        let error = serde_json::from_value::<SaveSummaryEditRequest>(serde_json::json!({
+            "taskId": "20260705-153012-local-summary123464",
+            "summary": "safe summary",
+            "unexpected": "must be rejected",
+        }))
+        .expect_err("summary edit request must reject unknown fields");
+
+        assert!(error.to_string().contains("unknown field"));
     }
 
     #[test]
