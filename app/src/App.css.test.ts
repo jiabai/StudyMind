@@ -15,6 +15,10 @@ const transcriptReviewPanelTsx = readFileSync(
   new URL("./features/transcript/TranscriptReviewPanel.tsx", import.meta.url),
   "utf-8",
 );
+const annotationListPanelTsx = readFileSync(
+  new URL("./features/results/AnnotationListPanel.tsx", import.meta.url),
+  "utf-8",
+);
 const aiResultDetailSheetTsx = readFileSync(
   new URL("./features/results/AiResultDetailSheet.tsx", import.meta.url),
   "utf-8",
@@ -114,6 +118,18 @@ describe("App result workspace layout styles", () => {
     expect(appCss).toMatch(
       /@media \(max-width: 1099px\)[\s\S]*?\.task-workspace-learning-row\s*\{[\s\S]*?grid-template-columns: minmax\(0, 1fr\);/,
     );
+  });
+
+  test("gives the annotation card the shared workspace surface and height", () => {
+    const learningRowRule = getRuleBody([".task-workspace-learning-row"]);
+    const annotationContentRule = getRuleBody([".annotation-panel-content"]);
+
+    expect(annotationListPanelTsx).toContain(
+      'className={`task-domain-workspace annotation-panel ${visible ? "visible" : "collapsed"}`}',
+    );
+    expect(learningRowRule).toContain("height: min(760px, calc(100vh - 188px));");
+    expect(learningRowRule).toContain("min-height: 520px;");
+    expect(annotationContentRule).toContain("max-height: none;");
   });
 
   test("does not expose the FrameQ app mark in shared product resources", () => {

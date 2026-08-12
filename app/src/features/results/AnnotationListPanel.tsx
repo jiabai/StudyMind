@@ -45,7 +45,7 @@ export function AnnotationListPanel({
 
   return (
     <div
-      className={`annotation-panel ${visible ? "visible" : "collapsed"}`}
+      className={`task-domain-workspace annotation-panel ${visible ? "visible" : "collapsed"}`}
     >
       <button
         className="annotation-panel-toggle"
