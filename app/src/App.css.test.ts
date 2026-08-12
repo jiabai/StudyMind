@@ -343,9 +343,8 @@ describe("App result workspace layout styles", () => {
     const headingRule = getRuleBody([".markdown-content :is(h1, h2, h3, h4)"]);
     const tableRule = getRuleBody([".markdown-content table"]);
 
-    expect(aiResultDetailSheetTsx).toContain("ReactMarkdown");
-    expect(aiResultDetailSheetTsx).toContain("rehypeSanitize");
-    expect(aiResultDetailSheetTsx).toContain("workflow.summary.trim()");
+    expect(aiResultDetailSheetTsx).toContain("MarkdownContent");
+    expect(aiResultDetailSheetTsx).toContain("summaryDraft");
     expect(markdownRule).toContain("white-space: normal;");
     expect(markdownRule).toContain("overflow-wrap: anywhere;");
     expect(headingRule).toContain("line-height: 1.35;");

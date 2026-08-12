@@ -15,6 +15,7 @@ mod local_media_contract;
 mod progress_event;
 mod runtime;
 mod settings;
+mod summary_detail;
 mod task_manifest;
 mod task_rename;
 mod transcript_detail;
@@ -106,6 +107,7 @@ pub fn run() {
             task_rename::rename_task_title,
             transcript_detail::load_transcript_detail,
             transcript_detail::save_transcript_edit,
+            summary_detail::save_summary_edit,
             transcript_notes_storage::load_transcript_notes,
             transcript_notes_storage::save_transcript_notes,
             updates::get_update_preferences,

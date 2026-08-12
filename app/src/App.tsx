@@ -163,6 +163,7 @@ function App() {
     setLocalMediaSelection,
     removeLocalMediaSelection,
     applyTranscriptSave,
+    applySummarySave,
     completeHistoryTaskDeletion,
     restoreHistoryItem,
     retryInsightGeneration,
@@ -197,6 +198,7 @@ function App() {
   const transcriptDetailController = useTranscriptDetailController({
     workflow,
     applyTranscriptSave,
+    applySummarySave,
     setActionNotice,
     locale: resolvedLocale,
   });
@@ -213,6 +215,23 @@ function App() {
     transcriptSaving,
   } = transcriptDetailController;
   closeDetailForTaskRef.current = closeDetail;
+  const requestCloseDetail = useCallback(() => {
+    if (
+      detailTab === "summary" &&
+      transcriptDetailController.summaryEditing &&
+      transcriptDetailController.summaryDirty &&
+      !window.confirm(tSynthesis("detail.summaryDiscardConfirm"))
+    ) {
+      return;
+    }
+    closeDetail();
+  }, [
+    closeDetail,
+    detailTab,
+    tSynthesis,
+    transcriptDetailController.summaryDirty,
+    transcriptDetailController.summaryEditing,
+  ]);
   const {
     account,
     accountOpen,
@@ -381,7 +400,7 @@ function App() {
       }
 
       if (detailTab) {
-        closeDetail();
+        requestCloseDetail();
         return;
       }
 
@@ -409,7 +428,7 @@ function App() {
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [
     detailTab,
-    closeDetail,
+    requestCloseDetail,
     summaryConfirmOpen,
     closeSummaryConfirmation,
     insightPreferenceFlow,

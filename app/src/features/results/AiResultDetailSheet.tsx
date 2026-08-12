@@ -1,8 +1,6 @@
-import { Copy, Download, RotateCcw, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Copy, Download, Eye, Pencil, RotateCcw, Save, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import ReactMarkdown from "react-markdown";
-import rehypeSanitize from "rehype-sanitize";
-import remarkGfm from "remark-gfm";
 
 import { isSupportedLocale } from "../../i18n/locale";
 import { renderUiMessage, type UiMessage } from "../../i18n/uiMessage";
@@ -10,6 +8,9 @@ import type { WorkflowState } from "../../workflow";
 import type { TranscriptDetailController } from "../transcript/useTranscriptDetailController";
 import { useModalFocus } from "../modal/useModalFocus";
 import { DissectionReport } from "./DissectionReport";
+import { MarkdownContent } from "./MarkdownContent";
+
+type SummaryEditorMode = "edit" | "preview";
 
 type AiResultDetailSheetProps = {
   actionNotice: UiMessage | null;
@@ -33,7 +34,50 @@ export function AiResultDetailSheet({
     ? i18n.resolvedLanguage
     : "en-US";
   const renderedActionNotice = renderUiMessage(locale, actionNotice);
-  const { detailTab, closeDetail, copyDetail, exportDetail, exportPath } = controller;
+  const {
+    detailTab,
+    closeDetail,
+    copyDetail,
+    exportDetail,
+    exportPath,
+    summaryEditing = false,
+    summaryDraft = workflow.summary,
+    summaryDirty = false,
+    summarySaving = false,
+    beginSummaryEdit = () => undefined,
+    cancelSummaryEdit = () => undefined,
+    updateSummaryDraft = () => undefined,
+    saveSummaryDraft = async () => undefined,
+  } = controller;
+  const [summaryEditorMode, setSummaryEditorMode] = useState<SummaryEditorMode>("preview");
+  const hasSummaryArtifact = detailTab === "summary" && Boolean(workflow.artifacts.summary);
+
+  useEffect(() => {
+    if (!summaryEditing) {
+      setSummaryEditorMode("preview");
+    }
+  }, [summaryEditing]);
+
+  const requestCloseDetail = () => {
+    if (
+      detailTab === "summary" &&
+      summaryEditing &&
+      summaryDirty &&
+      !window.confirm(t("detail.summaryDiscardConfirm"))
+    ) {
+      return;
+    }
+    closeDetail();
+  };
+  const handleBeginSummaryEdit = () => {
+    beginSummaryEdit();
+    setSummaryEditorMode("edit");
+  };
+  const handleCancelSummaryEdit = () => {
+    cancelSummaryEdit();
+    setSummaryEditorMode("preview");
+  };
+
   const resultDetailModalRef = useModalFocus<HTMLElement>(
     detailTab === "summary" || detailTab === "insights" || detailTab === "dissection",
   );
@@ -52,7 +96,7 @@ export function AiResultDetailSheet({
   });
 
   return (
-    <div className="modal-backdrop sheet-backdrop" role="presentation" onClick={closeDetail}>
+    <div className="modal-backdrop sheet-backdrop" role="presentation" onClick={requestCloseDetail}>
       <section
         ref={resultDetailModalRef}
         className="sheet-panel detail-modal ai-result-detail-sheet"
@@ -64,24 +108,21 @@ export function AiResultDetailSheet({
         <header className="modal-header sheet-header">
           <div>
             <p className="section-label">{t("detail.sectionLabel")}</p>
-            <h2>
-              {title}
-            </h2>
+            <h2>{title}</h2>
           </div>
-          <button
-            className="icon-button"
-            type="button"
-            onClick={closeDetail}
-            aria-label={t("detail.closeAria")}
-          >
+          <button className="icon-button" type="button" onClick={requestCloseDetail} aria-label={t("detail.closeAria")}>
             <X size={18} />
           </button>
         </header>
         <div className="modal-tools">
-          <span>
-            {t("detail.localPreview")}
-          </span>
+          <span>{t("detail.localPreview")}</span>
           <div className="tool-actions">
+            {hasSummaryArtifact && !summaryEditing ? (
+              <button type="button" onClick={handleBeginSummaryEdit}>
+                <Pencil size={16} />
+                <span>{t("detail.edit")}</span>
+              </button>
+            ) : null}
             <button type="button" onClick={copyDetail} disabled={!controller.detailText}>
               <Copy size={16} />
               <span>{t("detail.copy")}</span>
@@ -93,11 +134,7 @@ export function AiResultDetailSheet({
               </button>
             ) : null}
             {detailTab === "dissection" ? (
-              <button
-                type="button"
-                data-action="redissection"
-                onClick={onOpenDissectionConfirmation}
-              >
+              <button type="button" data-action="redissection" onClick={onOpenDissectionConfirmation}>
                 <RotateCcw size={16} />
                 <span>{t("dissection.report.redissection")}</span>
               </button>
@@ -108,37 +145,46 @@ export function AiResultDetailSheet({
             </button>
           </div>
         </div>
-        {renderedActionNotice ? (
-          <p className="action-notice" role="status" aria-live="polite">
-            {renderedActionNotice}
-          </p>
-        ) : null}
+        {renderedActionNotice ? <p className="action-notice" role="status" aria-live="polite">{renderedActionNotice}</p> : null}
         <div className="modal-content">
           {detailTab === "summary" ? (
-            workflow.summary.trim() ? (
-              <div className="markdown-content">
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  rehypePlugins={[rehypeSanitize]}
-                  skipHtml
-                >
-                  {workflow.summary.trim()}
-                </ReactMarkdown>
+            summaryEditing && hasSummaryArtifact ? (
+              <div className="summary-editor">
+                <div className="summary-editor-tabs" role="tablist" aria-label={t("detail.summaryEditAria")}>
+                  <button className={summaryEditorMode === "edit" ? "selected" : ""} type="button" role="tab" aria-selected={summaryEditorMode === "edit"} onClick={() => setSummaryEditorMode("edit")}>
+                    <Pencil size={15} />
+                    <span>{t("detail.edit")}</span>
+                  </button>
+                  <button className={summaryEditorMode === "preview" ? "selected" : ""} type="button" role="tab" aria-selected={summaryEditorMode === "preview"} onClick={() => setSummaryEditorMode("preview")}>
+                    <Eye size={15} />
+                    <span>{t("detail.preview")}</span>
+                  </button>
+                </div>
+                <p className="summary-editor-hint">{t("detail.summaryEditorHint")}</p>
+                {summaryEditorMode === "edit" ? (
+                  <textarea className="summary-editor-textarea" aria-label={t("detail.summaryEditAria")} value={summaryDraft} onChange={(event) => updateSummaryDraft(event.target.value)} disabled={summarySaving} />
+                ) : (
+                  <MarkdownContent markdown={summaryDraft} emptyText={t("detail.summaryEmpty")} />
+                )}
+                <div className="summary-editor-actions">
+                  {summarySaving ? <span className="summary-editor-status" role="status" aria-live="polite">{t("detail.summarySaving")}</span> : null}
+                  <button className="secondary-button" type="button" onClick={handleCancelSummaryEdit} disabled={summarySaving}>
+                    <X size={16} />
+                    <span>{t("detail.cancel")}</span>
+                  </button>
+                  <button className="primary-button" type="button" onClick={() => void saveSummaryDraft()} disabled={summarySaving}>
+                    <Save size={16} />
+                    <span>{summarySaving ? t("detail.summarySaving") : t("detail.save")}</span>
+                  </button>
+                </div>
               </div>
             ) : (
-              <p className="markdown-empty">{t("detail.summaryEmpty")}</p>
+              <MarkdownContent markdown={workflow.summary} emptyText={t("detail.summaryEmpty")} />
             )
           ) : detailTab === "dissection" ? (
             workflow.dissection ? (
-              <DissectionReport
-                report={workflow.dissection}
-                stale={workflow.dissectionStale}
-                sourceLocationDisabled={controller.transcriptDirty}
-                onLocateChunks={onLocateDissectionChunks}
-              />
-            ) : (
-              <p>{t("detail.dissectionEmpty")}</p>
-            )
+              <DissectionReport report={workflow.dissection} stale={workflow.dissectionStale} sourceLocationDisabled={controller.transcriptDirty} onLocateChunks={onLocateDissectionChunks} />
+            ) : <p>{t("detail.dissectionEmpty")}</p>
           ) : workflow.insights.length > 0 ? (
             <ol className="insight-detail-list">
               {workflow.insights.map((insight) => (
@@ -146,18 +192,13 @@ export function AiResultDetailSheet({
                   <h3>{insight.topic}</h3>
                   <dl>
                     <div><dt>{t("detail.matchReason")}</dt><dd>{insight.matchReason}</dd></div>
-                    <div>
-                      <dt>{t("detail.questions")}</dt>
-                      <dd>{questionList.format(insight.followUpQuestions)}</dd>
-                    </div>
+                    <div><dt>{t("detail.questions")}</dt><dd>{questionList.format(insight.followUpQuestions)}</dd></div>
                     <div><dt>{t("detail.suitableUse")}</dt><dd>{insight.suitableUse}</dd></div>
                   </dl>
                 </li>
               ))}
             </ol>
-          ) : (
-            <p>{t("detail.insightsEmpty")}</p>
-          )}
+          ) : <p>{t("detail.insightsEmpty")}</p>}
         </div>
       </section>
     </div>

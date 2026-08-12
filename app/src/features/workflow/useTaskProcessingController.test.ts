@@ -785,6 +785,79 @@ describe("useTaskProcessingController history restore", () => {
     expect(controller.workflow.artifacts.transcript_txt).toBe("second/edited.txt");
   });
 
+  test("ignores a late summary save from an old history task", async () => {
+    const first = createHistoryItem({
+      taskId: "first-task",
+      summary: "first summary",
+    });
+    const second = createHistoryItem({
+      taskId: "second-task",
+      summary: "second summary",
+      text: "second transcript",
+      artifacts: { transcript_txt: "second/transcript.txt" },
+    });
+    const { render } = await createController();
+    let controller = render();
+    expect(controller.restoreHistoryItem(first)).toBe(true);
+    controller = render();
+    expect(controller.restoreHistoryItem(second)).toBe(true);
+    controller = render();
+
+    controller.applySummarySave("first-task", {
+      task_id: "first-task",
+      summary: "late first-task summary",
+    });
+    controller = render();
+
+    expect(controller.workflow.taskId).toBe("second-task");
+    expect(controller.workflow.summary).toBe("second summary");
+  });
+
+  test("updates the current summary without changing other workflow state", async () => {
+    const history = createHistoryItem({
+      taskId: "current-task",
+      summary: "original summary",
+      dissection: TEST_DISSECTION,
+      dissectionStale: true,
+    });
+    const { render } = await createController();
+    let controller = render();
+    expect(controller.restoreHistoryItem(history)).toBe(true);
+    controller = render();
+    const workflowBeforeSave = controller.workflow;
+
+    controller.applySummarySave("current-task", {
+      task_id: "current-task",
+      summary: "saved summary",
+    });
+    controller = render();
+
+    expect(controller.workflow.summary).toBe("saved summary");
+    expect({ ...controller.workflow, summary: workflowBeforeSave.summary }).toEqual(
+      workflowBeforeSave,
+    );
+  });
+
+  test("ignores a summary save when the saved task identity does not match", async () => {
+    const history = createHistoryItem({
+      taskId: "current-task",
+      summary: "original summary",
+    });
+    const { render } = await createController();
+    let controller = render();
+    expect(controller.restoreHistoryItem(history)).toBe(true);
+    controller = render();
+    const workflowBeforeSave = controller.workflow;
+
+    controller.applySummarySave("current-task", {
+      task_id: "other-task",
+      summary: "wrong task summary",
+    });
+    controller = render();
+
+    expect(controller.workflow).toEqual(workflowBeforeSave);
+  });
+
   test("marks an existing dissection stale only when a transcript save changes its text", async () => {
     const history = createHistoryItem({
       text: "original transcript",

@@ -198,6 +198,12 @@ fn replace_file(staging: &Path, destination: &Path) -> io::Result<()> {
 
 #[cfg(windows)]
 fn replace_file(staging: &Path, destination: &Path) -> io::Result<()> {
+    // ReplaceFileW accepts path names rather than directory handles. The caller
+    // revalidates the complete directory chain, destination parent, and target
+    // immediately before this path-based install, but another process can still
+    // swap an ancestor in the remaining validation-to-syscall window. Closing
+    // that last race requires handle-relative/NT APIs and is outside this small
+    // transaction boundary; destinations remain fixed to the allowlisted paths.
     use std::ptr;
 
     #[link(name = "kernel32")]

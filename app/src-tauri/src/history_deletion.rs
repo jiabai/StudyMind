@@ -64,8 +64,13 @@ fn delete_history_task_from_roots<R: DirectoryRemover>(
     task_id: &str,
     remover: &R,
 ) -> Result<HistoryDeleteResult, HistoryDeleteError> {
-    let task = task_manifest::SupportedTask::open(output_root, task_id)
-        .map_err(|_| HistoryDeleteError::Unavailable)?;
+    let task = task_manifest::SupportedTask::open(output_root, task_id).map_err(|error| {
+        if error == task_manifest::ARTIFACT_RECOVERY_ERROR {
+            HistoryDeleteError::UnsafeStorage
+        } else {
+            HistoryDeleteError::Unavailable
+        }
+    })?;
     let supported_task_id = task.task_id().to_string();
     let task_dir = task.task_dir().to_path_buf();
 
@@ -322,7 +327,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_linked_tasks_root_before_removal() {
+    fn classifies_linked_tasks_root_recovery_as_unsafe_storage() {
         let root = temp_dir("history-delete-rejects-linked-tasks-root");
         let output_root = root.join("outputs");
         let external_output = root.join("external-output");
