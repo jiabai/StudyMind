@@ -5,7 +5,8 @@ export type IpcProtocolErrorCode =
   | "TRANSCRIPT_IPC_RESPONSE_INVALID"
   | "UPDATE_IPC_RESPONSE_INVALID"
   | "ANNOTATION_IPC_RESPONSE_INVALID"
-  | "TRANSCRIPT_NOTES_IPC_RESPONSE_INVALID";
+  | "TRANSCRIPT_NOTES_IPC_RESPONSE_INVALID"
+  | "SUMMARY_IPC_RESPONSE_INVALID";
 
 export class IpcProtocolError extends Error {
   readonly code: IpcProtocolErrorCode;
