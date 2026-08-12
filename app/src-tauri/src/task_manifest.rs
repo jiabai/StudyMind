@@ -25,7 +25,9 @@ pub(crate) use storage::{
     configured_output_root, configured_output_root_from_project, is_link_or_reparse_point,
     path_to_frontend_string,
 };
-pub(crate) use transaction::{commit_task_artifacts, TaskArtifactMutation};
+pub(crate) use transaction::{
+    commit_task_artifacts, TaskArtifactMutation, ARTIFACT_RECOVERY_ERROR,
+};
 
 pub(crate) fn acquire_task_mutation(
     output_root: &std::path::Path,

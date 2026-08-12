@@ -14,7 +14,7 @@ const MANIFEST_DESTINATION: &str = "StudyMind-task.json";
 const MAX_ENTRIES: usize = 8;
 const MAX_JOURNAL_BYTES: u64 = 64 * 1024;
 const COMMIT_ERROR: &str = "Task artifacts could not be stored safely.";
-const RECOVERY_ERROR: &str = "Task artifacts could not be recovered safely.";
+pub(crate) const ARTIFACT_RECOVERY_ERROR: &str = "Task artifacts could not be recovered safely.";
 const ALLOWED_DESTINATIONS: [&str; 10] = [
     "StudyMind-task.json",
     "transcript/transcript.txt",
@@ -126,7 +126,7 @@ pub(crate) fn commit_task_artifacts(
 
     if apply_result.is_err() {
         if recover_task_artifacts(task_dir).is_err() {
-            return Err(RECOVERY_ERROR.to_string());
+            return Err(ARTIFACT_RECOVERY_ERROR.to_string());
         }
         return Err(COMMIT_ERROR.to_string());
     }
@@ -136,7 +136,7 @@ pub(crate) fn commit_task_artifacts(
 }
 
 pub(crate) fn recover_task_artifacts(task_dir: &Path) -> Result<RecoveryOutcome, String> {
-    recover_task_artifacts_inner(task_dir).map_err(|_| RECOVERY_ERROR.to_string())
+    recover_task_artifacts_inner(task_dir).map_err(|_| ARTIFACT_RECOVERY_ERROR.to_string())
 }
 
 fn recover_task_artifacts_inner(task_dir: &Path) -> Result<RecoveryOutcome, ()> {
@@ -600,8 +600,8 @@ fn path_exists(path: &Path) -> Result<bool, ()> {
 
 #[cfg(test)]
 pub(super) fn validate_journal_value_for_test(value: serde_json::Value) -> Result<(), String> {
-    validate_closed_shape(&value).map_err(|_| RECOVERY_ERROR.to_string())?;
+    validate_closed_shape(&value).map_err(|_| ARTIFACT_RECOVERY_ERROR.to_string())?;
     let journal: TransactionJournal =
-        serde_json::from_value(value).map_err(|_| RECOVERY_ERROR.to_string())?;
-    validate_journal(&journal).map_err(|_| RECOVERY_ERROR.to_string())
+        serde_json::from_value(value).map_err(|_| ARTIFACT_RECOVERY_ERROR.to_string())?;
+    validate_journal(&journal).map_err(|_| ARTIFACT_RECOVERY_ERROR.to_string())
 }
