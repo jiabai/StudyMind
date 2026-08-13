@@ -220,6 +220,9 @@ jobs:
           node scripts/build-installer.mjs --target macos-x64 --skip-tauri-build
 
       - name: Build app bundle
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npm --prefix app run tauri -- build --bundles app --target x86_64-apple-darwin
 
       - name: Smoke-test app bundle
@@ -294,6 +297,9 @@ jobs:
           node scripts/build-installer.mjs --target macos-arm64 --skip-tauri-build
 
       - name: Build app bundle
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npm --prefix app run tauri -- build --bundles app --target aarch64-apple-darwin
 
       - name: Smoke-test app bundle

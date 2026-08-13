@@ -234,15 +234,18 @@ test('builds, smoke-tests, packages, and uploads both macOS architectures', () =
     assert.match(mac, new RegExp(`inputs\\.build_${item.name.replace('-', '_')}`));
     assertBuildSetup(mac, item.runner, item.target);
     const prepareRuntime = step(mac, 'Prepare bundled runtime');
+    const buildApp = step(mac, 'Build app bundle');
     const uploadDmg = step(mac, 'Upload DMG');
     for (const secret of ['PYTHON_STANDALONE', 'FFMPEG_ARCHIVE', 'FFPROBE_ARCHIVE']) {
       const name = `STUDYMIND_${secret}_URL_${item.urlSuffix}`;
       assert.match(prepareRuntime, new RegExp(`${name}: \\$\\{\\{ secrets\\.${name} \\}\\}`));
     }
     assert.doesNotMatch(prepareRuntime, /GITHUB_TOKEN|TAURI_SIGNING_/);
+    assert.match(buildApp, /TAURI_SIGNING_PRIVATE_KEY: \$\{\{ secrets\.TAURI_SIGNING_PRIVATE_KEY \}\}/);
+    assert.match(buildApp, /TAURI_SIGNING_PRIVATE_KEY_PASSWORD: \$\{\{ secrets\.TAURI_SIGNING_PRIVATE_KEY_PASSWORD \}\}/);
     assert.match(uploadDmg, /GITHUB_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/);
     assert.doesNotMatch(uploadDmg, /STUDYMIND_.*_URL|TAURI_SIGNING_/);
-    const macWithoutSecretSteps = mac.replace(prepareRuntime, '').replace(uploadDmg, '');
+    const macWithoutSecretSteps = mac.replace(prepareRuntime, '').replace(buildApp, '').replace(uploadDmg, '');
     assert.doesNotMatch(macWithoutSecretSteps, /secrets\./);
     assert.match(mac, new RegExp(`node scripts/build-installer\\.mjs --target ${item.installerTarget} --skip-tauri-build`));
     assert.match(mac, new RegExp(`npm --prefix app run tauri -- build --bundles app --target ${item.target}`));
