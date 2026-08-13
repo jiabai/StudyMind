@@ -82,6 +82,8 @@ server/prisma/*.db-shm
 !.env.example
 !app/src-tauri/resources/.env.template
 *.local
+*.key
+*.key.pub
 
 # Python cache
 __pycache__/
