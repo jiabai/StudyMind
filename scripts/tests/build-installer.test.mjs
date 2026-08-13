@@ -145,6 +145,17 @@ test('parseArgs treats blank required URLs as missing', () => {
   );
 });
 
+test('parseArgs strips a leading UTF-8 BOM from secret URLs', () => {
+  const result = parseArgs(['--target', 'windows-x64'], {
+    STUDYMIND_PYTHON_STANDALONE_URL_WINDOWS_X64: '\uFEFFhttps://example.test/python.tar.zst',
+    STUDYMIND_FFMPEG_ARCHIVE_URL_WINDOWS_X64: '\uFEFFhttps://example.test/ffmpeg.zip',
+  });
+
+  assert.equal(result.pythonUrl, 'https://example.test/python.tar.zst');
+  assert.equal(result.ffmpegUrl, 'https://example.test/ffmpeg.zip');
+  assert.equal(result.ffprobeUrl, 'https://example.test/ffmpeg.zip');
+});
+
 test('parseArgs rejects unsupported targets', () => {
   assert.throws(
     () => parseArgs(['--target', 'linux-x64'], {}),

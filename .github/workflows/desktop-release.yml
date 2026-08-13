@@ -136,7 +136,10 @@ jobs:
         env:
           STUDYMIND_PYTHON_STANDALONE_URL_WINDOWS_X64: ${{ secrets.STUDYMIND_PYTHON_STANDALONE_URL_WINDOWS_X64 }}
           STUDYMIND_FFMPEG_ARCHIVE_URL_WINDOWS_X64: ${{ secrets.STUDYMIND_FFMPEG_ARCHIVE_URL_WINDOWS_X64 }}
-        run: node scripts\build-installer.mjs --target windows-x64 --skip-tauri-build
+        run: |
+          $env:STUDYMIND_PYTHON_STANDALONE_URL_WINDOWS_X64 = $env:STUDYMIND_PYTHON_STANDALONE_URL_WINDOWS_X64 -replace '^\uFEFF', ''
+          $env:STUDYMIND_FFMPEG_ARCHIVE_URL_WINDOWS_X64 = $env:STUDYMIND_FFMPEG_ARCHIVE_URL_WINDOWS_X64 -replace '^\uFEFF', ''
+          node scripts\build-installer.mjs --target windows-x64 --skip-tauri-build
 
       - name: Build and upload NSIS updater artifacts
         uses: tauri-apps/tauri-action@v0
@@ -201,7 +204,14 @@ jobs:
           STUDYMIND_PYTHON_STANDALONE_URL_MACOS_X64: ${{ secrets.STUDYMIND_PYTHON_STANDALONE_URL_MACOS_X64 }}
           STUDYMIND_FFMPEG_ARCHIVE_URL_MACOS_X64: ${{ secrets.STUDYMIND_FFMPEG_ARCHIVE_URL_MACOS_X64 }}
           STUDYMIND_FFPROBE_ARCHIVE_URL_MACOS_X64: ${{ secrets.STUDYMIND_FFPROBE_ARCHIVE_URL_MACOS_X64 }}
-        run: node scripts/build-installer.mjs --target macos-x64 --skip-tauri-build
+        shell: bash
+        run: |
+          set -euo pipefail
+          STUDYMIND_PYTHON_STANDALONE_URL_MACOS_X64="${STUDYMIND_PYTHON_STANDALONE_URL_MACOS_X64#$'\ufeff'}"
+          STUDYMIND_FFMPEG_ARCHIVE_URL_MACOS_X64="${STUDYMIND_FFMPEG_ARCHIVE_URL_MACOS_X64#$'\ufeff'}"
+          STUDYMIND_FFPROBE_ARCHIVE_URL_MACOS_X64="${STUDYMIND_FFPROBE_ARCHIVE_URL_MACOS_X64#$'\ufeff'}"
+          export STUDYMIND_PYTHON_STANDALONE_URL_MACOS_X64 STUDYMIND_FFMPEG_ARCHIVE_URL_MACOS_X64 STUDYMIND_FFPROBE_ARCHIVE_URL_MACOS_X64
+          node scripts/build-installer.mjs --target macos-x64 --skip-tauri-build
 
       - name: Build app bundle
         run: npm --prefix app run tauri -- build --bundles app --target x86_64-apple-darwin
@@ -268,7 +278,14 @@ jobs:
           STUDYMIND_PYTHON_STANDALONE_URL_MACOS_ARM64: ${{ secrets.STUDYMIND_PYTHON_STANDALONE_URL_MACOS_ARM64 }}
           STUDYMIND_FFMPEG_ARCHIVE_URL_MACOS_ARM64: ${{ secrets.STUDYMIND_FFMPEG_ARCHIVE_URL_MACOS_ARM64 }}
           STUDYMIND_FFPROBE_ARCHIVE_URL_MACOS_ARM64: ${{ secrets.STUDYMIND_FFPROBE_ARCHIVE_URL_MACOS_ARM64 }}
-        run: node scripts/build-installer.mjs --target macos-arm64 --skip-tauri-build
+        shell: bash
+        run: |
+          set -euo pipefail
+          STUDYMIND_PYTHON_STANDALONE_URL_MACOS_ARM64="${STUDYMIND_PYTHON_STANDALONE_URL_MACOS_ARM64#$'\ufeff'}"
+          STUDYMIND_FFMPEG_ARCHIVE_URL_MACOS_ARM64="${STUDYMIND_FFMPEG_ARCHIVE_URL_MACOS_ARM64#$'\ufeff'}"
+          STUDYMIND_FFPROBE_ARCHIVE_URL_MACOS_ARM64="${STUDYMIND_FFPROBE_ARCHIVE_URL_MACOS_ARM64#$'\ufeff'}"
+          export STUDYMIND_PYTHON_STANDALONE_URL_MACOS_ARM64 STUDYMIND_FFMPEG_ARCHIVE_URL_MACOS_ARM64 STUDYMIND_FFPROBE_ARCHIVE_URL_MACOS_ARM64
+          node scripts/build-installer.mjs --target macos-arm64 --skip-tauri-build
 
       - name: Build app bundle
         run: npm --prefix app run tauri -- build --bundles app --target aarch64-apple-darwin

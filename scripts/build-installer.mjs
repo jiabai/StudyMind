@@ -56,6 +56,10 @@ export function requiredMediaBinaries(target) {
   return [...targetConfig(target).mediaBinaries];
 }
 
+function normalizeSecretValue(value) {
+  return typeof value === 'string' ? value.replace(/^\uFEFF/, '') : value;
+}
+
 export function parseArgs(argv, env = process.env) {
   const values = new Map();
   const valueOptions = new Set([
@@ -90,10 +94,16 @@ export function parseArgs(argv, env = process.env) {
 
   const target = values.get('--target');
   const config = targetConfig(target);
-  const pythonUrl = values.get('--python-standalone-url') ?? env[config.pythonEnv];
-  const ffmpegUrl = values.get('--ffmpeg-archive-url') ?? env[config.ffmpegEnv];
-  const ffprobeUrl = values.get('--ffprobe-archive-url')
-    ?? (config.ffprobeEnv ? env[config.ffprobeEnv] : ffmpegUrl);
+  const pythonUrl = normalizeSecretValue(
+    values.get('--python-standalone-url') ?? env[config.pythonEnv],
+  );
+  const ffmpegUrl = normalizeSecretValue(
+    values.get('--ffmpeg-archive-url') ?? env[config.ffmpegEnv],
+  );
+  const ffprobeUrl = normalizeSecretValue(
+    values.get('--ffprobe-archive-url')
+    ?? (config.ffprobeEnv ? env[config.ffprobeEnv] : ffmpegUrl),
+  );
 
   if (!skipDownloads) {
     for (const [value, variable] of [
