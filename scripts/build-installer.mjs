@@ -210,8 +210,12 @@ async function runCommand(command, args, options = {}) {
   });
 }
 
-export async function expandArchiveFile(archiveFile, destination) {
+export async function expandArchiveFile(archiveFile, destination, rawFileName = null) {
   await mkdir(destination, { recursive: true });
+  if (rawFileName && path.extname(archiveFile) === '') {
+    await copyFile(archiveFile, path.join(destination, rawFileName));
+    return;
+  }
   try {
     await runCommand('tar', ['-xf', archiveFile, '-C', destination], { stdio: 'pipe' });
   } catch (error) {
@@ -406,7 +410,7 @@ async function prepareExpandedArchive(input, buildRoot, name) {
   );
   const expanded = path.join(buildRoot, 'expanded', name);
   await mkdir(expanded, { recursive: true });
-  await expandArchiveFile(archive, expanded);
+  await expandArchiveFile(archive, expanded, name === 'ffmpeg' || name === 'ffprobe' ? name : null);
   return expanded;
 }
 

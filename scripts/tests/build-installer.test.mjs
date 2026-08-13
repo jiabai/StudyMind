@@ -260,6 +260,20 @@ test('prepareArchiveInput does not expose URL secrets when download fails', asyn
   }
 });
 
+test('expandArchiveFile stages an extensionless media binary under its requested name', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'studymind-raw-media-'));
+  const source = path.join(root, 'ffmpeg-darwin-arm64');
+  const destination = path.join(root, 'expanded');
+
+  try {
+    await writeFile(source, 'mach-o-binary');
+    await expandArchiveFile(source, destination, 'ffmpeg');
+    assert.equal(await readFile(path.join(destination, 'ffmpeg'), 'utf8'), 'mach-o-binary');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('expandArchiveFile includes the archive path when tar fails', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'studymind-expand-test-'));
   const archive = path.join(root, 'broken.tar');
