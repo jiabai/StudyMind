@@ -171,7 +171,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          gh release download "$RELEASE_TAG" --pattern latest.json --dir .
+          gh release download "$RELEASE_TAG" --pattern latest.json --dir . --clobber
           node scripts/normalize-updater-manifest.mjs latest.json
           gh release upload "$RELEASE_TAG" latest.json --clobber
 

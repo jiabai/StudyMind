@@ -201,7 +201,7 @@ test('builds and publishes signed Windows updater artifacts', () => {
   assert.match(windows, /includeUpdaterJson: true/);
   assert.match(windows, /updaterJsonPreferNsis: true/);
   assert.match(windows, /args: --bundles nsis --target x86_64-pc-windows-msvc/);
-  assert.match(windows, /gh release download "\$RELEASE_TAG" --pattern latest\.json --dir \./);
+  assert.match(windows, /gh release download "\$RELEASE_TAG" --pattern latest\.json --dir \. --clobber/);
   assert.match(windows, /node scripts\/normalize-updater-manifest\.mjs latest\.json/);
   assert.match(windows, /gh release upload "\$RELEASE_TAG" latest\.json --clobber/);
   assert.equal((windows.match(/GITHUB_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/g) ?? []).length, 2);
