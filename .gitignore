@@ -112,6 +112,7 @@ coverage/
 # Lockfiles (don't accidentally commit local lockfiles for other package managers)
 package-lock.json
 server/package-lock.json
+!app/package-lock.json
 pnpm-lock.yaml
 yarn.lock
 yarn-error.log

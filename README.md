@@ -1,6 +1,6 @@
 ﻿# StudyMind
 
-课堂学习辅助桌面应用。基于 FrameQ 的核心技术栈（Tauri + React + Python Worker），专注于本地音视频转写和 AI 学习辅助功能。
+课堂学习辅助桌面应用（Tauri + React + Python Worker），专注于本地音视频转写和 AI 学习辅助功能。
 
 ## 功能
 
@@ -42,6 +42,36 @@ npm --prefix server run dev
 - **ASR**: SenseVoice ONNX
 - **AI**: LLM API（本地/云端）
 
-## 与 FrameQ 的关系
+## 桌面发布
 
-StudyMind 从 FrameQ v0.3.1 派生而来，复用其核心架构和处理管线。FrameQ 保持独立演进，专注于视频转译场景。
+发布 Workflow 位于 `.github/workflows/desktop-release.yml`。推送版本标签会自动构建并上传以下产物：
+
+- Windows x64 NSIS/updater
+- macOS Intel x64 DMG
+- Apple Silicon arm64 DMG
+
+```bash
+git tag vX.Y.Z
+git push origin vX.Y.Z
+```
+
+也可以在 GitHub Actions 中使用 `workflow_dispatch`：填写已有的 `vX.Y.Z` tag，并勾选 Windows、macOS Intel x64 和 macOS Apple Silicon arm64 架构；例如可为已有的 `v0.1.0` 补发 DMG。
+
+### 必需的 Secrets
+
+仅需配置以下十个 Secret 名称：
+
+- `STUDYMIND_PYTHON_STANDALONE_URL_WINDOWS_X64`
+- `STUDYMIND_PYTHON_STANDALONE_URL_MACOS_X64`
+- `STUDYMIND_PYTHON_STANDALONE_URL_MACOS_ARM64`
+- `STUDYMIND_FFMPEG_ARCHIVE_URL_WINDOWS_X64`
+- `STUDYMIND_FFMPEG_ARCHIVE_URL_MACOS_X64`
+- `STUDYMIND_FFMPEG_ARCHIVE_URL_MACOS_ARM64`
+- `STUDYMIND_FFPROBE_ARCHIVE_URL_MACOS_X64`
+- `STUDYMIND_FFPROBE_ARCHIVE_URL_MACOS_ARM64`
+- `TAURI_SIGNING_PRIVATE_KEY`
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+
+Python standalone archive 必须提供可运行的 Python。Windows ffmpeg archive 必须同时包含 `ffmpeg.exe` 和 `ffprobe.exe`；macOS 的 ffmpeg 与 ffprobe archive 可以分开提供。
+
+macOS Intel 使用 CPython 3.11/3.12，因为 `torch==2.2.2` 的兼容性要求。当前 macOS 构建为 ad-hoc signed / not notarized。
