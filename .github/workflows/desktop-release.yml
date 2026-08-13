@@ -34,12 +34,17 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: desktop-release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
   prepare-release:
     runs-on: ubuntu-latest
     outputs:
       release_tag: ${{ steps.release.outputs.release_tag }}
       release_draft: ${{ steps.release.outputs.release_draft }}
+      release_id: ${{ steps.release.outputs.release_id }}
     steps:
       - name: Verify tag and prepare release
         id: release
@@ -61,8 +66,8 @@ jobs:
             REQUESTED_RELEASE_DRAFT="$INPUT_RELEASE_DRAFT"
           fi
 
-          if [[ -z "$RELEASE_TAG" || "$RELEASE_TAG" != v* ]]; then
-            echo "Release tag must match v*." >&2
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Release tag must be a version such as v1.2.3." >&2
             exit 1
           fi
           if [[ "$REQUESTED_RELEASE_DRAFT" != "true" && "$REQUESTED_RELEASE_DRAFT" != "false" ]]; then
@@ -72,35 +77,37 @@ jobs:
 
           gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" >/dev/null
 
-          release_error="$(mktemp)"
-          trap 'rm -f "$release_error"' EXIT
-          if existing_release_draft="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq '.draft' 2>"$release_error")"; then
-            if [[ "$existing_release_draft" != "true" && "$existing_release_draft" != "false" ]]; then
-              echo "Existing release returned an invalid draft state." >&2
-              exit 1
-            fi
+          mapfile -t matching_releases < <(
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+              --jq ".[] | select(.tag_name == \"${RELEASE_TAG}\") | [.id, .draft] | @tsv"
+          )
+
+          if (( ${#matching_releases[@]} > 1 )); then
+            echo "Multiple releases already use tag $RELEASE_TAG; remove the duplicates before retrying." >&2
+            printf 'Matching release: %s\n' "${matching_releases[@]}" >&2
+            exit 1
+          elif (( ${#matching_releases[@]} == 1 )); then
+            IFS=$'\t' read -r release_id existing_release_draft <<< "${matching_releases[0]}"
             release_draft="$existing_release_draft"
           else
-            if ! grep -Eq 'HTTP[[:space:]]+404' "$release_error"; then
-              cat "$release_error" >&2
-              exit 1
-            fi
-            create_args=(
-              --repo "$GITHUB_REPOSITORY"
-              --title "StudyMind $RELEASE_TAG"
-              --notes "StudyMind desktop release $RELEASE_TAG"
-            )
-            if [[ "$REQUESTED_RELEASE_DRAFT" == "true" ]]; then
-              create_args+=(--draft)
-            fi
-            gh release create "$RELEASE_TAG" --verify-tag "${create_args[@]}"
+            release_json="$(gh api --method POST "repos/${GITHUB_REPOSITORY}/releases" \
+              -f tag_name="$RELEASE_TAG" \
+              -f target_commitish="$RELEASE_TAG" \
+              -f name="StudyMind $RELEASE_TAG" \
+              -f body="StudyMind desktop release $RELEASE_TAG" \
+              -F draft="$REQUESTED_RELEASE_DRAFT" \
+              -F prerelease=false)"
+            release_id="$(jq -r '.id' <<< "$release_json")"
             release_draft="$REQUESTED_RELEASE_DRAFT"
           fi
 
-          rm -f "$release_error"
-          trap - EXIT
+          if [[ -z "$release_id" || "$release_id" == "null" ]]; then
+            echo "Release ID is missing." >&2
+            exit 1
+          fi
           echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
           echo "release_draft=$release_draft" >> "$GITHUB_OUTPUT"
+          echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
 
   windows-updater-artifacts:
     needs: prepare-release
@@ -108,6 +115,7 @@ jobs:
     runs-on: windows-latest
     env:
       RELEASE_TAG: ${{ needs.prepare-release.outputs.release_tag }}
+      RELEASE_ID: ${{ needs.prepare-release.outputs.release_id }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
@@ -165,9 +173,29 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          gh release download "$RELEASE_TAG" --pattern latest.json --dir .
+          mapfile -t manifest_asset_ids < <(
+            gh api "repos/${GITHUB_REPOSITORY}/releases/$RELEASE_ID/assets" \
+              --jq '.[] | select(.name == "latest.json") | .id'
+          )
+          if (( ${#manifest_asset_ids[@]} != 1 )); then
+            echo "Expected exactly one latest.json asset on release $RELEASE_ID." >&2
+            exit 1
+          fi
+          manifest_asset_id="${manifest_asset_ids[0]}"
+          gh api -H "Accept: application/octet-stream" \
+            "repos/${GITHUB_REPOSITORY}/releases/assets/$manifest_asset_id" > latest.json
           node scripts/normalize-updater-manifest.mjs latest.json
-          gh release upload "$RELEASE_TAG" latest.json --clobber
+          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/assets/$manifest_asset_id" \
+            -f name=latest.pre-normalized.json >/dev/null
+          if ! gh api --hostname uploads.github.com --method POST \
+            -H "Content-Type: application/octet-stream" \
+            --input latest.json \
+            "repos/${GITHUB_REPOSITORY}/releases/$RELEASE_ID/assets?name=latest.json" >/dev/null; then
+            gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/assets/$manifest_asset_id" \
+              -f name=latest.json >/dev/null
+            exit 1
+          fi
+          gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/assets/$manifest_asset_id"
 
   macos-x64:
     needs: [prepare-release, windows-updater-artifacts]

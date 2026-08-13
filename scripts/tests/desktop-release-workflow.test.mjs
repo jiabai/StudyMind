@@ -130,6 +130,7 @@ test('supports version-tag pushes and typed manual release inputs', () => {
   }
 
   assert.match(workflow, /^permissions:\n  contents: write/m);
+  assert.match(workflow, /^concurrency:\n  group: desktop-release-\$\{\{ .*inputs\.tag.*github\.ref_name.* \}\}\n  cancel-in-progress: false/m);
 });
 
 test('prepares an existing tag and preserves an existing release state', () => {
@@ -139,6 +140,7 @@ test('prepares an existing tag and preserves an existing release state', () => {
   assert.match(prepare, /runs-on: ubuntu-latest/);
   assert.match(prepare, /release_tag: \$\{\{ steps\.release\.outputs\.release_tag \}\}/);
   assert.match(prepare, /release_draft: \$\{\{ steps\.release\.outputs\.release_draft \}\}/);
+  assert.match(prepare, /release_id: \$\{\{ steps\.release\.outputs\.release_id \}\}/);
   assert.match(prepare, /^\s+RELEASE_TAG="\$(?:PUSH_TAG|INPUT_TAG)"$/m);
   assert.match(prepare, /EVENT_NAME: \$\{\{ github\.event_name \}\}/);
   assert.match(prepare, /\[\[ "\$EVENT_NAME" == "push" \]\]/);
@@ -146,15 +148,16 @@ test('prepares an existing tag and preserves an existing release state', () => {
   assert.match(prepare, /inputs\.tag/);
   assert.match(prepare, /GITHUB_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/);
   assert.match(prepare, /gh api .*git\/ref\/tags\/\$\{RELEASE_TAG\}/);
-  assert.match(prepare, /gh api .*releases\/tags\/\$\{RELEASE_TAG\}.*--jq '\.draft'/);
+  assert.match(prepare, /gh api --paginate .*releases\?per_page=100/);
+  assert.match(prepare, /matching_releases/);
+  assert.match(prepare, /Multiple releases already use tag/);
+  assert.doesNotMatch(prepare, /releases\/tags\/\$\{RELEASE_TAG\}/);
   assert.match(prepare, /release_draft="\$existing_release_draft"/);
-  assert.match(
-    prepare,
-    /if ! grep -Eq ['"]HTTP\[\[:space:\]\]\+404['"][\s\S]*?exit 1[\s\S]*?fi[\s\S]*?gh release create "\$RELEASE_TAG" --verify-tag/,
-  );
-  assert.match(prepare, /gh release create "\$RELEASE_TAG" --verify-tag/);
+  assert.match(prepare, /gh api --method POST .*releases/);
+  assert.match(prepare, /release_id=.*\.id/);
   assert.match(prepare, /release_draft="\$REQUESTED_RELEASE_DRAFT"/);
   assert.match(prepare, /echo "release_draft=\$release_draft" >> "\$GITHUB_OUTPUT"/);
+  assert.match(prepare, /echo "release_id=\$release_id" >> "\$GITHUB_OUTPUT"/);
   assert.doesNotMatch(prepare, /gh release view/);
   assert.doesNotMatch(prepare, /gh release edit/);
 });
@@ -197,9 +200,13 @@ test('builds and publishes signed Windows updater artifacts', () => {
   assert.match(windows, /includeUpdaterJson: true/);
   assert.match(windows, /updaterJsonPreferNsis: true/);
   assert.match(windows, /args: --bundles nsis --target x86_64-pc-windows-msvc/);
-  assert.match(windows, /gh release download "\$RELEASE_TAG" --pattern latest\.json/);
+  assert.match(windows, /RELEASE_ID: \$\{\{ needs\.prepare-release\.outputs\.release_id \}\}/);
+  assert.match(windows, /releases\/\$RELEASE_ID\/assets/);
+  assert.match(windows, /releases\/assets\/\$manifest_asset_id/);
   assert.match(windows, /node scripts\/normalize-updater-manifest\.mjs latest\.json/);
-  assert.match(windows, /gh release upload "\$RELEASE_TAG" latest\.json --clobber/);
+  assert.match(windows, /--method DELETE .*releases\/assets\/\$manifest_asset_id/);
+  assert.match(windows, /gh api --hostname uploads\.github\.com --method POST/);
+  assert.match(windows, /--input latest\.json[\s\S]*?releases\/\$RELEASE_ID\/assets\?name=latest\.json/);
   assert.equal((windows.match(/GITHUB_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/g) ?? []).length, 2);
 });
 
