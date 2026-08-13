@@ -114,7 +114,6 @@ jobs:
     runs-on: windows-latest
     env:
       RELEASE_TAG: ${{ needs.prepare-release.outputs.release_tag }}
-      RELEASE_ID: ${{ needs.prepare-release.outputs.release_id }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
@@ -172,29 +171,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          mapfile -t manifest_asset_ids < <(
-            gh api "repos/${GITHUB_REPOSITORY}/releases/$RELEASE_ID/assets" \
-              --jq '.[] | select(.name == "latest.json") | .id'
-          )
-          if (( ${#manifest_asset_ids[@]} != 1 )); then
-            echo "Expected exactly one latest.json asset on release $RELEASE_ID." >&2
-            exit 1
-          fi
-          manifest_asset_id="${manifest_asset_ids[0]}"
-          gh api -H "Accept: application/octet-stream" \
-            "repos/${GITHUB_REPOSITORY}/releases/assets/$manifest_asset_id" > latest.json
+          gh release download "$RELEASE_TAG" --pattern latest.json --dir .
           node scripts/normalize-updater-manifest.mjs latest.json
-          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/assets/$manifest_asset_id" \
-            -f name=latest.pre-normalized.json >/dev/null
-          if ! gh api --hostname uploads.github.com --method POST \
-            -H "Content-Type: application/octet-stream" \
-            --input latest.json \
-            "repos/${GITHUB_REPOSITORY}/releases/$RELEASE_ID/assets?name=latest.json" >/dev/null; then
-            gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/assets/$manifest_asset_id" \
-              -f name=latest.json >/dev/null
-            exit 1
-          fi
-          gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/assets/$manifest_asset_id"
+          gh release upload "$RELEASE_TAG" latest.json --clobber
 
   macos-x64:
     needs: [prepare-release, windows-updater-artifacts]
