@@ -154,6 +154,7 @@ test('prepares an existing tag and preserves an existing release state', () => {
   assert.doesNotMatch(prepare, /releases\/tags\/\$\{RELEASE_TAG\}/);
   assert.match(prepare, /release_draft="\$existing_release_draft"/);
   assert.match(prepare, /gh api --method POST .*releases/);
+  assert.doesNotMatch(prepare, /target_commitish/);
   assert.match(prepare, /release_id=.*\.id/);
   assert.match(prepare, /release_draft="\$REQUESTED_RELEASE_DRAFT"/);
   assert.match(prepare, /echo "release_draft=\$release_draft" >> "\$GITHUB_OUTPUT"/);

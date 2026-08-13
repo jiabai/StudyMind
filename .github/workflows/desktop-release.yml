@@ -92,7 +92,6 @@ jobs:
           else
             release_json="$(gh api --method POST "repos/${GITHUB_REPOSITORY}/releases" \
               -f tag_name="$RELEASE_TAG" \
-              -f target_commitish="$RELEASE_TAG" \
               -f name="StudyMind $RELEASE_TAG" \
               -f body="StudyMind desktop release $RELEASE_TAG" \
               -F draft="$REQUESTED_RELEASE_DRAFT" \
