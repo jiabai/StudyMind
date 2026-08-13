@@ -234,7 +234,7 @@ jobs:
           PYTHON="$RESOURCES/python/bin/python3"
 
           test -x "$PYTHON"
-          PYTHONPATH="$RESOURCES/worker" "$PYTHON" -c "import brotli, funasr, funasr_onnx, modelscope, onnxruntime, yt_dlp, studymind_worker"
+          PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$RESOURCES/worker" "$PYTHON" -c "import brotli, funasr, funasr_onnx, modelscope, onnxruntime, yt_dlp, studymind_worker"
           "$RESOURCES/bin/ffmpeg" -version
           "$RESOURCES/bin/ffprobe" -version
           if find "$RESOURCES" \( -type d -name '__pycache__' -o -type f -name '*.pyc' \) -print -quit | grep -q .; then
@@ -311,7 +311,7 @@ jobs:
           PYTHON="$RESOURCES/python/bin/python3"
 
           test -x "$PYTHON"
-          PYTHONPATH="$RESOURCES/worker" "$PYTHON" -c "import brotli, funasr, funasr_onnx, modelscope, onnxruntime, yt_dlp, studymind_worker"
+          PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$RESOURCES/worker" "$PYTHON" -c "import brotli, funasr, funasr_onnx, modelscope, onnxruntime, yt_dlp, studymind_worker"
           "$RESOURCES/bin/ffmpeg" -version
           "$RESOURCES/bin/ffprobe" -version
           if find "$RESOURCES" \( -type d -name '__pycache__' -o -type f -name '*.pyc' \) -print -quit | grep -q .; then

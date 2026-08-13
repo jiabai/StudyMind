@@ -252,6 +252,7 @@ test('builds, smoke-tests, packages, and uploads both macOS architectures', () =
     assert.match(mac, new RegExp(`app/src-tauri/target/${item.target}/release/bundle/macos/StudyMind\\.app`));
     assert.match(mac, /\$APP_PATH\/Contents\/Resources\/resources/);
     assert.match(mac, /python\/bin\/python3/);
+    assert.match(mac, /PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="\$RESOURCES\/worker"/);
     assert.match(mac, /PYTHONPATH="\$RESOURCES\/worker"/);
     assert.match(mac, /import brotli, funasr, funasr_onnx, modelscope, onnxruntime, yt_dlp, studymind_worker/);
     assert.match(mac, /bin\/ffmpeg" -version/);
