@@ -68,7 +68,7 @@ function assertBuildSetup(jobText, runner, target) {
   assert.match(jobText, /uses: actions\/checkout@v5/);
   assert.match(
     jobText,
-    /uses: actions\/checkout@v5\n\s+with:\n\s+ref: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.tag \|\| github\.ref \}\}/,
+    /uses: actions\/checkout@v5\n\s+with:\n\s+ref: \$\{\{ github\.event_name == 'workflow_dispatch' && github\.sha \|\| github\.ref \}\}/,
   );
   assert.match(jobText, /uses: actions\/setup-node@v5/);
   assert.match(jobText, /node-version: lts\/\*/);
