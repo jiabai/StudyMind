@@ -6,9 +6,33 @@ import { fileURLToPath } from 'node:url';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const workflowPath = path.join(repositoryRoot, '.github', 'workflows', 'desktop-release.yml');
+const readmePath = path.join(repositoryRoot, 'README.md');
 const workflowExists = fs.existsSync(workflowPath);
 const normalizeNewlines = (source) => source.replace(/\r\n?/g, '\n');
 const workflow = workflowExists ? normalizeNewlines(fs.readFileSync(workflowPath, 'utf8')) : '';
+const readme = normalizeNewlines(fs.readFileSync(readmePath, 'utf8'));
+const sectionHeadingOffset = readme.indexOf('\n## 桌面发布');
+const sectionStart = readme.startsWith('## 桌面发布')
+  ? 0
+  : sectionHeadingOffset === -1
+    ? -1
+    : sectionHeadingOffset + 1;
+const nextSection = readme.indexOf('\n## ', sectionStart + 1);
+const releaseSection = sectionStart >= 0
+  ? readme.slice(sectionStart, nextSection === -1 ? readme.length : nextSection)
+  : '';
+const plannedSecrets = new Set([
+  'STUDYMIND_PYTHON_STANDALONE_URL_WINDOWS_X64',
+  'STUDYMIND_PYTHON_STANDALONE_URL_MACOS_X64',
+  'STUDYMIND_PYTHON_STANDALONE_URL_MACOS_ARM64',
+  'STUDYMIND_FFMPEG_ARCHIVE_URL_WINDOWS_X64',
+  'STUDYMIND_FFMPEG_ARCHIVE_URL_MACOS_X64',
+  'STUDYMIND_FFMPEG_ARCHIVE_URL_MACOS_ARM64',
+  'STUDYMIND_FFPROBE_ARCHIVE_URL_MACOS_X64',
+  'STUDYMIND_FFPROBE_ARCHIVE_URL_MACOS_ARM64',
+  'TAURI_SIGNING_PRIVATE_KEY',
+  'TAURI_SIGNING_PRIVATE_KEY_PASSWORD',
+]);
 
 function job(name, source = workflow) {
   const normalized = normalizeNewlines(source);
@@ -239,4 +263,38 @@ test('contains no legacy product, Deno, notarization, or Linux release identifie
   assert.doesNotMatch(workflow, /FrameQ|frameq_worker|FRAMEQ_|Deno/i);
   assert.doesNotMatch(workflow, /notar/i);
   assert.doesNotMatch(workflow, /^  (?:linux|ubuntu)[^:]*:|linux-x64/m);
+});
+
+test('documents the desktop release workflow and its required runtime inputs', () => {
+  assert.ok(sectionStart >= 0, 'README must define a desktop release section');
+  assert.match(releaseSection, /\.github\/workflows\/desktop-release\.yml/);
+  assert.match(releaseSection, /git tag vX\.Y\.Z/);
+  assert.match(releaseSection, /git push origin vX\.Y\.Z/);
+  assert.match(releaseSection, /Windows x64 NSIS\/updater/);
+  assert.match(releaseSection, /macOS Intel x64 DMG/);
+  assert.match(releaseSection, /Apple Silicon arm64 DMG/);
+  const manualReleaseParagraph = releaseSection
+    .split(/\n\n+/)
+    .find((paragraph) => paragraph.includes('workflow_dispatch')) ?? '';
+  for (const phrase of ['workflow_dispatch', 'tag', 'v0.1.0', 'Windows', 'Intel', 'Apple Silicon', '补发 DMG']) {
+    assert.match(manualReleaseParagraph, new RegExp(phrase));
+  }
+
+  const documentedSecrets = new Set(
+    releaseSection.match(/(?:STUDYMIND_[A-Z0-9_]+|TAURI_SIGNING_[A-Z0-9_]+)/g) ?? [],
+  );
+  assert.deepEqual(documentedSecrets, plannedSecrets);
+
+  assert.match(releaseSection, /Python standalone/);
+  assert.match(releaseSection, /Windows ffmpeg archive.*ffmpeg\.exe.*ffprobe\.exe/s);
+  assert.match(releaseSection, /macOS.*ffmpeg.*ffprobe.*分开/s);
+  assert.match(releaseSection, /CPython 3\.11\/3\.12/);
+  assert.match(releaseSection, /torch==2\.2\.2/);
+  assert.match(releaseSection, /ad-hoc signed/);
+  assert.match(releaseSection, /not notarized/);
+  assert.doesNotMatch(releaseSection, /Secret value|Secret 值/i);
+  assert.doesNotMatch(releaseSection, /TAURI_SIGNING_PRIVATE_KEY=/);
+  assert.doesNotMatch(releaseSection, /TAURI_SIGNING_PRIVATE_KEY_PASSWORD=/);
+  assert.doesNotMatch(releaseSection, /https:\/\/[^\s)]+/i);
+  assert.doesNotMatch(releaseSection, /BEGIN [A-Z0-9 ]+PRIVATE KEY/);
 });
