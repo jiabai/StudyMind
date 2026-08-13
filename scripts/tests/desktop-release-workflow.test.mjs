@@ -130,7 +130,7 @@ test('supports version-tag pushes and typed manual release inputs', () => {
   }
 
   assert.match(workflow, /^permissions:\n  contents: write/m);
-  assert.match(workflow, /^concurrency:\n  group: desktop-release-\$\{\{ .*inputs\.tag.*github\.ref_name.* \}\}\n  cancel-in-progress: false/m);
+  assert.match(workflow, /^concurrency:\n  group: desktop-release-\$\{\{ .*inputs\.tag.*github\.ref_name.* \}\}\n  cancel-in-progress: \$\{\{ github\.event_name == 'workflow_dispatch' \}\}/m);
 });
 
 test('prepares an existing tag and preserves an existing release state', () => {
