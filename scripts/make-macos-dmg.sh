@@ -26,17 +26,26 @@ esac
 repo_root=${STUDYMIND_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}
 app_path="$repo_root/app/src-tauri/target/$target_triple/release/bundle/macos/StudyMind.app"
 resources_path="$app_path/Contents/Resources/resources"
-main_executable="$app_path/Contents/MacOS/StudyMind"
+main_executable_dir="$app_path/Contents/MacOS"
 
 if [[ ! -d "$app_path" ]]; then
   echo "application bundle not found: $app_path" >&2
   exit 1
 fi
 
-if [[ ! -f "$main_executable" ]]; then
-  echo "application main executable not found: $main_executable" >&2
+if [[ ! -d "$main_executable_dir" ]]; then
+  echo "application main executable directory not found: $main_executable_dir" >&2
   exit 1
 fi
+
+shopt -s nullglob
+main_executables=("$main_executable_dir"/*)
+shopt -u nullglob
+if [[ ${#main_executables[@]} -ne 1 || ! -f "${main_executables[0]}" ]]; then
+  echo "expected exactly one application main executable under $main_executable_dir" >&2
+  exit 1
+fi
+main_executable=${main_executables[0]}
 
 architecture_info=$(lipo -info "$main_executable" 2>&1) || {
   echo "unable to inspect application architecture: $architecture_info" >&2

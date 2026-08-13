@@ -33,13 +33,13 @@ function makeStubBin(root) {
   return bin;
 }
 
-function makeAppRoot({ cache = false } = {}) {
+function makeAppRoot({ cache = false, executableName = 'StudyMind' } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'studymind-dmg-test-'));
   const app = join(root, 'app', 'src-tauri');
   const appBundle = join(app, 'target', 'x86_64-apple-darwin', 'release', 'bundle', 'macos', 'StudyMind.app');
   mkdirSync(join(appBundle, 'Contents', 'MacOS'), { recursive: true });
   mkdirSync(join(appBundle, 'Contents', 'Resources', 'resources'), { recursive: true });
-  writeFileSync(join(appBundle, 'Contents', 'MacOS', 'StudyMind'), 'stub executable');
+  writeFileSync(join(appBundle, 'Contents', 'MacOS', executableName), 'stub executable');
   if (cache) {
     mkdirSync(join(appBundle, 'Contents', 'Resources', 'resources', '__pycache__'));
   }
@@ -64,7 +64,9 @@ test('macOS DMG script is headless and checks the selected architecture', () => 
   assert.match(script, /^#!\/usr\/bin\/env bash/m);
   assert.match(script, /set -euo pipefail/);
   assert.match(script, /lipo[\s\S]*-info/);
-  assert.match(script, /Contents\/MacOS\/StudyMind/);
+  assert.match(script, /Contents\/MacOS/);
+  assert.match(script, /main_executable_dir=.*Contents\/MacOS/);
+  assert.doesNotMatch(script, /main_executable=\"\$app_path\/Contents\/MacOS\/StudyMind\"/);
   assert.match(script, /x86_64-apple-darwin/);
   assert.match(script, /x86_64/);
   assert.match(script, /aarch64-apple-darwin/);
@@ -108,6 +110,11 @@ test('DMG behavior tests run with macOS command stubs', { skip: !bashAvailable }
   const hdiutilArgs = readFileSync(log, 'utf8').trim().split(/\r?\n/);
   assert.deepEqual(hdiutilArgs.slice(0, 2), ['-volname', 'Lecture']);
   assert.equal(hdiutilArgs[hdiutilArgs.indexOf('-srcfolder') + 1].includes('Lecture'), false);
+
+  const packageNamedRoot = makeAppRoot({ executableName: 'studymind-app' });
+  t.after(() => rmSync(packageNamedRoot.root, { recursive: true, force: true }));
+  const packageNamed = runDmg(packageNamedRoot.root, ['x86_64-apple-darwin'], { bin });
+  assert.equal(packageNamed.status, 0, packageNamed.stderr);
 });
 
 test('updater manifest normalizer handles valid BOM input and rejects invalid input', () => {
