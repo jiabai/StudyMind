@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { AuthRateLimitError, AuthService, userSessionMaxAgeSeconds } from "../auth.js";
-import { detectLocale, extractQueryLang } from "../i18n.js";
+import { detectLocale, extractQueryLang, LANG_COOKIE_MAX_AGE, resolveCookieLocale, SUPPORTED_LOCALES } from "../i18n.js";
 import { renderLoginPage } from "../loginPage.js";
 import { sha256 } from "../security.js";
 import type { Store } from "../store.js";
@@ -27,6 +27,11 @@ export function registerDesktopAuthRoutes(app: FastifyInstance, dependencies: De
       queryLang,
       acceptLanguage: Array.isArray(acceptLanguage) ? acceptLanguage[0] : acceptLanguage,
     });
+    // 深度链接 ?lang= 生效时写入 lang cookie；已有显式 cookie 选择则不覆盖。
+    const hasCookieLocale = resolveCookieLocale(request.headers.cookie) != null;
+    if (queryLang != null && (SUPPORTED_LOCALES as string[]).includes(queryLang) && !hasCookieLocale) {
+      setCookie(reply, "lang", queryLang, { httpOnly: false, maxAgeSeconds: LANG_COOKIE_MAX_AGE, secure });
+    }
     return renderLoginPage(locale);
   });
   app.post("/auth/email/start", async (request, reply) => {
