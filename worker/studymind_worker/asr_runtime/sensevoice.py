@@ -257,7 +257,16 @@ def _read_pcm_wav_mono_float32(audio_path: Path, np: Any) -> tuple[Any, int] | N
             sample_width = wav_file.getsampwidth()
             sample_rate = wav_file.getframerate()
             frames = wav_file.readframes(wav_file.getnframes())
-    except (wave.Error, OSError):
+    except (wave.Error, OSError, EOFError):
+        return None
+
+    if (
+        channels <= 0
+        or sample_width <= 0
+        or sample_rate <= 0
+        or not frames
+        or len(frames) % (channels * sample_width) != 0
+    ):
         return None
 
     if sample_width == 1:

@@ -13,6 +13,8 @@ from studymind_worker.insightflow import InsightClient, InsightGenerationError
 DEFAULT_LLM_BASE_URL = "https://api.openai.com/v1"
 DEFAULT_LLM_TIMEOUT_SECONDS = 60.0
 DEFAULT_LLM_TEMPERATURE = 0.7
+MAX_LLM_RESPONSE_BYTES = 16 * 1024 * 1024
+_MAX_ERROR_BODY_BYTES = 1024 * 1024
 
 LLM_PROVIDER_ENV = "STUDYMIND_LLM_PROVIDER"
 LLM_API_KEY_ENV = "STUDYMIND_LLM_API_KEY"
@@ -178,8 +180,7 @@ def build_insight_client_from_env(env: Mapping[str, str]) -> InsightClient | Non
     return OpenAICompatibleInsightClient(
         api_key=api_key,
         model=model,
-        base_url=env.get(LLM_BASE_URL_ENV, DEFAULT_LLM_BASE_URL).strip()
-        or DEFAULT_LLM_BASE_URL,
+        base_url=env.get(LLM_BASE_URL_ENV, DEFAULT_LLM_BASE_URL).strip() or DEFAULT_LLM_BASE_URL,
         timeout_seconds=parse_timeout(env.get(LLM_TIMEOUT_ENV)),
     )
 
@@ -201,8 +202,7 @@ def parse_managed_checkout_response(raw_response: bytes) -> dict[str, str | int]
     if not isinstance(payload, dict) or set(payload) != expected_fields:
         raise _invalid_managed_checkout_response()
     if not all(
-        isinstance(payload[field], str)
-        for field in ("provider", "base_url", "model", "api_key")
+        isinstance(payload[field], str) for field in ("provider", "base_url", "model", "api_key")
     ):
         raise _invalid_managed_checkout_response()
     provider = payload["provider"].strip().lower()
@@ -258,7 +258,12 @@ def _invalid_managed_checkout_response() -> InsightGenerationError:
 
 def _chat_completions_url(base_url: str) -> str:
     parsed = urlsplit(base_url)
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.query or parsed.fragment:
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.query
+        or parsed.fragment
+    ):
         raise ValueError("Invalid LLM base URL.")
     path = f"{parsed.path.rstrip('/')}/chat/completions"
     return urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
@@ -306,7 +311,7 @@ def _llm_request_http_error(error: urllib.error.HTTPError) -> InsightGenerationE
 
 def _extract_error_code(error: urllib.error.HTTPError) -> str:
     try:
-        payload = json.loads(error.read().decode("utf-8"))
+        payload = json.loads(error.read(_MAX_ERROR_BODY_BYTES).decode("utf-8"))
         code = payload.get("error")
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return ""
@@ -315,7 +320,7 @@ def _extract_error_code(error: urllib.error.HTTPError) -> str:
 
 def _extract_http_error_detail(error: urllib.error.HTTPError) -> str:
     try:
-        raw_body = error.read().decode("utf-8", errors="replace")
+        raw_body = error.read(_MAX_ERROR_BODY_BYTES).decode("utf-8", errors="replace")
     except OSError:
         return ""
 
@@ -337,18 +342,14 @@ def _extract_error_detail_from_json(payload: object) -> str:
         error = payload.get("error")
         if isinstance(error, dict):
             parts = [
-                str(error.get(key)).strip()
-                for key in ("code", "type", "message")
-                if error.get(key)
+                str(error.get(key)).strip() for key in ("code", "type", "message") if error.get(key)
             ]
             return ": ".join(parts)
         if isinstance(error, str):
             return error
 
         parts = [
-            str(payload.get(key)).strip()
-            for key in ("code", "type", "message")
-            if payload.get(key)
+            str(payload.get(key)).strip() for key in ("code", "type", "message") if payload.get(key)
         ]
         return ": ".join(parts)
 
@@ -400,7 +401,24 @@ def parse_timeout(raw_value: str | None) -> float:
 
 def urlopen_transport(request: Request, timeout: float) -> bytes:
     with urllib.request.urlopen(request, timeout=timeout) as response:
-        return response.read()
+        return _read_bounded_response(response, MAX_LLM_RESPONSE_BYTES)
+
+
+def _read_bounded_response(response: object, max_bytes: int) -> bytes:
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = response.read(1024 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            raise InsightGenerationError(
+                "INSIGHTFLOW_LLM_RESPONSE_TOO_LARGE",
+                "LLM response exceeded the maximum allowed size.",
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 def _timeout_message(timeout_seconds: float) -> str:

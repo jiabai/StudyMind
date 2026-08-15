@@ -9,6 +9,8 @@ from studymind_worker.desktop_contract import ProgressCallback
 from studymind_worker.media import (
     CommandExecutionError,
     CommandRunner,
+    CommandTimeoutError,
+    MediaProbeError,
     extract_audio,
     probe_media_file,
 )
@@ -64,7 +66,12 @@ class MediaPreparationFacade:
         self._emit_progress("local.media.validating", 5)
         try:
             media_info = probe_media_file(input_path, runner=self._runner)
-        except CommandExecutionError as exc:
+        except CommandTimeoutError as exc:
+            raise MediaPreparationError(
+                "MEDIA_PROBE_TIMEOUT",
+                f"ffprobe timed out for {input_path.name}: {exc}",
+            ) from exc
+        except (CommandExecutionError, MediaProbeError) as exc:
             raise MediaPreparationError(
                 "MEDIA_PROBE_FAILED",
                 f"ffprobe failed for {input_path.name}: {exc}",
@@ -72,11 +79,22 @@ class MediaPreparationFacade:
 
         audio_path = task_context.paths.audio_path
         if media_info.is_normalized_pcm_wav and input_path.suffix.lower() == ".wav":
-            shutil.copy2(input_path, audio_path)
+            try:
+                shutil.copy2(input_path, audio_path)
+            except OSError as exc:
+                raise MediaPreparationError(
+                    "MEDIA_READ_FAILED",
+                    f"Failed to read local media file {input_path.name}: {exc}",
+                ) from exc
         else:
             self._emit_progress("audio.extract.running", 20)
             try:
                 extract_audio(input_path, audio_path, runner=self._runner)
+            except CommandTimeoutError as exc:
+                raise MediaPreparationError(
+                    "AUDIO_EXTRACTION_TIMEOUT",
+                    f"ffmpeg audio extraction timed out for {input_path.name}: {exc}",
+                ) from exc
             except CommandExecutionError as exc:
                 raise MediaPreparationError(
                     "AUDIO_EXTRACTION_FAILED",

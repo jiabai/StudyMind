@@ -41,11 +41,14 @@ def find_subtitle_transcript(download_dir: Path) -> SubtitleTranscript | None:
 
 
 def _candidate_subtitle_files(download_dir: Path) -> list[tuple[Path, str]]:
-    files = [
-        path
-        for path in download_dir.iterdir()
-        if path.is_file() and path.suffix.lower() in SUPPORTED_SUBTITLE_SUFFIXES
-    ]
+    try:
+        files = [
+            path
+            for path in download_dir.iterdir()
+            if path.is_file() and path.suffix.lower() in SUPPORTED_SUBTITLE_SUFFIXES
+        ]
+    except OSError:
+        return []
     candidates: list[tuple[int, str, Path]] = []
     for path in files:
         language = _subtitle_language(path)
@@ -65,7 +68,10 @@ def _subtitle_language(path: Path) -> str:
 
 
 def _parse_subtitle_file(path: Path, language: str) -> SubtitleTranscript | None:
-    content = path.read_text(encoding="utf-8-sig", errors="replace")
+    try:
+        content = path.read_text(encoding="utf-8-sig", errors="replace")
+    except OSError:
+        return None
     blocks = re.split(r"\n\s*\n", content.replace("\r\n", "\n").replace("\r", "\n"))
     raw_segments: list[TranscriptSegment] = []
     for block in blocks:

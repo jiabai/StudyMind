@@ -29,6 +29,9 @@ DEFAULT_SENSEVOICE_REVISION = "master"
 MODEL_VERSION_FILE_NAME = "MODEL_VERSION.txt"
 MODEL_DOWNLOAD_ERROR_CODE = "ASR_MODEL_DOWNLOAD_FAILED"
 ARCHIVE_INVALID_ERROR_CODE = "ASR_MODEL_ARCHIVE_INVALID"
+ARCHIVE_DOWNLOAD_TIMEOUT_SECONDS = 30 * 60.0
+MAX_MODEL_ARCHIVE_BYTES = 8 * 1024 * 1024 * 1024
+_ARCHIVE_DOWNLOAD_CHUNK_BYTES = 1024 * 1024
 
 ModelDownloadEventCallback = Callable[[dict[str, object]], None]
 SnapshotDownloader = Callable[..., str]
@@ -40,20 +43,27 @@ KNOWN_MODEL_RELATIVE_DIRS = (
 ONNX_CACHE_DIR_NAME = "onnx"
 ONNX_BPE_FILE_NAME = "chn_jpn_yue_eng_ko_spectok.bpe.model"
 ONNX_REQUIRED_ASSET_HASHES: dict[Path, str] = {
-    Path("models/iic/SenseVoiceSmall-onnx/am.mvn"):
-        "29b3c740a2c0cfc6b308126d31d7f265fa2be74f3bb095cd2f143ea970896ae5",
-    Path("models/iic/SenseVoiceSmall-onnx/config.yaml"):
-        "f71e239ba36705564b5bf2d2ffd07eece07b8e3f2bbf6d2c99d8df856339ac19",
-    Path("models/iic/SenseVoiceSmall-onnx/configuration.json"):
-        "c57f6a580d63f7465c6a22ba95847aee05a1ae1181f5abddffb943d9febda061",
-    Path("models/iic/SenseVoiceSmall-onnx/model_quant.onnx"):
-        "21dc965f689a78d1604717bf561e40d5a236087c85a95584567835750549e822",
-    Path("models/iic/SenseVoiceSmall-onnx/tokens.json"):
-        "a2594fc1474e78973149cba8cd1f603ebed8c39c7decb470631f66e70ce58e97",
-    Path(f"models/iic/SenseVoiceSmall-onnx/{ONNX_BPE_FILE_NAME}"):
-        "aa87f86064c3730d799ddf7af3c04659151102cba548bce325cf06ba4da4e6a8",
-    Path("models/iic/speech_fsmn_vad_zh-cn-16k-common-onnx/model_quant.onnx"):
-        "5289eb2aa3c9af2d7a4284bcfa7c3ceb81d360814ed4203239b6c5d0569da8a1",
+    Path(
+        "models/iic/SenseVoiceSmall-onnx/am.mvn"
+    ): "29b3c740a2c0cfc6b308126d31d7f265fa2be74f3bb095cd2f143ea970896ae5",
+    Path(
+        "models/iic/SenseVoiceSmall-onnx/config.yaml"
+    ): "f71e239ba36705564b5bf2d2ffd07eece07b8e3f2bbf6d2c99d8df856339ac19",
+    Path(
+        "models/iic/SenseVoiceSmall-onnx/configuration.json"
+    ): "c57f6a580d63f7465c6a22ba95847aee05a1ae1181f5abddffb943d9febda061",
+    Path(
+        "models/iic/SenseVoiceSmall-onnx/model_quant.onnx"
+    ): "21dc965f689a78d1604717bf561e40d5a236087c85a95584567835750549e822",
+    Path(
+        "models/iic/SenseVoiceSmall-onnx/tokens.json"
+    ): "a2594fc1474e78973149cba8cd1f603ebed8c39c7decb470631f66e70ce58e97",
+    Path(
+        f"models/iic/SenseVoiceSmall-onnx/{ONNX_BPE_FILE_NAME}"
+    ): "aa87f86064c3730d799ddf7af3c04659151102cba548bce325cf06ba4da4e6a8",
+    Path(
+        "models/iic/speech_fsmn_vad_zh-cn-16k-common-onnx/model_quant.onnx"
+    ): "5289eb2aa3c9af2d7a4284bcfa7c3ceb81d360814ed4203239b6c5d0569da8a1",
 }
 
 
@@ -507,11 +517,7 @@ def _download_custom_archive(
                 "Custom ASR archive must contain models/iic/SenseVoiceSmall/model.pt.",
             )
         if not (
-            extract_dir
-            / "models"
-            / "iic"
-            / "speech_fsmn_vad_zh-cn-16k-common-pytorch"
-            / "model.pt"
+            extract_dir / "models" / "iic" / "speech_fsmn_vad_zh-cn-16k-common-pytorch" / "model.pt"
         ).is_file():
             raise ModelDownloadError(
                 ARCHIVE_INVALID_ERROR_CODE,
@@ -533,14 +539,59 @@ def _resolve_archive(
 
     archive_path = temp_dir / "model-archive"
     _emit(progress_callback, "model.archive.downloading", "downloading", 20)
+    _download_archive_bounded(download_url, archive_path, progress_callback)
+    return archive_path
+
+
+def _download_archive_bounded(
+    download_url: str,
+    archive_path: Path,
+    progress_callback: ModelDownloadEventCallback | None,
+) -> None:
+    """Download an ASR archive with a hard size cap and bounded socket timeouts."""
     try:
-        urllib.request.urlretrieve(download_url, archive_path)
-    except OSError as exc:
+        with urllib.request.urlopen(
+            download_url,
+            timeout=ARCHIVE_DOWNLOAD_TIMEOUT_SECONDS,
+        ) as response:
+            try:
+                declared_length = int(response.headers.get("Content-Length", "") or "")
+            except ValueError:
+                declared_length = 0
+            _ensure_archive_size_ok(declared_length)
+
+            total = 0
+            with archive_path.open("wb") as handle:
+                while True:
+                    chunk = response.read(_ARCHIVE_DOWNLOAD_CHUNK_BYTES)
+                    if not chunk:
+                        break
+                    total += len(chunk)
+                    _ensure_archive_size_ok(total)
+                    handle.write(chunk)
+                    if declared_length > 0 and progress_callback is not None:
+                        progress = 20 + int(56 * min(1.0, total / declared_length))
+                        _emit(
+                            progress_callback,
+                            "model.archive.downloading",
+                            "downloading",
+                            min(75, progress),
+                        )
+    except ModelDownloadError:
+        raise
+    except (OSError, TimeoutError) as exc:
         raise ModelDownloadError(
             MODEL_DOWNLOAD_ERROR_CODE,
             f"Failed to download ASR model archive: {exc}",
         ) from exc
-    return archive_path
+
+
+def _ensure_archive_size_ok(total_bytes: int) -> None:
+    if total_bytes > MAX_MODEL_ARCHIVE_BYTES:
+        raise ModelDownloadError(
+            MODEL_DOWNLOAD_ERROR_CODE,
+            "ASR model archive is too large to download safely.",
+        )
 
 
 def _verify_sha256(path: Path, expected_sha256: str) -> None:

@@ -1,10 +1,12 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+
+DEFAULT_COMMAND_TIMEOUT_SECONDS = 15 * 60.0
 
 
 @dataclass(frozen=True)
@@ -24,6 +26,24 @@ class CommandExecutionError(RuntimeError):
         message = f"Media command failed with exit code {result.returncode}."
         super().__init__(message)
         self.result = result
+
+
+class CommandTimeoutError(RuntimeError):
+    def __init__(self, command: list[str], timeout_seconds: float) -> None:
+        message = (
+            f"Media command timed out after {timeout_seconds:g} seconds: "
+            f"{command[0] if command else 'unknown'}."
+        )
+        super().__init__(message)
+        self.command = command
+        self.timeout_seconds = timeout_seconds
+
+
+class MediaProbeError(RuntimeError):
+    """Raised when ffprobe exits successfully but its output is unusable."""
+
+    def __init__(self) -> None:
+        super().__init__("ffprobe returned output that could not be parsed.")
 
 
 @dataclass(frozen=True)
@@ -99,8 +119,21 @@ def build_audio_extract_command(input_path: Path, output_path: Path) -> list[str
     ]
 
 
-def run_command(command: list[str]) -> CommandResult:
-    completed = subprocess.run(command, capture_output=True, check=False, text=True)
+def run_command(
+    command: list[str],
+    timeout_seconds: float = DEFAULT_COMMAND_TIMEOUT_SECONDS,
+) -> CommandResult:
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            check=False,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise CommandTimeoutError(command, timeout_seconds) from exc
     return CommandResult(
         command=command,
         returncode=completed.returncode,
@@ -116,7 +149,10 @@ def probe_media_file(
     result = runner(build_ffprobe_command(media_path))
     if result.returncode != 0:
         raise CommandExecutionError(result)
-    return parse_ffprobe_json(result.stdout)
+    try:
+        return parse_ffprobe_json(result.stdout)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        raise MediaProbeError() from None
 
 
 def extract_audio(
@@ -124,7 +160,17 @@ def extract_audio(
     output_path: Path,
     runner: CommandRunner = run_command,
 ) -> CommandResult:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise CommandExecutionError(
+            CommandResult(
+                command=build_audio_extract_command(input_path, output_path),
+                returncode=-1,
+                stdout="",
+                stderr=str(exc),
+            )
+        ) from exc
     result = runner(build_audio_extract_command(input_path, output_path))
     if result.returncode != 0:
         raise CommandExecutionError(result)
@@ -133,10 +179,25 @@ def extract_audio(
 
 def parse_ffprobe_json(raw_json: str) -> MediaInfo:
     payload = json.loads(raw_json)
-    streams = payload.get("streams", [])
-    video_stream = next((s for s in streams if s.get("codec_type") == "video"), None)
-    audio_stream = next((s for s in streams if s.get("codec_type") == "audio"), None)
-    media_format = payload.get("format", {})
+    if not isinstance(payload, dict):
+        raise TypeError("ffprobe output was not a JSON object.")
+    raw_streams = payload.get("streams")
+    streams = (
+        [stream for stream in raw_streams if isinstance(stream, dict)]
+        if isinstance(raw_streams, list)
+        else []
+    )
+    video_stream = next(
+        (stream for stream in streams if stream.get("codec_type") == "video"),
+        None,
+    )
+    audio_stream = next(
+        (stream for stream in streams if stream.get("codec_type") == "audio"),
+        None,
+    )
+    media_format = payload.get("format")
+    if not isinstance(media_format, dict):
+        media_format = {}
 
     return MediaInfo(
         has_video=video_stream is not None,
@@ -144,12 +205,8 @@ def parse_ffprobe_json(raw_json: str) -> MediaInfo:
         video_codec=video_stream.get("codec_name") if video_stream else None,
         audio_codec=audio_stream.get("codec_name") if audio_stream else None,
         audio_sample_format=audio_stream.get("sample_fmt") if audio_stream else None,
-        audio_sample_rate=(
-            _parse_int(audio_stream.get("sample_rate")) if audio_stream else None
-        ),
-        audio_channels=(
-            _parse_int(audio_stream.get("channels")) if audio_stream else None
-        ),
+        audio_sample_rate=(_parse_int(audio_stream.get("sample_rate")) if audio_stream else None),
+        audio_channels=(_parse_int(audio_stream.get("channels")) if audio_stream else None),
         width=video_stream.get("width") if video_stream else None,
         height=video_stream.get("height") if video_stream else None,
         duration_seconds=_parse_float(media_format.get("duration")),

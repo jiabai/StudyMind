@@ -80,7 +80,7 @@ def retry_insights_once(
             message="Task artifacts could not be recovered safely.",
             text="",
         ).to_dict()
-    except (OSError, ValueError, json.JSONDecodeError):
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
         return ProcessResult(
             status=JobStage.PARTIAL_COMPLETED,
             error=WorkerError(
@@ -202,11 +202,7 @@ def read_existing_insights(paths: TaskPaths) -> list[Insight]:
             )
             suitable_use = str(raw["suitableUse"]).strip()
             raw_source_chunk_id = raw.get("sourceChunkId")
-            source_chunk_id = (
-                int(raw_source_chunk_id)
-                if raw_source_chunk_id is not None
-                else None
-            )
+            source_chunk_id = int(raw_source_chunk_id) if raw_source_chunk_id is not None else None
         except (KeyError, TypeError, ValueError):
             return []
         if not topic or not match_reason or not follow_up_questions or not suitable_use:

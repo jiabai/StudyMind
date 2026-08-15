@@ -376,7 +376,12 @@ def write_preference_snapshot_artifact(
 def load_task_manifest(output_root: Path, task_id: str) -> dict[str, object]:
     manifest_path = _validated_task_manifest_path(output_root, task_id)
     recover_task_artifacts(manifest_path.parent)
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        raise ValueError("Task is unavailable in the current history format.") from None
+    if not isinstance(manifest, dict):
+        raise TypeError("Task is unavailable in the current history format.")
     if manifest.get("schema_version") != TASK_SCHEMA_VERSION:
         raise ValueError("Task is unavailable in the current history format.")
     try:
