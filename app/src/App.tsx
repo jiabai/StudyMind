@@ -447,7 +447,10 @@ function App() {
       try {
         console.log("[studymind] registerDeepLinkListeners start");
         const currentUrls = await getCurrent();
-        if (!cancelled && currentUrls) {
+        if (cancelled) {
+          return;
+        }
+        if (currentUrls) {
           console.log("[studymind] getCurrent returned", currentUrls);
           for (const url of currentUrls) {
             void handleAuthCallback(url);
@@ -455,12 +458,19 @@ function App() {
         } else {
           console.log("[studymind] getCurrent returned null/empty");
         }
-        unlisten = await onOpenUrl((urls) => {
+        const unlistenOpenUrl = await onOpenUrl((urls) => {
+          if (cancelled) {
+            return;
+          }
           console.log("[studymind] onOpenUrl fired with", urls);
           for (const url of urls) {
             void handleAuthCallback(url);
           }
         });
+        if (cancelled) {
+          unlistenOpenUrl();
+          return;
+        }
         console.log("[studymind] onOpenUrl listener registered");
         // Also listen for the custom event emitted by single_instance
         // callback, which carries the raw command-line argv containing
@@ -468,23 +478,36 @@ function App() {
         const unlistenCustom = await listen<string[]>(
           "studymind-deep-link-args",
           (event) => {
-            console.log("[studymind] studymind-deep-link-args event fired, payload:", event.payload);
+            if (cancelled) {
+              return;
+            }
+            console.log(
+              "[studymind] studymind-deep-link-args event fired, payload:",
+              event.payload,
+            );
             for (const arg of event.payload) {
               if (
                 typeof arg === "string" &&
                 arg.startsWith("studymind://")
               ) {
-                console.log("[studymind] calling handleAuthCallback with", arg);
+                console.log(
+                  "[studymind] calling handleAuthCallback with",
+                  arg,
+                );
                 void handleAuthCallback(arg);
               }
             }
           },
         );
+        if (cancelled) {
+          unlistenOpenUrl();
+          unlistenCustom();
+          return;
+        }
         console.log("[studymind] studymind-deep-link-args listener registered");
         // Merge both unlisten functions into one cleanup handle
-        const originalUnlisten = unlisten;
         unlisten = () => {
-          originalUnlisten();
+          unlistenOpenUrl();
           unlistenCustom();
         };
       } catch (err) {
