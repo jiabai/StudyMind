@@ -8,7 +8,7 @@ export function resolveSqliteDatabase(source: string, serverRoot: string): { url
   if (!source.startsWith("file:") || source.includes("?") || source.includes("#")) throw localOnly();
   const raw = source.slice(5);
   if (!raw || raw.startsWith("//") || /^\\\\/.test(raw) || /^\/(?:mnt|net|nfs|Volumes)\//i.test(raw)) throw localOnly();
-  const normalized = decodeURIComponent(raw).replace(/\//g, "\\");
+  const normalized = decodeURIComponent(raw);
   if (/^(?:\\\\|\/\/)/.test(normalized)) throw localOnly();
   const path = isAbsolute(normalized) || /^[A-Za-z]:\\/.test(normalized) ? resolve(normalized) : resolve(serverRoot, normalized);
   if (!/\.sqlite(?:3|db)?$/i.test(path) && !/\.db$/i.test(path)) throw localOnly();

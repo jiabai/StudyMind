@@ -6,8 +6,8 @@
 # 安装步骤:
 #   1. 部署代码到 /opt/studymind:
 #        sudo mkdir -p /opt/studymind
-#        sudo chown studymind:studymind /opt/studymind   # 需先创建用户
-#        # 以 studymind 身份拉取代码到 /opt/studymind (server 目录在其下)
+#        sudo chown ubuntu:ubuntu /opt/studymind
+#        # 以 ubuntu 身份拉取代码到 /opt/studymind (server 目录在其下)
 #
 #   2. 构建/安装依赖:
 #        cd /opt/studymind/server
@@ -44,8 +44,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=studymind
-Group=studymind
+User=ubuntu
+Group=ubuntu
 WorkingDirectory=/opt/studymind/server
 EnvironmentFile=/opt/studymind/server/.env
 Environment=NODE_ENV=production

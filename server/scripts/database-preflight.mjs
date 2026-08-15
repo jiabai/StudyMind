@@ -31,7 +31,7 @@ function localDatabasePath(source, root) {
   if (typeof source !== "string" || !source.startsWith("file:") || source.includes("?") || source.includes("#")) fail();
   const raw = source.slice(5);
   if (!raw || raw.startsWith("//") || /^\/(?:mnt|net|nfs|Volumes)\//i.test(raw)) fail();
-  const value = decodeURIComponent(raw).replace(/\//g, "\\");
+  const value = decodeURIComponent(raw);
   if (/^\\\\/.test(value)) fail();
   return isAbsolute(value) || /^[A-Za-z]:\\/.test(value) ? resolve(value) : resolve(root, value);
 }
