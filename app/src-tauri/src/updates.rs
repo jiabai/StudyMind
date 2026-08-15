@@ -3,6 +3,8 @@ use std::fs;
 use std::path::Path;
 use tauri::{AppHandle, Manager};
 
+use crate::atomic_files::atomic_write;
+
 const UPDATE_PREFERENCES_FILE_NAME: &str = "updates.json";
 const RELEASES_PAGE_URL: &str = "https://github.com/jiabai/StudyMind/releases/latest";
 
@@ -73,7 +75,9 @@ fn save_update_preferences_to_file(
         fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
     let content = serde_json::to_string_pretty(&preferences).map_err(|error| error.to_string())?;
-    fs::write(path, content).map_err(|error| error.to_string())?;
+    atomic_write(path, content.as_bytes()).map_err(|_| {
+        "Failed to store update preferences safely.".to_string()
+    })?;
     Ok(preferences)
 }
 
