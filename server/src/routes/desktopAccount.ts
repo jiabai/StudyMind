@@ -6,7 +6,7 @@ import type { EntitlementRecord, Store } from "../store.js";
 import { authenticateDesktop } from "./shared.js";
 
 type AccountStore = Pick<Store, "findSessionByTokenHash" | "getUserById" | "getEntitlement">;
-const redeemSchema = z.object({ code: z.string().min(1).max(64) }).strict();
+const redeemSchema = z.object({ code: z.string().min(8).max(64) }).strict();
 
 export function registerDesktopAccountRoutes(app: FastifyInstance, dependencies: {
   store: AccountStore; activationCodes: ActivationCodeService; llmConfig: LlmConfigService; now?: () => Date;

@@ -80,6 +80,7 @@ server/prisma/*.db-shm
 .env
 .env.*
 !.env.example
+!server/.env.example
 !app/src-tauri/resources/.env.template
 *.local
 *.key
@@ -135,3 +136,7 @@ docker-compose.override.yml
 # Misc
 *.tsbuildinfo
 .cache/
+
+# 保留 server/logs 目录（日志文件仍忽略）
+!server/logs/
+!server/logs/.gitkeep
