@@ -325,7 +325,7 @@ mod tests {
         assert_eq!(config.config_path, path_to_env_string(&env_path));
         assert_eq!(config.asr_model, "iic/SenseVoiceSmall");
         assert!(saved.contains("StudyMind desktop local settings"));
-        assert!(saved.contains("STUDYMIND_SERVER_BASE_URL=http://127.0.0.1:8788"));
+        assert!(saved.contains("STUDYMIND_SERVER_BASE_URL=https://studymind.8xf.pro"));
         assert!(saved.contains("STUDYMIND_OUTPUT_DIR="));
         assert!(saved.contains("STUDYMIND_ASR_MODEL=iic/SenseVoiceSmall"));
         assert!(!saved.contains("STUDYMIND_LLM_API_KEY"));
