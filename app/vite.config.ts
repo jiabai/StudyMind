@@ -29,4 +29,29 @@ export default defineConfig(async () => ({
       ignored: ["**/src-tauri/**"],
     },
   },
+
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id: string) {
+          if (!id.includes("node_modules")) return undefined;
+          if (id.includes("/react/") || id.includes("react-dom") || id.includes("/scheduler/")) return "react";
+          if (
+            id.includes("react-markdown") ||
+            id.includes("/remark") ||
+            id.includes("/rehype") ||
+            id.includes("/micromark") ||
+            id.includes("/mdast") ||
+            id.includes("/hast") ||
+            id.includes("/unist") ||
+            id.includes("/unified") ||
+            id.includes("/vfile")
+          )
+            return "markdown";
+          if (id.includes("i18next")) return "i18n";
+          return "vendor";
+        },
+      },
+    },
+  },
 }));
