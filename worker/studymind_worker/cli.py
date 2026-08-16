@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
+import os
 import sys
 import traceback
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import redirect_stdout
 from io import TextIOBase
 from pathlib import Path
@@ -20,10 +22,34 @@ from studymind_worker.progress_events import (
 )
 
 MAX_STDIN_REQUEST_BYTES = 1024 * 1024
+LOG_LEVEL_ENV = "STUDYMIND_LOG_LEVEL"
+_LOG_LEVELS = {
+    "DEBUG": logging.DEBUG,
+    "INFO": logging.INFO,
+    "WARNING": logging.WARNING,
+    "ERROR": logging.ERROR,
+    "CRITICAL": logging.CRITICAL,
+}
 
 
 class StdinRequestError(ValueError):
     pass
+
+
+def configure_logging(
+    environ: Mapping[str, str] | None = None,
+    *,
+    stream: TextIOBase | None = None,
+) -> None:
+    values = environ if environ is not None else os.environ
+    raw_level = values.get(LOG_LEVEL_ENV, "INFO").strip().upper()
+    level = _LOG_LEVELS.get(raw_level, logging.INFO)
+    logging.basicConfig(
+        level=level,
+        stream=stream if stream is not None else sys.stderr,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+        force=True,
+    )
 
 
 def read_stdin_request(stream: TextIOBase) -> str:
@@ -170,6 +196,7 @@ def _dispatch(
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    configure_logging()
     parser = argparse.ArgumentParser(description="Run one StudyMind worker request.")
     request_group = parser.add_mutually_exclusive_group(required=True)
     request_group.add_argument(
