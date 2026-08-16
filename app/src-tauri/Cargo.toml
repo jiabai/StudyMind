@@ -1,6 +1,6 @@
 [package]
 name = "studymind-app"
-version = "0.1.3"
+version = "0.1.4"
 description = "StudyMind desktop learning assistant"
 authors = ["StudyMind"]
 edition = "2021"
