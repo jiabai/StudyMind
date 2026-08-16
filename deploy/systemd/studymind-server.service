@@ -64,7 +64,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
 ProtectHome=read-only
-ReadWritePaths=/home/ubuntu/StudyMind/server/data /home/ubuntu/StudyMind/server/backups /home/ubuntu/StudyMind/server/logs /home/ubuntu/StudyMind/server/node_modules/.prisma
+ReadWritePaths=/home/ubuntu/StudyMind/data /home/ubuntu/StudyMind/server/data /home/ubuntu/StudyMind/server/backups /home/ubuntu/StudyMind/server/logs /home/ubuntu/StudyMind/server/node_modules/.prisma
 
 [Install]
 WantedBy=multi-user.target
