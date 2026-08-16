@@ -6,7 +6,7 @@ type ActivationStore = Pick<Store, "createActivationCode" | "redeemActivationCod
 
 const ACTIVATION_CODE_DAYS = 31;
 const DEFAULT_REDEEM_BY_DAYS = 30;
-const LLM_CREDITS_PER_ACTIVATION = 20;
+const LLM_CREDITS_PER_ACTIVATION = 100;
 const CODE_PATTERN = /^SM-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/;
 
 export type GeneratedActivationCode = {

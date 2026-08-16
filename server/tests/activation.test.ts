@@ -26,7 +26,7 @@ describe("StudyMind activation codes", () => {
 
     expect(generated.code).toMatch(/^SM-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/);
     expect(generated.entitlementDays).toBe(31);
-    expect(generated.llmCredits).toBe(20);
+    expect(generated.llmCredits).toBe(100);
     expect(generated.redeemBy.toISOString()).toBe("2026-09-07T08:00:00.000Z");
     expect(store.activationCodes[0]).toMatchObject({
       codeHash: sha256(generated.code), codePrefix: generated.code.slice(0, 7), entitlementDays: 31,
@@ -50,7 +50,7 @@ describe("StudyMind activation codes", () => {
     expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
     expect(results.filter((result) => result.status === "rejected")[0]).toMatchObject({ reason: { message: "Activation code is invalid or expired." } });
     await expect(store.getEntitlement(user.id)).resolves.toMatchObject({
-      status: "active", expiresAt: new Date("2026-09-08T08:00:00.000Z"), llmQuotaLimit: 20, llmQuotaUsed: 0,
+      status: "active", expiresAt: new Date("2026-09-08T08:00:00.000Z"), llmQuotaLimit: 100, llmQuotaUsed: 0,
     });
   });
 
@@ -150,7 +150,7 @@ describe("desktop account and redemption routes", () => {
 
     const response = await app.inject({ method: "POST", url: "/api/desktop/activation-codes/redeem", headers: { authorization: `Bearer ${token}` }, payload: { code: generated.code.toLowerCase() } });
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({ authenticated: true, entitlement_status: "active", llm_quota_limit: 20, llm_quota_remaining: 20, can_process: true });
+    expect(response.json()).toMatchObject({ authenticated: true, entitlement_status: "active", llm_quota_limit: 100, llm_quota_remaining: 100, can_process: true });
     expect(Object.keys(response.json()).sort()).toEqual([
       "authenticated", "can_generate_ai", "can_process", "email", "entitlement_expires_at", "entitlement_status",
       "last_verified_at", "llm_configured", "llm_quota_limit", "llm_quota_remaining", "llm_quota_resets_at", "llm_quota_used",
