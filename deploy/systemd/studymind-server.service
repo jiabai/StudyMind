@@ -4,13 +4,12 @@
 # 入口: tsx src/index.ts（与 npm start 等价，源码直跑；build 仅做类型检查，不产出 JS）
 #
 # 安装步骤:
-#   1. 部署代码到 /opt/studymind:
-#        sudo mkdir -p /opt/studymind
-#        sudo chown ubuntu:ubuntu /opt/studymind
-#        # 以 ubuntu 身份拉取代码到 /opt/studymind (server 目录在其下)
+#   1. 部署代码到 ~/StudyMind (即 /home/ubuntu/StudyMind):
+#        cd ~ && git clone <repo> StudyMind
+#        # 或按实际情况拉取代码，路径以实际部署目录为准
 #
 #   2. 构建/安装依赖:
-#        cd /opt/studymind/server
+#        cd ~/StudyMind/server
 #        npm ci                       # 安装全部依赖(含 dev，tsx 运行时需要)
 #        npm run build                # prisma generate && tsc --noEmit (类型检查)
 #
@@ -33,7 +32,7 @@
 #
 # 注意:
 #   - ExecStart 的 tsx 路径按实际安装位置修改: which tsx
-#     (npm ci 后通常为 /opt/studymind/server/node_modules/.bin/tsx)
+#     (npm ci 后通常为 ~/StudyMind/server/node_modules/.bin/tsx)
 #   - Node 版本要求 >= 20 (项目依赖 fastify ^5)
 #   - 应用 shutdown deadline 为 15 秒，TimeoutStopSec=20 留出余量
 
@@ -46,14 +45,14 @@ Wants=network-online.target
 Type=simple
 User=ubuntu
 Group=ubuntu
-WorkingDirectory=/opt/studymind/server
-EnvironmentFile=/opt/studymind/server/.env
+WorkingDirectory=/home/ubuntu/StudyMind/server
+EnvironmentFile=/home/ubuntu/StudyMind/server/.env
 Environment=NODE_ENV=production
 # 启动闸门: 迁移已部署、状态正确、数据库预检通过才允许启动。
-ExecStartPre=/opt/studymind/server/node_modules/.bin/prisma generate
-ExecStartPre=/opt/studymind/server/node_modules/.bin/prisma migrate status
+ExecStartPre=/home/ubuntu/StudyMind/server/node_modules/.bin/prisma generate
+ExecStartPre=/home/ubuntu/StudyMind/server/node_modules/.bin/prisma migrate status
 ExecStartPre=/usr/bin/node scripts/database-preflight.mjs --mode current
-ExecStart=/opt/studymind/server/node_modules/.bin/tsx src/index.ts
+ExecStart=/home/ubuntu/StudyMind/server/node_modules/.bin/tsx src/index.ts
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=20
@@ -64,8 +63,8 @@ UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
-ProtectHome=true
-ReadWritePaths=/opt/studymind/server/data /opt/studymind/server/backups /opt/studymind/server/logs
+ProtectHome=read-only
+ReadWritePaths=/home/ubuntu/StudyMind/server/data /home/ubuntu/StudyMind/server/backups /home/ubuntu/StudyMind/server/logs
 
 [Install]
 WantedBy=multi-user.target
