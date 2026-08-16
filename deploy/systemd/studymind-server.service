@@ -51,7 +51,7 @@ Environment=NODE_ENV=production
 # 启动闸门: 迁移已部署、状态正确、数据库预检通过才允许启动。
 ExecStartPre=/home/ubuntu/StudyMind/server/node_modules/.bin/prisma generate
 ExecStartPre=/home/ubuntu/StudyMind/server/node_modules/.bin/prisma migrate status
-ExecStartPre=node scripts/database-preflight.mjs --mode current
+ExecStartPre=/usr/bin/env node scripts/database-preflight.mjs --mode current
 ExecStart=/home/ubuntu/StudyMind/server/node_modules/.bin/tsx src/index.ts
 Restart=on-failure
 RestartSec=5
