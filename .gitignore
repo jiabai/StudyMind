@@ -61,6 +61,7 @@ server/prisma/*.db-shm
 /HEARTBEAT.md
 /SOUL.md
 /TOOLS.md
+/MEMORY.md
 /.openclaw/*
 /.openclaw-attachments/*
 /evolution-drafts/*
