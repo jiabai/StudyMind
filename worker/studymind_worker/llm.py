@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping
@@ -15,6 +17,7 @@ DEFAULT_LLM_TIMEOUT_SECONDS = 60.0
 DEFAULT_LLM_TEMPERATURE = 0.7
 MAX_LLM_RESPONSE_BYTES = 16 * 1024 * 1024
 _MAX_ERROR_BODY_BYTES = 1024 * 1024
+LOGGER = logging.getLogger(__name__)
 
 LLM_PROVIDER_ENV = "STUDYMIND_LLM_PROVIDER"
 LLM_API_KEY_ENV = "STUDYMIND_LLM_API_KEY"
@@ -37,52 +40,86 @@ class OpenAICompatibleInsightClient:
     timeout_seconds: float = DEFAULT_LLM_TIMEOUT_SECONDS
     temperature: float = DEFAULT_LLM_TEMPERATURE
     transport: Transport | None = None
+    provider: str = "openai_compatible"
+    request_id: str | None = None
 
     def generate(self, prompt: str) -> str:
-        payload = {
-            "model": self.model,
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": self.temperature,
-        }
-        request = Request(
-            url=_chat_completions_url(self.base_url),
-            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-            },
-            method="POST",
-        )
-
+        started_at = time.monotonic()
         try:
+            _validate_llm_request_config(self.api_key, self.model, self.base_url, self.timeout_seconds)
+            payload = {
+                "model": self.model,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": self.temperature,
+            }
+            request = Request(
+                url=_chat_completions_url(self.base_url),
+                data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                },
+                method="POST",
+            )
             raw_response = (self.transport or urlopen_transport)(
                 request,
                 self.timeout_seconds,
             )
+            content = extract_chat_completion_content(raw_response)
         except urllib.error.HTTPError as exc:
-            raise _llm_request_http_error(exc) from exc
+            error = _llm_request_http_error(exc)
+            _log_request_failure(
+                "completion",
+                self.base_url,
+                self.provider,
+                self.model,
+                self.request_id,
+                started_at,
+                error,
+                exc,
+                http_status=exc.code,
+            )
+            raise error from exc
         except TimeoutError as exc:
-            raise InsightGenerationError(
+            error = InsightGenerationError(
                 "INSIGHTFLOW_LLM_REQUEST_TIMEOUT",
                 _timeout_message(self.timeout_seconds),
-            ) from exc
+            )
+            _log_request_failure("completion", self.base_url, self.provider, self.model, self.request_id, started_at, error, exc)
+            raise error from exc
         except urllib.error.URLError as exc:
             if isinstance(exc.reason, TimeoutError):
-                raise InsightGenerationError(
+                error = InsightGenerationError(
                     "INSIGHTFLOW_LLM_REQUEST_TIMEOUT",
                     _timeout_message(self.timeout_seconds),
-                ) from exc
-            raise InsightGenerationError(
+                )
+            else:
+                error = InsightGenerationError(
+                    "INSIGHTFLOW_LLM_REQUEST_FAILED",
+                    "LLM request failed before a usable response was returned.",
+                )
+            _log_request_failure("completion", self.base_url, self.provider, self.model, self.request_id, started_at, error, exc)
+            raise error from exc
+        except InsightGenerationError as exc:
+            _log_request_failure("completion", self.base_url, self.provider, self.model, self.request_id, started_at, exc, exc)
+            raise
+        except (OSError, TypeError, ValueError) as exc:
+            error = InsightGenerationError(
                 "INSIGHTFLOW_LLM_REQUEST_FAILED",
-                "LLM request failed before a usable response was returned.",
-            ) from exc
-        except OSError as exc:
-            raise InsightGenerationError(
-                "INSIGHTFLOW_LLM_REQUEST_FAILED",
-                "LLM request failed before a usable response was returned.",
-            ) from exc
+                "LLM request configuration or transport was invalid.",
+            )
+            _log_request_failure("completion", self.base_url, self.provider, self.model, self.request_id, started_at, error, exc)
+            raise error from exc
 
-        return extract_chat_completion_content(raw_response)
+        _log_request_success(
+            "completion",
+            self.base_url,
+            self.provider,
+            self.model,
+            self.request_id,
+            started_at,
+        )
+        return content
 
 
 @dataclass
@@ -103,47 +140,87 @@ class ServerManagedInsightClient:
         return derive_per_call_request_id(self.request_id, self._call_index)
 
     def _checkout_client(self, request_id: str) -> OpenAICompatibleInsightClient:
-        payload = {"request_id": request_id}
-        request = Request(
-            url=self.checkout_url,
-            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-            headers={
-                "Authorization": f"Bearer {self.session_token}",
-                "Content-Type": "application/json",
-            },
-            method="POST",
-        )
+        started_at = time.monotonic()
         try:
+            _validate_managed_checkout_config(self.checkout_url, self.session_token, request_id)
+            payload = {"request_id": request_id}
+            request = Request(
+                url=self.checkout_url,
+                data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+                headers={
+                    "Authorization": f"Bearer {self.session_token}",
+                    "Content-Type": "application/json",
+                },
+                method="POST",
+            )
             raw_response = (self.transport or urlopen_transport)(
                 request,
                 self.timeout_seconds,
             )
+            config = parse_managed_checkout_response(raw_response)
+            client = OpenAICompatibleInsightClient(
+                api_key=config["api_key"],
+                model=config["model"],
+                base_url=config["base_url"],
+                timeout_seconds=float(config["timeout_seconds"]),
+                transport=self.transport,
+                provider=config["provider"],
+                request_id=request_id,
+            )
         except urllib.error.HTTPError as exc:
-            raise _managed_checkout_http_error(exc) from exc
+            error = _managed_checkout_http_error(exc)
+            _log_request_failure(
+                "checkout",
+                self.checkout_url,
+                "managed",
+                "-",
+                request_id,
+                started_at,
+                error,
+                exc,
+                http_status=exc.code,
+            )
+            raise error from exc
         except TimeoutError as exc:
-            raise InsightGenerationError(
+            error = InsightGenerationError(
                 "INSIGHTFLOW_LLM_CHECKOUT_TIMEOUT",
                 "StudyMind LLM checkout timed out. Please retry later.",
-            ) from exc
+            )
+            _log_request_failure("checkout", self.checkout_url, "managed", "-", request_id, started_at, error, exc)
+            raise error from exc
         except urllib.error.URLError as exc:
-            raise InsightGenerationError(
+            if isinstance(exc.reason, TimeoutError):
+                error = InsightGenerationError(
+                    "INSIGHTFLOW_LLM_CHECKOUT_TIMEOUT",
+                    "StudyMind LLM checkout timed out. Please retry later.",
+                )
+            else:
+                error = InsightGenerationError(
+                    "INSIGHTFLOW_LLM_CHECKOUT_FAILED",
+                    "StudyMind LLM checkout failed before a usable response was returned.",
+                )
+            _log_request_failure("checkout", self.checkout_url, "managed", "-", request_id, started_at, error, exc)
+            raise error from exc
+        except InsightGenerationError as exc:
+            _log_request_failure("checkout", self.checkout_url, "managed", "-", request_id, started_at, exc, exc)
+            raise
+        except (OSError, TypeError, ValueError) as exc:
+            error = InsightGenerationError(
                 "INSIGHTFLOW_LLM_CHECKOUT_FAILED",
-                "StudyMind LLM checkout failed before a usable response was returned.",
-            ) from exc
-        except OSError as exc:
-            raise InsightGenerationError(
-                "INSIGHTFLOW_LLM_CHECKOUT_FAILED",
-                "StudyMind LLM checkout failed before a usable response was returned.",
-            ) from exc
+                "StudyMind LLM checkout configuration or transport was invalid.",
+            )
+            _log_request_failure("checkout", self.checkout_url, "managed", "-", request_id, started_at, error, exc)
+            raise error from exc
 
-        config = parse_managed_checkout_response(raw_response)
-        return OpenAICompatibleInsightClient(
-            api_key=config["api_key"],
-            model=config["model"],
-            base_url=config["base_url"],
-            timeout_seconds=float(config["timeout_seconds"]),
-            transport=self.transport,
+        _log_request_success(
+            "checkout",
+            self.checkout_url,
+            client.provider,
+            client.model,
+            request_id,
+            started_at,
         )
+        return client
 
 
 def derive_per_call_request_id(request_id_seed: str, call_index: int) -> str:
@@ -257,14 +334,8 @@ def _invalid_managed_checkout_response() -> InsightGenerationError:
 
 
 def _chat_completions_url(base_url: str) -> str:
+    _validate_http_url(base_url)
     parsed = urlsplit(base_url)
-    if (
-        parsed.scheme not in {"http", "https"}
-        or not parsed.hostname
-        or parsed.query
-        or parsed.fragment
-    ):
-        raise ValueError("Invalid LLM base URL.")
     path = f"{parsed.path.rstrip('/')}/chat/completions"
     return urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
 
@@ -385,6 +456,125 @@ def _with_provider_detail(message: str, detail: str) -> str:
         return message
     suffix = "" if detail.endswith((".", "!", "?")) else "."
     return f"{message} Provider detail: {detail}{suffix}"
+
+
+def _validate_llm_request_config(
+    api_key: object,
+    model: object,
+    base_url: object,
+    timeout_seconds: object,
+) -> None:
+    if not isinstance(api_key, str) or not api_key.strip():
+        raise ValueError("LLM API key is required.")
+    if not isinstance(model, str) or not model.strip():
+        raise ValueError("LLM model is required.")
+    if (
+        isinstance(timeout_seconds, bool)
+        or not isinstance(timeout_seconds, (int, float))
+        or timeout_seconds <= 0
+    ):
+        raise ValueError("LLM timeout must be positive.")
+    _validate_http_url(base_url)
+
+
+def _validate_managed_checkout_config(
+    checkout_url: object,
+    session_token: object,
+    request_id: object,
+) -> None:
+    _validate_http_url(checkout_url)
+    if not isinstance(session_token, str) or not session_token.strip():
+        raise ValueError("Managed LLM session token is required.")
+    if not isinstance(request_id, str) or not request_id.strip():
+        raise ValueError("Managed LLM request id is required.")
+
+
+def _validate_http_url(value: object) -> None:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("HTTP URL is required.")
+    raw_value = value.strip()
+    if "\\" in raw_value or "%5c" in raw_value.lower():
+        raise ValueError("HTTP URL contains an invalid path separator.")
+    try:
+        parsed = urlsplit(raw_value)
+        hostname = parsed.hostname
+        _ = parsed.port
+    except ValueError as exc:
+        raise ValueError("HTTP URL is invalid.") from exc
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not hostname
+        or any(character.isspace() for character in parsed.netloc)
+        or parsed.username is not None
+        or parsed.password is not None
+        or bool(parsed.query)
+        or bool(parsed.fragment)
+    ):
+        raise ValueError("HTTP URL is invalid.")
+
+
+def _safe_url(value: str) -> str:
+    try:
+        parsed = urlsplit(value)
+        hostname = parsed.hostname
+        port = parsed.port
+    except (TypeError, ValueError):
+        return "<invalid-url>"
+    if parsed.scheme not in {"http", "https"} or not hostname:
+        return "<invalid-url>"
+    safe_hostname = f"[{hostname}]" if ":" in hostname else hostname
+    netloc = safe_hostname if port is None else f"{safe_hostname}:{port}"
+    return urlunsplit((parsed.scheme, netloc, parsed.path or "/", "", ""))
+
+
+def _safe_log_value(value: object) -> str:
+    normalized = " ".join(str(value).split())
+    return normalized[:160] if normalized else "-"
+
+
+def _log_request_success(
+    stage: str,
+    url: str,
+    provider: str,
+    model: str,
+    request_id: str | None,
+    started_at: float,
+) -> None:
+    LOGGER.debug(
+        "llm_request stage=%s url=%s provider=%s model=%s request_id=%s duration_ms=%d status=success",
+        stage,
+        _safe_url(url),
+        _safe_log_value(provider),
+        _safe_log_value(model),
+        _safe_log_value(request_id or "-"),
+        max(0, round((time.monotonic() - started_at) * 1000)),
+    )
+
+
+def _log_request_failure(
+    stage: str,
+    url: str,
+    provider: str,
+    model: str,
+    request_id: str | None,
+    started_at: float,
+    error: InsightGenerationError,
+    cause: BaseException,
+    *,
+    http_status: int | None = None,
+) -> None:
+    LOGGER.warning(
+        "llm_request stage=%s url=%s provider=%s model=%s request_id=%s duration_ms=%d status=error http_status=%s error_code=%s exception=%s",
+        stage,
+        _safe_url(url),
+        _safe_log_value(provider),
+        _safe_log_value(model),
+        _safe_log_value(request_id or "-"),
+        max(0, round((time.monotonic() - started_at) * 1000)),
+        http_status if http_status is not None else "-",
+        error.code,
+        type(cause).__name__,
+    )
 
 
 def parse_timeout(raw_value: str | None) -> float:

@@ -2,12 +2,17 @@ from __future__ import annotations
 
 import io
 import json
+import logging
 import urllib.error
 from urllib.request import Request
 
 import pytest
 from studymind_worker.insightflow import InsightGenerationError
-from studymind_worker.llm import ServerManagedInsightClient, parse_managed_checkout_response
+from studymind_worker.llm import (
+    OpenAICompatibleInsightClient,
+    ServerManagedInsightClient,
+    parse_managed_checkout_response,
+)
 
 
 def checkout_payload(**overrides: object) -> bytes:
@@ -114,3 +119,119 @@ def test_managed_client_uses_per_call_request_ids_and_keeps_session_auth_off_pro
     assert all(call[1] == "Bearer managed-secret" for call in provider_calls)
     assert all("session-secret" not in json.dumps(call) for call in provider_calls)
     assert all(call[0] == "https://llm.example/v1/chat/completions" for call in provider_calls)
+
+
+def test_managed_client_logs_checkout_and_completion_without_secrets(caplog: pytest.LogCaptureFixture) -> None:
+    def transport(request: Request, timeout: float) -> bytes:
+        if request.full_url.endswith("/checkouts"):
+            return checkout_payload()
+        return json.dumps({"choices": [{"message": {"content": "summary"}}]}).encode()
+
+    client = ServerManagedInsightClient(
+        "https://server.example/checkouts",
+        "session-secret",
+        "lesson-run-0001",
+        transport=transport,
+    )
+    prompt = "first prompt contains provider-secret and session-secret"
+
+    with caplog.at_level(logging.DEBUG, logger="studymind_worker.llm"):
+        assert client.generate(prompt) == "summary"
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert len(messages) == 2
+    assert "stage=checkout" in messages[0]
+    assert "stage=completion" in messages[1]
+    assert "request_id=lesson-run-0001-call-0001" in messages[0]
+    assert "request_id=lesson-run-0001-call-0001" in messages[1]
+    assert "duration_ms=" in messages[0]
+    assert "status=success" in messages[1]
+    joined = "\n".join(messages)
+    assert "session-secret" not in joined
+    assert "managed-secret" not in joined
+    assert "provider-secret" not in joined
+    assert prompt not in joined
+
+
+def test_provider_failure_logs_stable_code_without_provider_error_body(caplog: pytest.LogCaptureFixture) -> None:
+    def transport(request: Request, timeout: float) -> bytes:
+        raise urllib.error.HTTPError(
+            request.full_url,
+            500,
+            "failure",
+            {},
+            io.BytesIO(
+                json.dumps(
+                    {
+                        "error": {
+                            "message": "api_key=provider-secret session-secret prompt-secret"
+                        }
+                    }
+                ).encode()
+            ),
+        )
+
+    client = OpenAICompatibleInsightClient(
+        api_key="provider-secret",
+        model="study-model",
+        base_url="https://llm.example/v1",
+        request_id="lesson-run-0001-call-0001",
+        transport=transport,
+    )
+
+    with caplog.at_level(logging.DEBUG, logger="studymind_worker.llm"):
+        with pytest.raises(InsightGenerationError) as raised:
+            client.generate("prompt-secret")
+
+    assert raised.value.code == "INSIGHTFLOW_LLM_REQUEST_FAILED"
+    messages = "\n".join(record.getMessage() for record in caplog.records)
+    assert "stage=completion" in messages
+    assert "http_status=500" in messages
+    assert "error_code=INSIGHTFLOW_LLM_REQUEST_FAILED" in messages
+    assert "provider-secret" not in messages
+    assert "session-secret" not in messages
+    assert "prompt-secret" not in messages
+
+
+def test_invalid_provider_url_is_mapped_and_safely_logged(caplog: pytest.LogCaptureFixture) -> None:
+    client = OpenAICompatibleInsightClient(
+        api_key="provider-secret",
+        model="study-model",
+        base_url="https://user:pass@llm.example/v1?api_key=query-secret#fragment",
+        request_id="lesson-run-0001-call-0001",
+        transport=lambda request, timeout: b"never-called",
+    )
+
+    with caplog.at_level(logging.DEBUG, logger="studymind_worker.llm"):
+        with pytest.raises(InsightGenerationError) as raised:
+            client.generate("prompt-secret")
+
+    assert raised.value.code == "INSIGHTFLOW_LLM_REQUEST_FAILED"
+    messages = "\n".join(record.getMessage() for record in caplog.records)
+    assert "stage=completion" in messages
+    assert "query-secret" not in messages
+    assert "user" not in messages
+    assert "pass" not in messages
+    assert "prompt-secret" not in messages
+
+
+def test_managed_checkout_socket_timeout_is_mapped_and_logged(caplog: pytest.LogCaptureFixture) -> None:
+    def transport(request: Request, timeout: float) -> bytes:
+        raise urllib.error.URLError(TimeoutError("timed out"))
+
+    client = ServerManagedInsightClient(
+        "https://server.example/checkouts",
+        "session-secret",
+        "lesson-run-0001",
+        transport=transport,
+    )
+
+    with caplog.at_level(logging.DEBUG, logger="studymind_worker.llm"):
+        with pytest.raises(InsightGenerationError) as raised:
+            client.generate("prompt")
+
+    assert raised.value.code == "INSIGHTFLOW_LLM_CHECKOUT_TIMEOUT"
+    messages = "\n".join(record.getMessage() for record in caplog.records)
+    assert "stage=checkout" in messages
+    assert "error_code=INSIGHTFLOW_LLM_CHECKOUT_TIMEOUT" in messages
+    assert "session-secret" not in messages
