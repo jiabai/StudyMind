@@ -196,8 +196,8 @@ class ServerManagedInsightClient:
                 )
             else:
                 error = InsightGenerationError(
-                    "INSIGHTFLOW_LLM_CHECKOUT_FAILED",
-                    "StudyMind LLM checkout failed before a usable response was returned.",
+                    "INSIGHTFLOW_LLM_CHECKOUT_NETWORK_FAILED",
+                    "StudyMind LLM checkout could not reach the server. Check the network and retry.",
                 )
             _log_request_failure("checkout", self.checkout_url, "managed", "-", request_id, started_at, error, exc)
             raise error from exc

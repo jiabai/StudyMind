@@ -235,3 +235,25 @@ def test_managed_checkout_socket_timeout_is_mapped_and_logged(caplog: pytest.Log
     assert "stage=checkout" in messages
     assert "error_code=INSIGHTFLOW_LLM_CHECKOUT_TIMEOUT" in messages
     assert "session-secret" not in messages
+
+
+def test_managed_checkout_network_failure_is_mapped_and_logged(caplog: pytest.LogCaptureFixture) -> None:
+    def transport(request: Request, timeout: float) -> bytes:
+        raise urllib.error.URLError("connection refused")
+
+    client = ServerManagedInsightClient(
+        "https://server.example/checkouts",
+        "session-secret",
+        "lesson-run-0001",
+        transport=transport,
+    )
+
+    with caplog.at_level(logging.DEBUG, logger="studymind_worker.llm"):
+        with pytest.raises(InsightGenerationError) as raised:
+            client.generate("prompt")
+
+    assert raised.value.code == "INSIGHTFLOW_LLM_CHECKOUT_NETWORK_FAILED"
+    messages = "\n".join(record.getMessage() for record in caplog.records)
+    assert "stage=checkout" in messages
+    assert "error_code=INSIGHTFLOW_LLM_CHECKOUT_NETWORK_FAILED" in messages
+    assert "session-secret" not in messages
