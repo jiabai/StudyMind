@@ -293,7 +293,7 @@ pub(crate) fn parse_dotenv_values(path: &Path) -> Result<HashMap<String, String>
     Ok(values)
 }
 
-fn ensure_app_settings_dotenv(path: &Path) -> Result<(), String> {
+pub(crate) fn ensure_app_settings_dotenv(path: &Path) -> Result<(), String> {
     if path.exists() {
         return Ok(());
     }

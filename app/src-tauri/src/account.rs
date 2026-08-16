@@ -6,8 +6,8 @@ use tauri::AppHandle;
 use url::Url;
 use uuid::Uuid;
 
+use crate::settings::{ensure_app_settings_dotenv, env_path, parse_dotenv_values};
 use crate::{ensure_runtime_dirs, resolve_runtime_paths, RuntimePaths};
-use crate::settings::{env_path, parse_dotenv_values};
 
 const ACCOUNT_SESSION_FILE_NAME: &str = "session.json";
 const ACCOUNT_PENDING_STATE_FILE_NAME: &str = "pending_auth_state.txt";
@@ -382,7 +382,9 @@ fn server_base_url_from_paths(paths: &RuntimePaths) -> Result<String, String> {
     if std::env::var_os(SERVER_BASE_URL_ENV).is_some() {
         return server_base_url();
     }
-    server_base_url_from_dotenv(&env_path(paths))
+    let path = env_path(paths);
+    ensure_app_settings_dotenv(&path)?;
+    server_base_url_from_dotenv(&path)
 }
 
 pub(crate) fn server_base_url_from_env<I, K, V>(pairs: I) -> Result<String, String>
@@ -638,8 +640,9 @@ fn guest_account_status() -> AccountStatusView {
 mod tests {
     use super::{
         account_status_view_from_server, guest_account_status, logout_account_session,
-        AccountSessionFile, ServerAccountStatus,
+        server_base_url_from_paths, AccountSessionFile, ServerAccountStatus,
     };
+    use crate::runtime::RuntimePaths;
     use serde_json::json;
     use std::fs;
     use std::sync::{Arc, Mutex};
@@ -757,5 +760,22 @@ mod tests {
 
         assert_eq!(value["can_process"], false);
         assert_eq!(value["can_generate_ai"], false);
+    }
+
+    #[test]
+    fn first_login_uses_the_default_server_when_app_settings_are_missing() {
+        let root = std::env::temp_dir().join(format!("studymind-login-config-{}", Uuid::new_v4()));
+        let paths = RuntimePaths {
+            resource_dir: root.join("resources"),
+            user_data_dir: root.join("user-data"),
+        };
+
+        let result = server_base_url_from_paths(&paths);
+
+        assert_eq!(
+            result.expect("fresh install must have a login server"),
+            "https://studymind.8xf.pro"
+        );
+        fs::remove_dir_all(root).expect("remove login config fixture");
     }
 }
