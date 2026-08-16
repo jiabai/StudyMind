@@ -9,7 +9,7 @@ Validation rules mirror
 
 from __future__ import annotations
 
-import re
+import unicodedata
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -33,7 +33,6 @@ from studymind_worker.output_language import is_output_language
 INVALID_RETRY_PAYLOAD_MESSAGE = "Retry request payload was invalid."
 
 _WORKER_ASR_MODELS = frozenset({"iic/SenseVoiceSmall", "iic/SenseVoiceSmall-onnx"})
-_SAFE_BASENAME_PATTERN = re.compile(r"^[A-Za-z0-9._+() -]+$")
 _MAX_DISPLAY_NAME_CHARS = 160
 
 
@@ -275,8 +274,17 @@ def _is_safe_display_name(display_name: str, extension: str) -> bool:
         return False
     if display_name.startswith(" ") or display_name.endswith((".", " ")):
         return False
-    if _SAFE_BASENAME_PATTERN.fullmatch(display_name) is None:
-        return False
-    if not any(character.isascii() and character.isalnum() for character in display_name):
+    if any(_is_unsafe_basename_character(character) for character in display_name):
         return False
     return display_name.lower().endswith("." + extension)
+
+
+def _is_unsafe_basename_character(character: str) -> bool:
+    codepoint = ord(character)
+    return (
+        character in {"/", "\\"}
+        or unicodedata.category(character) == "Cc"
+        or codepoint in {0x061C, 0x200E, 0x200F}
+        or 0x202A <= codepoint <= 0x202E
+        or 0x2066 <= codepoint <= 0x2069
+    )
