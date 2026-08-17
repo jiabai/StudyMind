@@ -303,8 +303,15 @@ function readRecordingObject(
 }
 
 function mapRecordingCommandError(error: unknown): RecordingClientError {
-  if (error instanceof RecordingClientError) {
-    return error;
+  try {
+    if (error instanceof RecordingClientError) {
+      const code = error.code;
+      return new RecordingClientError(
+        isRecordingClientErrorCode(code) ? code : RECORDING_UNKNOWN_ERROR,
+      );
+    }
+  } catch {
+    return new RecordingClientError(RECORDING_UNKNOWN_ERROR);
   }
 
   try {
@@ -334,6 +341,16 @@ function isRecordingErrorCode(value: unknown): value is RecordingErrorCode {
     typeof value === "string" &&
     value.length <= MAX_REASON_CODE_LENGTH &&
     RECORDING_ERROR_CODES.includes(value as RecordingErrorCode)
+  );
+}
+
+function isRecordingClientErrorCode(
+  value: unknown,
+): value is RecordingClientErrorCode {
+  return (
+    value === RECORDING_UNKNOWN_ERROR ||
+    value === RECORDING_IPC_RESPONSE_INVALID ||
+    isRecordingErrorCode(value)
   );
 }
 

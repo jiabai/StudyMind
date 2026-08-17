@@ -295,6 +295,78 @@ describe("recording client", () => {
     expect(JSON.stringify(captured)).not.toContain(secret);
   });
 
+  test("sanitizes forged RecordingClientError codes and details", async () => {
+    const secret = "C:\\Users\\private\\recordings\\session-token-secret.wav";
+    const forged = new RecordingClientError("SECRET_RAW_CODE" as never);
+    forged.message = secret;
+    Object.defineProperty(forged, "path", {
+      configurable: true,
+      enumerable: true,
+      value: secret,
+    });
+
+    await expect(
+      startRecording("mic", async () => {
+        throw forged;
+      }),
+    ).rejects.toSatisfy((error: unknown) => {
+      expectRecordingError(error, "RECORDING_UNKNOWN_ERROR");
+      expect(error).not.toBe(forged);
+      expect(String(error)).not.toContain(secret);
+      expect(JSON.stringify(error)).not.toContain(secret);
+      return true;
+    });
+  });
+
+  test("preserves known RecordingClientError codes in a new sanitized error", async () => {
+    const secret = "C:\\Users\\private\\recordings\\session-token-secret.wav";
+    const internalError = new RecordingClientError(
+      "RECORDING_MIC_ACCESS_DENIED",
+    );
+    internalError.message = secret;
+    Object.defineProperty(internalError, "sessionToken", {
+      configurable: true,
+      enumerable: true,
+      value: secret,
+    });
+
+    await expect(
+      startRecording("mic", async () => {
+        throw internalError;
+      }),
+    ).rejects.toSatisfy((error: unknown) => {
+      expectRecordingError(error, "RECORDING_MIC_ACCESS_DENIED");
+      expect(error).not.toBe(internalError);
+      expect(error).not.toHaveProperty("sessionToken");
+      expect(String(error)).not.toContain(secret);
+      expect(JSON.stringify(error)).not.toContain(secret);
+      return true;
+    });
+  });
+
+  test("sanitizes Proxy runner errors when instanceof reflection throws", async () => {
+    const secret = "SECRET_PROXY_PATH_AND_SESSION_TOKEN";
+    const runnerError = new Proxy(
+      {},
+      {
+        getPrototypeOf() {
+          throw new Error(secret);
+        },
+      },
+    );
+
+    await expect(
+      startRecording("mic", async () => {
+        throw runnerError;
+      }),
+    ).rejects.toSatisfy((error: unknown) => {
+      expectRecordingError(error, "RECORDING_UNKNOWN_ERROR");
+      expect(String(error)).not.toContain(secret);
+      expect(JSON.stringify(error)).not.toContain(secret);
+      return true;
+    });
+  });
+
   test("maps unknown and non-structured backend errors to one stable code", async () => {
     await expect(
       startRecording("mic", async () => {
