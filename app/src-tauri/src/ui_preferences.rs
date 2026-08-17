@@ -1,6 +1,7 @@
 use serde::{de, Deserialize, Deserializer, Serialize};
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
+use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use tauri::AppHandle;
@@ -48,6 +49,57 @@ pub(crate) struct SaveUiPreferencesInput {
     pub(crate) recording: Option<RecordingPreferences>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum PresentOrMissing<T> {
+    Missing,
+    Present(T),
+}
+
+impl<T> Default for PresentOrMissing<T> {
+    fn default() -> Self {
+        Self::Missing
+    }
+}
+
+impl<'de, T> Deserialize<'de> for PresentOrMissing<T>
+where
+    T: Deserialize<'de>,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct PresentOrMissingVisitor<T>(PhantomData<T>);
+
+        impl<'de, T> de::Visitor<'de> for PresentOrMissingVisitor<T>
+        where
+            T: Deserialize<'de>,
+        {
+            type Value = PresentOrMissing<T>;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("a present value")
+            }
+
+            fn visit_none<E>(self) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                Err(E::custom("null is not a valid present value"))
+            }
+
+            fn visit_some<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+            where
+                D: Deserializer<'de>,
+            {
+                T::deserialize(deserializer).map(PresentOrMissing::Present)
+            }
+        }
+
+        deserializer.deserialize_option(PresentOrMissingVisitor(PhantomData))
+    }
+}
+
 impl SaveUiPreferencesInput {
     pub(crate) fn recording(mode: RecordingAudioSourceMode) -> Self {
         Self {
@@ -67,20 +119,30 @@ impl<'de> Deserialize<'de> for SaveUiPreferencesInput {
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase", deny_unknown_fields)]
         struct SaveUiPreferencesInputWire {
-            language: Option<LanguagePreference>,
-            recording: Option<RecordingPreferences>,
+            #[serde(default)]
+            language: PresentOrMissing<LanguagePreference>,
+            #[serde(default)]
+            recording: PresentOrMissing<RecordingPreferences>,
         }
 
         let input = SaveUiPreferencesInputWire::deserialize(deserializer)?;
-        if input.language.is_none() && input.recording.is_none() {
+        if matches!(input.language, PresentOrMissing::Missing)
+            && matches!(input.recording, PresentOrMissing::Missing)
+        {
             return Err(de::Error::custom(
                 "expected at least one of language or recording",
             ));
         }
 
         Ok(Self {
-            language: input.language,
-            recording: input.recording,
+            language: match input.language {
+                PresentOrMissing::Missing => None,
+                PresentOrMissing::Present(value) => Some(value),
+            },
+            recording: match input.recording {
+                PresentOrMissing::Missing => None,
+                PresentOrMissing::Present(value) => Some(value),
+            },
         })
     }
 }
@@ -201,6 +263,16 @@ pub(crate) fn save_ui_preferences_to_file(
     path: &Path,
     preferences: SaveUiPreferencesInput,
 ) -> Result<UiPreferencesView, String> {
+    let _write_guard = UI_PREFERENCES_WRITE_LOCK
+        .lock()
+        .map_err(|_| UI_PREFERENCES_WRITE_FAILED.to_string())?;
+    save_ui_preferences_to_file_locked(path, preferences)
+}
+
+fn save_ui_preferences_to_file_locked(
+    path: &Path,
+    preferences: SaveUiPreferencesInput,
+) -> Result<UiPreferencesView, String> {
     let existing =
         load_ui_preferences_from_file(path).map_err(|_| UI_PREFERENCES_WRITE_FAILED.to_string())?;
     let merged = UiPreferencesState {
@@ -216,7 +288,7 @@ pub(crate) fn save_ui_preferences_to_file(
         .map_err(|_| UI_PREFERENCES_WRITE_FAILED.to_string())?
         + "\n")
         .into_bytes();
-    atomic_write(path, &bytes).map_err(|_| UI_PREFERENCES_WRITE_FAILED.to_string())?;
+    atomic_write_locked(path, &bytes).map_err(|_| UI_PREFERENCES_WRITE_FAILED.to_string())?;
 
     Ok(build_view(merged, false))
 }
@@ -247,10 +319,7 @@ fn build_view(state: UiPreferencesState, recovered: bool) -> UiPreferencesView {
     }
 }
 
-fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let _write_guard = UI_PREFERENCES_WRITE_LOCK
-        .lock()
-        .map_err(|_| io::Error::other("UI preference write lock poisoned"))?;
+fn atomic_write_locked(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let parent = path.parent().ok_or_else(|| {
         io::Error::new(io::ErrorKind::InvalidInput, "preference path has no parent")
     })?;
@@ -400,6 +469,8 @@ mod tests {
     use std::fs;
     use std::io;
     use std::path::{Path, PathBuf};
+    use std::sync::{Arc, Barrier};
+    use std::thread;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
@@ -559,11 +630,36 @@ mod tests {
         for payload in [
             serde_json::json!({"language": "fr-FR"}),
             serde_json::json!({"language": 7}),
+            serde_json::json!({"language": null, "recording": {"audioSourceMode": "mic"}}),
             serde_json::json!({"recording": {"audioSourceMode": "bluetooth"}}),
+            serde_json::json!({"language": "system", "recording": null}),
             serde_json::json!({"language": "system", "taskId": "not-local"}),
         ] {
             assert!(serde_json::from_value::<SaveUiPreferencesInput>(payload).is_err());
         }
+    }
+
+    #[test]
+    fn save_input_accepts_partial_updates_with_missing_fields() {
+        let language_only = serde_json::from_value::<SaveUiPreferencesInput>(serde_json::json!({
+            "language": "zh-TW",
+        }))
+        .expect("language-only input is valid");
+        assert_eq!(language_only.language, Some(LanguagePreference::ZhTw));
+        assert!(language_only.recording.is_none());
+
+        let recording_only = serde_json::from_value::<SaveUiPreferencesInput>(serde_json::json!({
+            "recording": {"audioSourceMode": "system"},
+        }))
+        .expect("recording-only input is valid");
+        assert!(recording_only.language.is_none());
+        assert_eq!(
+            recording_only
+                .recording
+                .expect("recording field is present")
+                .audio_source_mode,
+            RecordingAudioSourceMode::System
+        );
     }
 
     #[test]
@@ -634,6 +730,56 @@ mod tests {
         assert_eq!(serialized["language"], "en-US");
         assert_eq!(serialized["recording"]["audioSourceMode"], "mixed");
         assert_eq!(serialized["recovered"], false);
+    }
+
+    #[test]
+    fn concurrent_partial_saves_preserve_unrelated_preference_updates() {
+        for attempt in 0..64 {
+            let path = temp_file(&format!("concurrent-partial-save-{attempt}"));
+            write_raw(
+                &path,
+                r#"{"schemaVersion":2,"language":"zh-CN","recording":{"audioSourceMode":"mic"}}"#,
+            );
+            let start = Arc::new(Barrier::new(3));
+            let language_path = path.clone();
+            let language_start = Arc::clone(&start);
+            let language_thread = thread::spawn(move || {
+                language_start.wait();
+                save_ui_preferences_to_file(
+                    &language_path,
+                    SaveUiPreferencesInput {
+                        language: Some(LanguagePreference::ZhTw),
+                        recording: None,
+                    },
+                )
+            });
+            let recording_path = path.clone();
+            let recording_start = Arc::clone(&start);
+            let recording_thread = thread::spawn(move || {
+                recording_start.wait();
+                save_ui_preferences_to_file(
+                    &recording_path,
+                    SaveUiPreferencesInput::recording(RecordingAudioSourceMode::System),
+                )
+            });
+            start.wait();
+
+            language_thread
+                .join()
+                .expect("language save thread must not panic")
+                .expect("language save must succeed");
+            recording_thread
+                .join()
+                .expect("recording save thread must not panic")
+                .expect("recording save must succeed");
+
+            let view = load_ui_preferences_from_file(&path).expect("load concurrent result");
+            assert_eq!(view.language, LanguagePreference::ZhTw);
+            assert_eq!(
+                view.recording.audio_source_mode,
+                RecordingAudioSourceMode::System
+            );
+        }
     }
 
     #[test]

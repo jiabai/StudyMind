@@ -104,6 +104,14 @@ let browserUiPreferences: UiPreferencesView = {
   recovered: false,
 };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasOwn(value: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+
 function isRecordingAudioSourceMode(value: unknown): value is RecordingAudioSourceMode {
   return value === "mic" || value === "system" || value === "mixed";
 }
@@ -124,39 +132,44 @@ const defaultUiPreferencesRunner: SettingsCommandRunner = async (command, args) 
     return { ...browserUiPreferences };
   }
   if (command === "save_ui_preferences") {
-    const preferences = (args as {
-      preferences?: {
-        language?: unknown;
-        recording?: { audioSourceMode?: unknown };
-      };
-    }).preferences;
-    const language = preferences?.language;
-    const audioSourceMode = preferences?.recording?.audioSourceMode;
-    if (
-      language === undefined &&
-      audioSourceMode === undefined
-    ) {
+    const argsRecord = isRecord(args) ? args : undefined;
+    const preferences = argsRecord?.preferences;
+    if (!isRecord(preferences)) {
       throw new Error("INVALID_UI_PREFERENCES_REQUEST");
     }
-    if (
-      language !== undefined &&
-      !isLanguagePreference(language)
-    ) {
+
+    const hasLanguage = hasOwn(preferences, "language");
+    const hasRecording = hasOwn(preferences, "recording");
+    if (!hasLanguage && !hasRecording) {
       throw new Error("INVALID_UI_PREFERENCES_REQUEST");
     }
-    if (
-      audioSourceMode !== undefined &&
-      !isRecordingAudioSourceMode(audioSourceMode)
-    ) {
-      throw new Error("INVALID_UI_PREFERENCES_REQUEST");
+
+    let language = browserUiPreferences.language;
+    if (hasLanguage) {
+      const candidate = preferences.language;
+      if (!isLanguagePreference(candidate)) {
+        throw new Error("INVALID_UI_PREFERENCES_REQUEST");
+      }
+      language = candidate;
     }
+
+    let audioSourceMode = browserUiPreferences.recording.audioSourceMode;
+    if (hasRecording) {
+      const recording = preferences.recording;
+      if (!isRecord(recording) || !hasOwn(recording, "audioSourceMode")) {
+        throw new Error("INVALID_UI_PREFERENCES_REQUEST");
+      }
+      const candidate = recording.audioSourceMode;
+      if (!isRecordingAudioSourceMode(candidate)) {
+        throw new Error("INVALID_UI_PREFERENCES_REQUEST");
+      }
+      audioSourceMode = candidate;
+    }
+
     browserUiPreferences = {
       schemaVersion: 2,
-      language: language ?? browserUiPreferences.language,
-      recording: {
-        audioSourceMode:
-          audioSourceMode ?? browserUiPreferences.recording.audioSourceMode,
-      },
+      language,
+      recording: { audioSourceMode },
       recovered: false,
     };
     return { ...browserUiPreferences };

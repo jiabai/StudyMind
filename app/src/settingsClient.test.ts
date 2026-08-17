@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import {
   ASR_MODEL_DOWNLOAD_PROGRESS_EVENT,
   cancelAsrModelDownload,
@@ -16,6 +16,14 @@ import {
 import { IpcProtocolError } from "./tauriIpcProtocol";
 
 describe("settings client", () => {
+  const resetBrowserUiPreferences = async () => {
+    await saveUiPreferences("en-US");
+    await saveRecordingAudioSourceMode("mic");
+  };
+
+  beforeEach(resetBrowserUiPreferences);
+  afterEach(resetBrowserUiPreferences);
+
   test("loads selected ASR model status from Tauri", async () => {
     const calls: Array<{ command: string; args: unknown }> = [];
     const runner: SettingsCommandRunner = async (command, args) => {
@@ -327,6 +335,24 @@ describe("settings client", () => {
     ]);
   });
 
+  test.each([null, [], {}, 7])(
+    "browser mock rejects invalid language values: %j",
+    async (language) => {
+      await expect(saveUiPreferences(language as never)).rejects.toThrow(
+        "INVALID_UI_PREFERENCES_REQUEST",
+      );
+    },
+  );
+
+  test.each([null, [], {}, 7])(
+    "browser mock rejects invalid recording mode values: %j",
+    async (mode) => {
+      await expect(saveRecordingAudioSourceMode(mode as never)).rejects.toThrow(
+        "INVALID_UI_PREFERENCES_REQUEST",
+      );
+    },
+  );
+
   test.each([
     null,
     {},
@@ -380,8 +406,6 @@ describe("settings client", () => {
       recovered: false,
     });
 
-    await saveUiPreferences("en-US");
-    await saveRecordingAudioSourceMode("mic");
   });
 
   test("uses an immediate in-memory UI-preferences mock outside Tauri", async () => {
