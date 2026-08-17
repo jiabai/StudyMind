@@ -5,6 +5,7 @@ use tauri_plugin_deep_link::DeepLinkExt;
 mod account;
 mod asr_model;
 mod atomic_files;
+mod audio_capture;
 mod deep_link;
 mod diagnostics;
 mod history;
@@ -65,6 +66,7 @@ pub fn run() {
         .manage(Arc::new(ProcessSupervisors::default()))
         .manage(Arc::new(HistoryDeletionState::default()))
         .manage(Arc::new(local_media::LocalMediaSelectionState::default()))
+        .manage(audio_capture::RecordingController::default())
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 deep_link::activate_main_window_for_deep_link(&window, argv);
@@ -84,6 +86,11 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             greet,
+            audio_capture::get_recording_capabilities,
+            audio_capture::start_recording,
+            audio_capture::stop_recording,
+            audio_capture::cancel_recording,
+            audio_capture::get_recording_state,
             local_media::select_local_media,
             local_media::select_local_media_by_path,
             local_media::clear_local_media_selection,

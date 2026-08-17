@@ -1,0 +1,1040 @@
+use serde::{Deserialize, Serialize};
+use std::fmt;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::Instant;
+use tauri::State;
+use uuid::Uuid;
+
+pub(crate) const RECORDING_ALREADY_ACTIVE: RecordingErrorCode = RecordingErrorCode::AlreadyActive;
+pub(crate) const RECORDING_PLATFORM_UNSUPPORTED: RecordingErrorCode =
+    RecordingErrorCode::PlatformUnsupported;
+pub(crate) const RECORDING_MIC_INIT_FAILED: RecordingErrorCode = RecordingErrorCode::MicInitFailed;
+pub(crate) const RECORDING_SYSTEM_AUDIO_UNAVAILABLE: RecordingErrorCode =
+    RecordingErrorCode::SystemAudioUnavailable;
+pub(crate) const RECORDING_EMPTY: RecordingErrorCode = RecordingErrorCode::Empty;
+pub(crate) const RECORDING_SESSION_INVALID: RecordingErrorCode = RecordingErrorCode::SessionInvalid;
+pub(crate) const RECORDING_FINALIZE_FAILED: RecordingErrorCode = RecordingErrorCode::FinalizeFailed;
+pub(crate) const RECORDING_STATE_UNAVAILABLE: RecordingErrorCode =
+    RecordingErrorCode::StateUnavailable;
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub(crate) enum RecordingErrorCode {
+    #[serde(rename = "RECORDING_ALREADY_ACTIVE")]
+    AlreadyActive,
+    #[serde(rename = "RECORDING_PLATFORM_UNSUPPORTED")]
+    PlatformUnsupported,
+    #[serde(rename = "RECORDING_CAPABILITY_PROBE_FAILED")]
+    CapabilityProbeFailed,
+    #[serde(rename = "RECORDING_MIC_INIT_FAILED")]
+    MicInitFailed,
+    #[serde(rename = "RECORDING_MIC_ACCESS_DENIED")]
+    MicAccessDenied,
+    #[serde(rename = "RECORDING_SYSTEM_LOOPBACK_INIT_FAILED")]
+    SystemLoopbackInitFailed,
+    #[serde(rename = "RECORDING_SYSTEM_AUDIO_UNAVAILABLE")]
+    SystemAudioUnavailable,
+    #[serde(rename = "RECORDING_STREAM_ERROR")]
+    StreamError,
+    #[serde(rename = "RECORDING_MIX_FAILED")]
+    MixFailed,
+    #[serde(rename = "RECORDING_WRITE_FAILED")]
+    WriteFailed,
+    #[serde(rename = "RECORDING_DISK_SPACE_LOW")]
+    DiskSpaceLow,
+    #[serde(rename = "RECORDING_EMPTY")]
+    Empty,
+    #[serde(rename = "RECORDING_SESSION_INVALID")]
+    SessionInvalid,
+    #[serde(rename = "RECORDING_FINALIZE_FAILED")]
+    FinalizeFailed,
+    #[serde(rename = "RECORDING_STATE_UNAVAILABLE")]
+    StateUnavailable,
+}
+
+impl RecordingErrorCode {
+    fn message(self) -> &'static str {
+        match self {
+            Self::AlreadyActive => "A recording session is already active.",
+            Self::PlatformUnsupported => "Recording is not supported on this platform.",
+            Self::CapabilityProbeFailed => "Recording capabilities could not be determined.",
+            Self::MicInitFailed => "The microphone could not be initialized.",
+            Self::MicAccessDenied => "Microphone access was denied.",
+            Self::SystemLoopbackInitFailed => "System audio could not be initialized.",
+            Self::SystemAudioUnavailable => "System audio is unavailable.",
+            Self::StreamError => "The recording stream was interrupted.",
+            Self::MixFailed => "The recording sources could not be mixed.",
+            Self::WriteFailed => "The recording could not be written.",
+            Self::DiskSpaceLow => "There is not enough disk space for recording.",
+            Self::Empty => "The recording did not contain any valid audio frames.",
+            Self::SessionInvalid => "The recording session is no longer valid.",
+            Self::FinalizeFailed => "The recording could not be finalized.",
+            Self::StateUnavailable => "The recording state is temporarily unavailable.",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub(crate) struct RecordingError {
+    pub(crate) code: RecordingErrorCode,
+    pub(crate) message: &'static str,
+}
+
+impl RecordingError {
+    pub(crate) fn new(code: RecordingErrorCode) -> Self {
+        Self {
+            code,
+            message: code.message(),
+        }
+    }
+}
+
+impl fmt::Display for RecordingError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.message.fmt(formatter)
+    }
+}
+
+impl std::error::Error for RecordingError {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum RecordingMode {
+    Mic,
+    System,
+    Mixed,
+}
+
+impl RecordingMode {
+    fn needs_microphone(self) -> bool {
+        matches!(self, Self::Mic | Self::Mixed)
+    }
+
+    fn needs_system_audio(self) -> bool {
+        matches!(self, Self::System | Self::Mixed)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum RecordingPlatform {
+    Windows,
+    Unsupported,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RecordingSourceCapability {
+    pub(crate) available: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) reason_code: Option<RecordingErrorCode>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RecordingCapabilities {
+    pub(crate) platform: RecordingPlatform,
+    pub(crate) microphone: RecordingSourceCapability,
+    pub(crate) system_audio: RecordingSourceCapability,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct StartRecordingResponse {
+    pub(crate) session_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RecordingStateView {
+    pub(crate) session_id: String,
+    pub(crate) mode: RecordingMode,
+    pub(crate) elapsed_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RecordingResult {
+    pub(crate) path: String,
+    pub(crate) display_name: String,
+    pub(crate) duration_ms: u64,
+    pub(crate) size_bytes: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CaptureWorkspace {
+    pub(crate) temp_dir: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CapturedRecording {
+    pub(crate) valid_frame_count: u64,
+    pub(crate) silent: bool,
+    pub(crate) duration_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FinalizedRecording {
+    pub(crate) path: PathBuf,
+    pub(crate) display_name: String,
+    pub(crate) duration_ms: u64,
+    pub(crate) size_bytes: u64,
+}
+
+pub(crate) trait RecordingClock: Send + Sync {
+    fn now_ms(&self) -> u64;
+}
+
+pub(crate) trait RecordingFileStore: Send + Sync {
+    fn prepare(&self, session_id: &str) -> Result<CaptureWorkspace, RecordingError>;
+    fn cleanup(&self, workspace: &CaptureWorkspace) -> Result<(), RecordingError>;
+}
+
+pub(crate) trait ActiveCapture: Send {
+    fn stop(self: Box<Self>) -> Result<CapturedRecording, RecordingError>;
+    fn cancel(self: Box<Self>) -> Result<(), RecordingError>;
+}
+
+pub(crate) trait RecordingBackend: Send + Sync {
+    fn capabilities(&self) -> Result<RecordingCapabilities, RecordingError>;
+    fn start(
+        &self,
+        mode: RecordingMode,
+        workspace: &CaptureWorkspace,
+    ) -> Result<Box<dyn ActiveCapture>, RecordingError>;
+}
+
+pub(crate) trait RecordingFinalizer: Send + Sync {
+    fn finalize(
+        &self,
+        capture: CapturedRecording,
+        mode: RecordingMode,
+    ) -> Result<FinalizedRecording, RecordingError>;
+}
+
+struct RecordingSession {
+    session_id: String,
+    mode: RecordingMode,
+    started_at_ms: u64,
+    workspace: CaptureWorkspace,
+    capture: Box<dyn ActiveCapture>,
+}
+
+enum ControllerState {
+    Idle,
+    Starting,
+    Recording(RecordingSession),
+    Finalizing,
+    Error,
+}
+
+pub(crate) struct RecordingController {
+    backend: Arc<dyn RecordingBackend>,
+    finalizer: Arc<dyn RecordingFinalizer>,
+    file_store: Arc<dyn RecordingFileStore>,
+    clock: Arc<dyn RecordingClock>,
+    state: Mutex<ControllerState>,
+}
+
+impl RecordingController {
+    pub(crate) fn new(
+        backend: Arc<dyn RecordingBackend>,
+        finalizer: Arc<dyn RecordingFinalizer>,
+        file_store: Arc<dyn RecordingFileStore>,
+        clock: Arc<dyn RecordingClock>,
+    ) -> Self {
+        Self {
+            backend,
+            finalizer,
+            file_store,
+            clock,
+            state: Mutex::new(ControllerState::Idle),
+        }
+    }
+
+    pub(crate) fn capabilities(&self) -> Result<RecordingCapabilities, RecordingError> {
+        self.backend.capabilities()
+    }
+
+    pub(crate) fn start(
+        &self,
+        mode: RecordingMode,
+    ) -> Result<StartRecordingResponse, RecordingError> {
+        let mut state = self.lock_state()?;
+        if matches!(
+            &*state,
+            ControllerState::Starting | ControllerState::Recording(_) | ControllerState::Finalizing
+        ) {
+            return Err(RecordingError::new(RECORDING_ALREADY_ACTIVE));
+        }
+
+        *state = ControllerState::Starting;
+
+        let capabilities = match self.backend.capabilities() {
+            Ok(capabilities) => capabilities,
+            Err(error) => {
+                *state = ControllerState::Error;
+                return Err(error);
+            }
+        };
+
+        if let Err(error) = validate_mode(mode, &capabilities) {
+            *state = ControllerState::Error;
+            return Err(error);
+        }
+
+        let session_id = Uuid::new_v4().to_string();
+        let workspace = match self.file_store.prepare(&session_id) {
+            Ok(workspace) => workspace,
+            Err(error) => {
+                *state = ControllerState::Error;
+                return Err(error);
+            }
+        };
+
+        let capture = match self.backend.start(mode, &workspace) {
+            Ok(capture) => capture,
+            Err(error) => {
+                if let Err(cleanup_error) = self.file_store.cleanup(&workspace) {
+                    *state = ControllerState::Error;
+                    return Err(cleanup_error);
+                }
+                *state = ControllerState::Error;
+                return Err(error);
+            }
+        };
+
+        *state = ControllerState::Recording(RecordingSession {
+            session_id: session_id.clone(),
+            mode,
+            started_at_ms: self.clock.now_ms(),
+            workspace,
+            capture,
+        });
+
+        Ok(StartRecordingResponse { session_id })
+    }
+
+    pub(crate) fn state(&self) -> Result<Option<RecordingStateView>, RecordingError> {
+        let state = self.lock_state()?;
+        Ok(match &*state {
+            ControllerState::Recording(session) => Some(RecordingStateView {
+                session_id: session.session_id.clone(),
+                mode: session.mode,
+                elapsed_ms: self.clock.now_ms().saturating_sub(session.started_at_ms),
+            }),
+            ControllerState::Idle
+            | ControllerState::Starting
+            | ControllerState::Finalizing
+            | ControllerState::Error => None,
+        })
+    }
+
+    pub(crate) fn stop(&self, session_id: &str) -> Result<RecordingResult, RecordingError> {
+        let active = self.take_active_session(session_id)?;
+        let RecordingSession {
+            mode,
+            workspace,
+            capture,
+            ..
+        } = active;
+
+        let captured = match capture.stop() {
+            Ok(captured) => captured,
+            Err(error) => {
+                self.set_error(error.clone())?;
+                return Err(error);
+            }
+        };
+
+        if captured.valid_frame_count == 0 {
+            let error = RecordingError::new(RECORDING_EMPTY);
+            self.set_error(error.clone())?;
+            return Err(error);
+        }
+
+        let finalized = match self.finalizer.finalize(captured, mode) {
+            Ok(finalized) => finalized,
+            Err(error) => {
+                self.set_error(error.clone())?;
+                return Err(error);
+            }
+        };
+
+        if let Err(error) = self.file_store.cleanup(&workspace) {
+            self.set_error(error.clone())?;
+            return Err(error);
+        }
+
+        *self.lock_state()? = ControllerState::Idle;
+        Ok(finalized.into())
+    }
+
+    pub(crate) fn cancel(&self, session_id: &str) -> Result<(), RecordingError> {
+        let active = self.take_active_session(session_id)?;
+        let RecordingSession {
+            workspace, capture, ..
+        } = active;
+
+        if let Err(error) = capture.cancel() {
+            self.set_error(error.clone())?;
+            return Err(error);
+        }
+
+        if let Err(error) = self.file_store.cleanup(&workspace) {
+            self.set_error(error.clone())?;
+            return Err(error);
+        }
+
+        *self.lock_state()? = ControllerState::Idle;
+        Ok(())
+    }
+
+    fn take_active_session(&self, session_id: &str) -> Result<RecordingSession, RecordingError> {
+        let mut state = self.lock_state()?;
+        let previous = std::mem::replace(&mut *state, ControllerState::Finalizing);
+
+        match previous {
+            ControllerState::Recording(active) if active.session_id == session_id => Ok(active),
+            previous => {
+                *state = previous;
+                Err(RecordingError::new(RECORDING_SESSION_INVALID))
+            }
+        }
+    }
+
+    fn set_error(&self, _error: RecordingError) -> Result<(), RecordingError> {
+        *self.lock_state()? = ControllerState::Error;
+        Ok(())
+    }
+
+    fn lock_state(&self) -> Result<MutexGuard<'_, ControllerState>, RecordingError> {
+        self.state
+            .lock()
+            .map_err(|_| RecordingError::new(RECORDING_STATE_UNAVAILABLE))
+    }
+}
+
+impl Default for RecordingController {
+    fn default() -> Self {
+        Self::new(
+            Arc::new(UnavailableRecordingBackend),
+            Arc::new(UnavailableRecordingFinalizer),
+            Arc::new(UnavailableRecordingFileStore),
+            Arc::new(SystemRecordingClock::new()),
+        )
+    }
+}
+
+fn validate_mode(
+    mode: RecordingMode,
+    capabilities: &RecordingCapabilities,
+) -> Result<(), RecordingError> {
+    if capabilities.platform == RecordingPlatform::Unsupported {
+        return Err(RecordingError::new(RECORDING_PLATFORM_UNSUPPORTED));
+    }
+
+    if mode.needs_microphone() && !capabilities.microphone.available {
+        return Err(RecordingError::new(
+            capabilities
+                .microphone
+                .reason_code
+                .unwrap_or(RECORDING_MIC_INIT_FAILED),
+        ));
+    }
+
+    if mode.needs_system_audio() && !capabilities.system_audio.available {
+        return Err(RecordingError::new(
+            capabilities
+                .system_audio
+                .reason_code
+                .unwrap_or(RECORDING_SYSTEM_AUDIO_UNAVAILABLE),
+        ));
+    }
+
+    Ok(())
+}
+
+impl From<FinalizedRecording> for RecordingResult {
+    fn from(finalized: FinalizedRecording) -> Self {
+        Self {
+            path: finalized.path.to_string_lossy().into_owned(),
+            display_name: finalized.display_name,
+            duration_ms: finalized.duration_ms,
+            size_bytes: finalized.size_bytes,
+        }
+    }
+}
+
+struct SystemRecordingClock {
+    origin: Instant,
+}
+
+impl SystemRecordingClock {
+    fn new() -> Self {
+        Self {
+            origin: Instant::now(),
+        }
+    }
+}
+
+impl RecordingClock for SystemRecordingClock {
+    fn now_ms(&self) -> u64 {
+        self.origin
+            .elapsed()
+            .as_millis()
+            .try_into()
+            .unwrap_or(u64::MAX)
+    }
+}
+
+struct UnavailableRecordingBackend;
+
+impl RecordingBackend for UnavailableRecordingBackend {
+    fn capabilities(&self) -> Result<RecordingCapabilities, RecordingError> {
+        let platform = if cfg!(windows) {
+            RecordingPlatform::Windows
+        } else {
+            RecordingPlatform::Unsupported
+        };
+        let unavailable = RecordingSourceCapability {
+            available: false,
+            reason_code: Some(RECORDING_PLATFORM_UNSUPPORTED),
+        };
+
+        Ok(RecordingCapabilities {
+            platform,
+            microphone: unavailable.clone(),
+            system_audio: unavailable,
+        })
+    }
+
+    fn start(
+        &self,
+        _mode: RecordingMode,
+        _workspace: &CaptureWorkspace,
+    ) -> Result<Box<dyn ActiveCapture>, RecordingError> {
+        Err(RecordingError::new(RECORDING_PLATFORM_UNSUPPORTED))
+    }
+}
+
+struct UnavailableRecordingFinalizer;
+
+impl RecordingFinalizer for UnavailableRecordingFinalizer {
+    fn finalize(
+        &self,
+        _capture: CapturedRecording,
+        _mode: RecordingMode,
+    ) -> Result<FinalizedRecording, RecordingError> {
+        Err(RecordingError::new(RECORDING_FINALIZE_FAILED))
+    }
+}
+
+struct UnavailableRecordingFileStore;
+
+impl RecordingFileStore for UnavailableRecordingFileStore {
+    fn prepare(&self, _session_id: &str) -> Result<CaptureWorkspace, RecordingError> {
+        Err(RecordingError::new(RECORDING_PLATFORM_UNSUPPORTED))
+    }
+
+    fn cleanup(&self, _workspace: &CaptureWorkspace) -> Result<(), RecordingError> {
+        Ok(())
+    }
+}
+
+#[tauri::command]
+pub(crate) fn get_recording_capabilities(
+    state: State<'_, RecordingController>,
+) -> Result<RecordingCapabilities, RecordingError> {
+    state.capabilities()
+}
+
+#[tauri::command]
+pub(crate) fn start_recording(
+    state: State<'_, RecordingController>,
+    mode: RecordingMode,
+) -> Result<StartRecordingResponse, RecordingError> {
+    state.start(mode)
+}
+
+#[tauri::command]
+pub(crate) fn stop_recording(
+    state: State<'_, RecordingController>,
+    session_id: String,
+) -> Result<RecordingResult, RecordingError> {
+    state.stop(&session_id)
+}
+
+#[tauri::command]
+pub(crate) fn cancel_recording(
+    state: State<'_, RecordingController>,
+    session_id: String,
+) -> Result<(), RecordingError> {
+    state.cancel(&session_id)
+}
+
+#[tauri::command]
+pub(crate) fn get_recording_state(
+    state: State<'_, RecordingController>,
+) -> Result<Option<RecordingStateView>, RecordingError> {
+    state.state()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    struct FakeClock {
+        now_ms: AtomicU64,
+    }
+
+    impl FakeClock {
+        fn new(now_ms: u64) -> Self {
+            Self {
+                now_ms: AtomicU64::new(now_ms),
+            }
+        }
+    }
+
+    impl RecordingClock for FakeClock {
+        fn now_ms(&self) -> u64 {
+            self.now_ms.load(Ordering::SeqCst)
+        }
+    }
+
+    struct FakeFileStore;
+
+    impl RecordingFileStore for FakeFileStore {
+        fn prepare(&self, session_id: &str) -> Result<CaptureWorkspace, RecordingError> {
+            Ok(CaptureWorkspace {
+                temp_dir: PathBuf::from(format!("temp-{session_id}")),
+            })
+        }
+
+        fn cleanup(&self, _workspace: &CaptureWorkspace) -> Result<(), RecordingError> {
+            Ok(())
+        }
+    }
+
+    struct FakeCapture {
+        stop_result: Result<CapturedRecording, RecordingError>,
+        cancel_result: Result<(), RecordingError>,
+    }
+
+    impl ActiveCapture for FakeCapture {
+        fn stop(self: Box<Self>) -> Result<CapturedRecording, RecordingError> {
+            self.stop_result
+        }
+
+        fn cancel(self: Box<Self>) -> Result<(), RecordingError> {
+            self.cancel_result
+        }
+    }
+
+    struct FakeBackend {
+        capabilities: RecordingCapabilities,
+        start_error: Option<RecordingError>,
+        stop_error: Option<RecordingError>,
+        captured: CapturedRecording,
+    }
+
+    impl FakeBackend {
+        fn available(captured: CapturedRecording) -> Self {
+            Self {
+                capabilities: RecordingCapabilities {
+                    platform: RecordingPlatform::Windows,
+                    microphone: RecordingSourceCapability {
+                        available: true,
+                        reason_code: None,
+                    },
+                    system_audio: RecordingSourceCapability {
+                        available: true,
+                        reason_code: None,
+                    },
+                },
+                start_error: None,
+                stop_error: None,
+                captured,
+            }
+        }
+    }
+
+    impl RecordingBackend for FakeBackend {
+        fn capabilities(&self) -> Result<RecordingCapabilities, RecordingError> {
+            Ok(self.capabilities.clone())
+        }
+
+        fn start(
+            &self,
+            _mode: RecordingMode,
+            _workspace: &CaptureWorkspace,
+        ) -> Result<Box<dyn ActiveCapture>, RecordingError> {
+            if let Some(error) = &self.start_error {
+                return Err(error.clone());
+            }
+
+            Ok(Box::new(FakeCapture {
+                stop_result: self
+                    .stop_error
+                    .clone()
+                    .map_or_else(|| Ok(self.captured.clone()), Err),
+                cancel_result: Ok(()),
+            }))
+        }
+    }
+
+    struct FakeFinalizer;
+
+    impl RecordingFinalizer for FakeFinalizer {
+        fn finalize(
+            &self,
+            capture: CapturedRecording,
+            _mode: RecordingMode,
+        ) -> Result<FinalizedRecording, RecordingError> {
+            Ok(FinalizedRecording {
+                path: PathBuf::from("final.wav"),
+                display_name: "final.wav".to_string(),
+                duration_ms: capture.duration_ms,
+                size_bytes: 4,
+            })
+        }
+    }
+
+    struct FailingFinalizer;
+
+    impl RecordingFinalizer for FailingFinalizer {
+        fn finalize(
+            &self,
+            _capture: CapturedRecording,
+            _mode: RecordingMode,
+        ) -> Result<FinalizedRecording, RecordingError> {
+            Err(RecordingError::new(RECORDING_FINALIZE_FAILED))
+        }
+    }
+
+    fn controller() -> RecordingController {
+        RecordingController::new(
+            Arc::new(FakeBackend::available(CapturedRecording {
+                valid_frame_count: 1,
+                silent: false,
+                duration_ms: 100,
+            })),
+            Arc::new(FakeFinalizer),
+            Arc::new(FakeFileStore),
+            Arc::new(FakeClock::new(1_000)),
+        )
+    }
+
+    struct TrackingFileStore {
+        prepared: Arc<Mutex<Vec<PathBuf>>>,
+        cleaned: Arc<Mutex<Vec<PathBuf>>>,
+    }
+
+    impl TrackingFileStore {
+        fn new() -> Self {
+            Self {
+                prepared: Arc::new(Mutex::new(Vec::new())),
+                cleaned: Arc::new(Mutex::new(Vec::new())),
+            }
+        }
+    }
+
+    impl RecordingFileStore for TrackingFileStore {
+        fn prepare(&self, session_id: &str) -> Result<CaptureWorkspace, RecordingError> {
+            let workspace = CaptureWorkspace {
+                temp_dir: PathBuf::from(format!("temp-{session_id}")),
+            };
+            self.prepared
+                .lock()
+                .expect("prepared lock")
+                .push(workspace.temp_dir.clone());
+            Ok(workspace)
+        }
+
+        fn cleanup(&self, workspace: &CaptureWorkspace) -> Result<(), RecordingError> {
+            self.cleaned
+                .lock()
+                .expect("cleaned lock")
+                .push(workspace.temp_dir.clone());
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn start_binds_mode_and_exposes_active_state() {
+        let controller = controller();
+
+        let started = controller
+            .start(RecordingMode::Mic)
+            .expect("start recording");
+        let state = controller
+            .state()
+            .expect("read recording state")
+            .expect("active recording state");
+
+        assert_eq!(state.session_id, started.session_id);
+        assert_eq!(state.mode, RecordingMode::Mic);
+        assert_eq!(state.elapsed_ms, 0);
+    }
+
+    #[test]
+    fn second_start_is_rejected_without_changing_the_active_mode() {
+        let controller = controller();
+        controller
+            .start(RecordingMode::Mic)
+            .expect("start first recording");
+
+        let error = controller
+            .start(RecordingMode::System)
+            .expect_err("second recording must be rejected");
+
+        assert_eq!(error.code, RECORDING_ALREADY_ACTIVE);
+        assert_eq!(
+            controller
+                .state()
+                .expect("read state")
+                .expect("active state")
+                .mode,
+            RecordingMode::Mic
+        );
+    }
+
+    #[test]
+    fn invalid_session_does_not_take_the_active_capture() {
+        let controller = controller();
+        controller
+            .start(RecordingMode::Mic)
+            .expect("start recording");
+
+        let error = controller
+            .stop("not-the-active-session")
+            .expect_err("wrong session must be rejected");
+
+        assert_eq!(error.code, RECORDING_SESSION_INVALID);
+        assert!(
+            controller.state().expect("read state").is_some(),
+            "active session must remain available"
+        );
+    }
+
+    #[test]
+    fn successful_stop_returns_finalized_metadata_and_returns_to_idle() {
+        let controller = controller();
+        let started = controller
+            .start(RecordingMode::Mic)
+            .expect("start recording");
+
+        let result = controller
+            .stop(&started.session_id)
+            .expect("stop recording");
+
+        assert_eq!(result.path, "final.wav");
+        assert_eq!(result.display_name, "final.wav");
+        assert_eq!(result.duration_ms, 100);
+        assert_eq!(result.size_bytes, 4);
+        assert!(controller.state().expect("read state").is_none());
+        assert_eq!(
+            controller
+                .stop(&started.session_id)
+                .expect_err("repeated stop must be rejected")
+                .code,
+            RECORDING_SESSION_INVALID
+        );
+    }
+
+    #[test]
+    fn unavailable_mode_is_rejected_before_preparing_capture_workspace() {
+        let mut backend = FakeBackend::available(CapturedRecording {
+            valid_frame_count: 1,
+            silent: false,
+            duration_ms: 100,
+        });
+        backend.capabilities.microphone = RecordingSourceCapability {
+            available: false,
+            reason_code: Some(RECORDING_MIC_INIT_FAILED),
+        };
+        let file_store = TrackingFileStore::new();
+        let prepared = file_store.prepared.clone();
+        let controller = RecordingController::new(
+            Arc::new(backend),
+            Arc::new(FakeFinalizer),
+            Arc::new(file_store),
+            Arc::new(FakeClock::new(1_000)),
+        );
+
+        let error = controller
+            .start(RecordingMode::Mic)
+            .expect_err("unavailable microphone must be rejected");
+
+        assert_eq!(error.code, RECORDING_MIC_INIT_FAILED);
+        assert!(prepared.lock().expect("prepared lock").is_empty());
+    }
+
+    #[test]
+    fn failed_backend_start_cleans_the_prepared_workspace() {
+        let mut backend = FakeBackend::available(CapturedRecording {
+            valid_frame_count: 1,
+            silent: false,
+            duration_ms: 100,
+        });
+        backend.start_error = Some(RecordingError::new(RECORDING_MIC_INIT_FAILED));
+        let file_store = TrackingFileStore::new();
+        let cleaned = file_store.cleaned.clone();
+        let controller = RecordingController::new(
+            Arc::new(backend),
+            Arc::new(FakeFinalizer),
+            Arc::new(file_store),
+            Arc::new(FakeClock::new(1_000)),
+        );
+
+        let error = controller
+            .start(RecordingMode::Mic)
+            .expect_err("backend start must fail");
+
+        assert_eq!(error.code, RECORDING_MIC_INIT_FAILED);
+        assert_eq!(cleaned.lock().expect("cleaned lock").len(), 1);
+        assert!(controller.state().expect("read state").is_none());
+    }
+
+    #[test]
+    fn empty_capture_is_rejected_but_valid_silent_capture_is_finalized() {
+        let empty_controller = RecordingController::new(
+            Arc::new(FakeBackend::available(CapturedRecording {
+                valid_frame_count: 0,
+                silent: false,
+                duration_ms: 0,
+            })),
+            Arc::new(FakeFinalizer),
+            Arc::new(FakeFileStore),
+            Arc::new(FakeClock::new(1_000)),
+        );
+        let empty_session = empty_controller
+            .start(RecordingMode::Mic)
+            .expect("start empty capture");
+        assert_eq!(
+            empty_controller
+                .stop(&empty_session.session_id)
+                .expect_err("empty capture must fail")
+                .code,
+            RECORDING_EMPTY
+        );
+
+        let silent_controller = RecordingController::new(
+            Arc::new(FakeBackend::available(CapturedRecording {
+                valid_frame_count: 1,
+                silent: true,
+                duration_ms: 100,
+            })),
+            Arc::new(FakeFinalizer),
+            Arc::new(FakeFileStore),
+            Arc::new(FakeClock::new(1_000)),
+        );
+        let silent_session = silent_controller
+            .start(RecordingMode::Mic)
+            .expect("start silent capture");
+        assert!(silent_controller.stop(&silent_session.session_id).is_ok());
+    }
+
+    #[test]
+    fn cancel_cleans_the_workspace_and_returns_to_idle() {
+        let file_store = TrackingFileStore::new();
+        let cleaned = file_store.cleaned.clone();
+        let controller = RecordingController::new(
+            Arc::new(FakeBackend::available(CapturedRecording {
+                valid_frame_count: 1,
+                silent: false,
+                duration_ms: 100,
+            })),
+            Arc::new(FakeFinalizer),
+            Arc::new(file_store),
+            Arc::new(FakeClock::new(1_000)),
+        );
+        let started = controller
+            .start(RecordingMode::Mic)
+            .expect("start recording");
+
+        controller
+            .cancel(&started.session_id)
+            .expect("cancel recording");
+
+        assert_eq!(cleaned.lock().expect("cleaned lock").len(), 1);
+        assert!(controller.state().expect("read state").is_none());
+        assert_eq!(
+            controller
+                .cancel(&started.session_id)
+                .expect_err("repeated cancel must be rejected")
+                .code,
+            RECORDING_SESSION_INVALID
+        );
+    }
+
+    #[test]
+    fn stream_failure_preserves_the_workspace_and_returns_a_stable_error() {
+        let mut backend = FakeBackend::available(CapturedRecording {
+            valid_frame_count: 1,
+            silent: false,
+            duration_ms: 100,
+        });
+        backend.stop_error = Some(RecordingError::new(RecordingErrorCode::StreamError));
+        let file_store = TrackingFileStore::new();
+        let cleaned = file_store.cleaned.clone();
+        let controller = RecordingController::new(
+            Arc::new(backend),
+            Arc::new(FakeFinalizer),
+            Arc::new(file_store),
+            Arc::new(FakeClock::new(1_000)),
+        );
+        let started = controller
+            .start(RecordingMode::Mic)
+            .expect("start recording");
+
+        let error = controller
+            .stop(&started.session_id)
+            .expect_err("stream interruption must fail");
+
+        assert_eq!(error.code, RecordingErrorCode::StreamError);
+        assert!(cleaned.lock().expect("cleaned lock").is_empty());
+        assert!(controller.state().expect("read state").is_none());
+    }
+
+    #[test]
+    fn finalization_failure_preserves_the_workspace_and_returns_a_stable_error() {
+        let file_store = TrackingFileStore::new();
+        let cleaned = file_store.cleaned.clone();
+        let controller = RecordingController::new(
+            Arc::new(FakeBackend::available(CapturedRecording {
+                valid_frame_count: 1,
+                silent: false,
+                duration_ms: 100,
+            })),
+            Arc::new(FailingFinalizer),
+            Arc::new(file_store),
+            Arc::new(FakeClock::new(1_000)),
+        );
+        let started = controller
+            .start(RecordingMode::Mic)
+            .expect("start recording");
+
+        let error = controller
+            .stop(&started.session_id)
+            .expect_err("finalization must fail");
+
+        assert_eq!(error.code, RECORDING_FINALIZE_FAILED);
+        assert!(cleaned.lock().expect("cleaned lock").is_empty());
+        assert!(controller.state().expect("read state").is_none());
+    }
+
+    #[test]
+    fn public_mode_and_error_payloads_are_stable_and_redacted() {
+        let mode: RecordingMode = serde_json::from_str("\"mixed\"").expect("parse mode");
+        assert_eq!(mode, RecordingMode::Mixed);
+
+        let error = RecordingError::new(RECORDING_MIC_INIT_FAILED);
+        let serialized = serde_json::to_string(&error).expect("serialize error");
+        assert!(serialized.contains("RECORDING_MIC_INIT_FAILED"));
+        assert_eq!(error.message, "The microphone could not be initialized.");
+        assert!(!serialized.contains("C:\\\\Users"));
+    }
+}
