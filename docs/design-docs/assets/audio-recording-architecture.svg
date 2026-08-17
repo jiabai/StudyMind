@@ -1,0 +1,130 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" font-family="'Segoe UI','Microsoft YaHei',system-ui,sans-serif">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#94a3b8"/>
+    </marker>
+    <marker id="arrowBlue" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#2563eb"/>
+    </marker>
+  </defs>
+
+  <rect width="1600" height="900" fill="#f6f7f9"/>
+  <rect x="0" y="0" width="1600" height="72" fill="#1e3a8a"/>
+  <text x="48" y="47" fill="#ffffff" font-size="28" font-weight="700">StudyMind 内置录音 · 音源三模式架构图（Windows v1）</text>
+  <text x="48" y="66" fill="#bfdbfe" font-size="15">仅系统声音 / 仅麦克风 / 混合 —— 录完复用既有本地媒体管线，下游零改动</text>
+
+  <!-- 音源模式 chips -->
+  <g font-size="15" font-weight="600">
+    <rect x="48" y="104" width="180" height="40" rx="20" fill="#dbeafe" stroke="#93c5fd"/>
+    <text x="138" y="130" text-anchor="middle" fill="#1e40af">仅系统声音 loopback</text>
+    <rect x="244" y="104" width="150" height="40" rx="20" fill="#dbeafe" stroke="#93c5fd"/>
+    <text x="319" y="130" text-anchor="middle" fill="#1e40af">仅麦克风</text>
+    <rect x="410" y="104" width="240" height="40" rx="20" fill="#dbeafe" stroke="#93c5fd"/>
+    <text x="530" y="130" text-anchor="middle" fill="#1e40af">麦克风 + 系统声音</text>
+    <path d="M410,104 C 390,92 260,92 244,104" stroke="none"/>
+    <text x="668" y="130" fill="#94a3b8">↑ 主按钮 + 下拉箭头（仿 EV录屏，记忆上次选择）</text>
+  </g>
+
+  <!-- Stage 1: 前端 -->
+  <rect x="48" y="190" width="260" height="300" rx="16" fill="#ffffff" stroke="#e2e5ea"/>
+  <rect x="48" y="190" width="260" height="46" rx="16" fill="#eff6ff"/>
+  <rect x="48" y="220" width="260" height="16" fill="#eff6ff"/>
+  <text x="178" y="221" text-anchor="middle" font-size="17" font-weight="700" fill="#1e40af">① 前端 RecordPanel</text>
+  <text x="70" y="268" font-size="14" fill="#374151">· 开始 / 暂停 / 停止 / 放弃</text>
+  <text x="70" y="294" font-size="14" fill="#374151">· 计时 HH:MM:SS + 脉冲红点</text>
+  <text x="70" y="320" font-size="14" fill="#374151">· 双路电平条（100ms RMS）</text>
+  <text x="70" y="346" font-size="14" fill="#374151">· 权限拒绝 / 设备缺失提示</text>
+  <text x="70" y="388" font-size="13" fill="#6b7280">独立 useRecordingController，</text>
+  <text x="70" y="410" font-size="13" fill="#6b7280">不进入 WorkflowState</text>
+  <rect x="70" y="432" width="216" height="40" rx="8" fill="#f8fafc" stroke="#e2e5ea"/>
+  <text x="178" y="457" text-anchor="middle" font-size="12.5" fill="#64748b">invoke("start_recording")</text>
+
+  <!-- arrow 1→2 -->
+  <line x1="308" y1="340" x2="408" y2="340" stroke="#2563eb" stroke-width="2.5" marker-end="url(#arrowBlue)"/>
+  <text x="358" y="322" text-anchor="middle" font-size="13" fill="#2563eb" font-weight="600">IPC</text>
+  <text x="358" y="366" text-anchor="middle" font-size="12" fill="#94a3b8">{ mode, micDevice? }</text>
+
+  <!-- Stage 2: Rust 双路采集 -->
+  <rect x="408" y="150" width="330" height="380" rx="16" fill="#ffffff" stroke="#e2e5ea"/>
+  <rect x="408" y="150" width="330" height="46" rx="16" fill="#eff6ff"/>
+  <rect x="408" y="180" width="330" height="16" fill="#eff6ff"/>
+  <text x="573" y="181" text-anchor="middle" font-size="17" font-weight="700" fill="#1e40af">② Rust audio_capture（新模块）</text>
+  <rect x="428" y="216" width="290" height="130" rx="10" fill="#f0fdf4" stroke="#86efac"/>
+  <text x="444" y="242" font-size="14.5" font-weight="700" fill="#166534">WASAPI Capture（麦克风）</text>
+  <text x="444" y="268" font-size="13" fill="#374151">GetDefaultAudioCapture → IAudioClient</text>
+  <text x="444" y="290" font-size="13" fill="#374151">事件驱动线程 → 数据块直写 mic.wav</text>
+  <text x="444" y="316" font-size="12.5" fill="#6b7280">权限：Windows 首次触发隐私弹窗</text>
+  <rect x="428" y="356" width="290" height="130" rx="10" fill="#fefce8" stroke="#fde047"/>
+  <text x="444" y="382" font-size="14.5" font-weight="700" fill="#854d0e">WASAPI Loopback（系统声音）</text>
+  <text x="444" y="408" font-size="13" fill="#374151">GetDefaultAudioRender + LOOPBACK 标志</text>
+  <text x="444" y="430" font-size="13" fill="#374151">事件驱动线程 → 数据块直写 system.wav</text>
+  <text x="444" y="456" font-size="12.5" fill="#6b7280">无需虚拟声卡驱动 · DRM 内容自动静音</text>
+
+  <!-- arrow 2→3 -->
+  <line x1="738" y1="340" x2="838" y2="340" stroke="#2563eb" stroke-width="2.5" marker-end="url(#arrowBlue)"/>
+  <text x="788" y="322" text-anchor="middle" font-size="13" fill="#2563eb" font-weight="600">stop_recording</text>
+  <text x="788" y="366" text-anchor="middle" font-size="12" fill="#94a3b8">双路 WAV 落盘</text>
+
+  <!-- Stage 3: ffmpeg 混音 -->
+  <rect x="838" y="190" width="260" height="300" rx="16" fill="#ffffff" stroke="#e2e5ea"/>
+  <rect x="838" y="190" width="260" height="46" rx="16" fill="#eff6ff"/>
+  <rect x="838" y="220" width="260" height="16" fill="#eff6ff"/>
+  <text x="968" y="221" text-anchor="middle" font-size="17" font-weight="700" fill="#1e40af">③ 混音归一化</text>
+  <rect x="858" y="252" width="220" height="88" rx="10" fill="#f8fafc" stroke="#e2e5ea"/>
+  <text x="968" y="278" text-anchor="middle" font-size="13.5" font-weight="700" fill="#334155">捆绑 ffmpeg.exe</text>
+  <text x="968" y="302" text-anchor="middle" font-size="12.5" fill="#64748b">mixed: amix=inputs=2</text>
+  <text x="968" y="322" text-anchor="middle" font-size="12.5" fill="#64748b">单路: 直接归一化</text>
+  <rect x="858" y="352" width="220" height="56" rx="10" fill="#f0fdf4" stroke="#86efac"/>
+  <text x="968" y="377" text-anchor="middle" font-size="13" font-weight="700" fill="#166534">输出 16k / mono / PCM WAV</text>
+  <text x="968" y="397" text-anchor="middle" font-size="12.5" fill="#64748b">命中 worker 直拷快路径</text>
+  <text x="858" y="446" font-size="12.5" fill="#94a3b8">recording_YYYYMMDD_HHMMSS.wav</text>
+  <text x="858" y="466" font-size="12.5" fill="#94a3b8">$APPLOCALDATA/recordings/</text>
+
+  <!-- arrow 3→4 -->
+  <line x1="1098" y1="340" x2="1198" y2="340" stroke="#2563eb" stroke-width="2.5" marker-end="url(#arrowBlue)"/>
+  <text x="1148" y="322" text-anchor="middle" font-size="13" fill="#2563eb" font-weight="600">selectLocalMediaByPath</text>
+  <text x="1148" y="366" text-anchor="middle" font-size="12" fill="#94a3b8">现有命令 · 零改动</text>
+
+  <!-- Stage 4: 既有管线 -->
+  <rect x="1198" y="150" width="354" height="380" rx="16" fill="#ffffff" stroke="#e2e5ea"/>
+  <rect x="1198" y="150" width="354" height="46" rx="16" fill="#eff6ff"/>
+  <rect x="1198" y="180" width="354" height="16" fill="#eff6ff"/>
+  <text x="1375" y="181" text-anchor="middle" font-size="17" font-weight="700" fill="#1e40af">④ 既有处理管线（零改动）</text>
+  <g font-size="13.5" fill="#374151">
+    <rect x="1218" y="212" width="314" height="40" rx="8" fill="#f8fafc" stroke="#e2e5ea"/>
+    <text x="1375" y="237" text-anchor="middle">Composer 已选文件 → 填标题 → 提交</text>
+    <line x1="1375" y1="252" x2="1375" y2="270" stroke="#94a3b8" stroke-width="2" marker-end="url(#arrow)"/>
+    <rect x="1218" y="270" width="314" height="40" rx="8" fill="#f8fafc" stroke="#e2e5ea"/>
+    <text x="1375" y="295" text-anchor="middle">Worker: Probe → 直拷快路径（wav 已归一化）</text>
+    <line x1="1375" y1="310" x2="1375" y2="328" stroke="#94a3b8" stroke-width="2" marker-end="url(#arrow)"/>
+    <rect x="1218" y="328" width="314" height="40" rx="8" fill="#f8fafc" stroke="#e2e5ea"/>
+    <text x="1375" y="353" text-anchor="middle">SenseVoice ASR → 带时间戳文字稿</text>
+    <line x1="1375" y1="368" x2="1375" y2="386" stroke="#94a3b8" stroke-width="2" marker-end="url(#arrow)"/>
+    <rect x="1218" y="386" width="314" height="40" rx="8" fill="#f8fafc" stroke="#e2e5ea"/>
+    <text x="1375" y="411" text-anchor="middle">文字稿校验 → InsightFlow 摘要/导图</text>
+    <line x1="1375" y1="426" x2="1375" y2="444" stroke="#94a3b8" stroke-width="2" marker-end="url(#arrow)"/>
+    <rect x="1218" y="444" width="314" height="40" rx="8" fill="#f0fdf4" stroke="#86efac"/>
+    <text x="1375" y="469" text-anchor="middle" fill="#166534" font-weight="700">完成：文字稿 + AI 总结</text>
+  </g>
+  <text x="1218" y="514" font-size="12.5" fill="#94a3b8">worker 契约 v8 · WorkflowState · 任务状态机 全部不动</text>
+
+  <!-- bottom note -->
+  <rect x="48" y="600" width="1504" height="120" rx="16" fill="#ffffff" stroke="#e2e5ea"/>
+  <text x="78" y="634" font-size="16" font-weight="700" fill="#1e3a8a">关键决策</text>
+  <g font-size="13.5" fill="#374151">
+    <circle cx="88" cy="662" r="4" fill="#2563eb"/>
+    <text x="104" y="667">Windows 10 1803+ 原生 WASAPI loopback，与 EV录屏 同方案，无需虚拟声卡驱动；macOS/Linux 列入 P2</text>
+    <circle cx="88" cy="690" r="4" fill="#2563eb"/>
+    <text x="104" y="695">双路并发采集各写一个 WAV，停止后由捆绑 ffmpeg 混音并归一化为 16k mono PCM → 命中 worker 直拷快路径，转写启动最快</text>
+    <circle cx="758" cy="662" r="4" fill="#2563eb"/>
+    <text x="774" y="667">录音只新增「输入来源」，下游全部复用：</text>
+    <circle cx="758" cy="690" r="4" fill="#2563eb"/>
+    <text x="774" y="695">错误码遵循 MEMORY.md 偏好，携带 HRESULT / 设备名 / ffmpeg 退出码等底层原因</text>
+  </g>
+
+  <!-- bottom bar -->
+  <rect x="0" y="756" width="1600" height="144" fill="#1e3a8a"/>
+  <text x="48" y="796" fill="#ffffff" font-size="15" font-weight="700">数据流总结</text>
+  <text x="48" y="826" fill="#bfdbfe" font-size="13.5">选择音源 → start_recording（双路 WASAPI 线程） → 停止 → ffmpeg 混音归一化 → recording_*.wav → selectLocalMediaByPath → 既有 ASR/校验/AI 管线</text>
+  <text x="48" y="856" fill="#93c5fd" font-size="13">音频文件仅存本地 $APPLOCALDATA/recordings/ · 提交成功后删除原始录音 · 崩溃残留下次启动清理 · 不经过网络</text>
+</svg>
