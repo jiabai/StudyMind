@@ -86,19 +86,27 @@ export type SettingsCommandRunner = (
   args: InvokeArgs,
 ) => Promise<unknown>;
 
+export type RecordingAudioSourceMode = "mic" | "system" | "mixed";
+
 export type UiPreferencesView = {
-  schemaVersion: 1;
+  schemaVersion: 2;
   language: LanguagePreference;
+  recording: { audioSourceMode: RecordingAudioSourceMode };
   recovered: boolean;
 };
 
 const defaultSettingsRunner: SettingsCommandRunner = (command, args) => invoke(command, args);
 const SETTINGS_IPC_RESPONSE_INVALID = "SETTINGS_IPC_RESPONSE_INVALID" as const;
 let browserUiPreferences: UiPreferencesView = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   language: "en-US",
+  recording: { audioSourceMode: "mic" },
   recovered: false,
 };
+
+function isRecordingAudioSourceMode(value: unknown): value is RecordingAudioSourceMode {
+  return value === "mic" || value === "system" || value === "mixed";
+}
 
 function hasTauriRuntime(): boolean {
   if (typeof window === "undefined") {
@@ -116,11 +124,41 @@ const defaultUiPreferencesRunner: SettingsCommandRunner = async (command, args) 
     return { ...browserUiPreferences };
   }
   if (command === "save_ui_preferences") {
-    const language = (args as { preferences?: { language?: unknown } }).preferences?.language;
-    if (!isLanguagePreference(language)) {
+    const preferences = (args as {
+      preferences?: {
+        language?: unknown;
+        recording?: { audioSourceMode?: unknown };
+      };
+    }).preferences;
+    const language = preferences?.language;
+    const audioSourceMode = preferences?.recording?.audioSourceMode;
+    if (
+      language === undefined &&
+      audioSourceMode === undefined
+    ) {
       throw new Error("INVALID_UI_PREFERENCES_REQUEST");
     }
-    browserUiPreferences = { schemaVersion: 1, language, recovered: false };
+    if (
+      language !== undefined &&
+      !isLanguagePreference(language)
+    ) {
+      throw new Error("INVALID_UI_PREFERENCES_REQUEST");
+    }
+    if (
+      audioSourceMode !== undefined &&
+      !isRecordingAudioSourceMode(audioSourceMode)
+    ) {
+      throw new Error("INVALID_UI_PREFERENCES_REQUEST");
+    }
+    browserUiPreferences = {
+      schemaVersion: 2,
+      language: language ?? browserUiPreferences.language,
+      recording: {
+        audioSourceMode:
+          audioSourceMode ?? browserUiPreferences.recording.audioSourceMode,
+      },
+      recovered: false,
+    };
     return { ...browserUiPreferences };
   }
   throw new Error("UNSUPPORTED_UI_PREFERENCES_COMMAND");
@@ -138,6 +176,17 @@ export async function saveUiPreferences(
 ): Promise<UiPreferencesView> {
   return mapUiPreferencesResponse(
     await runner("save_ui_preferences", { preferences: { language } }),
+  );
+}
+
+export async function saveRecordingAudioSourceMode(
+  mode: RecordingAudioSourceMode,
+  runner: SettingsCommandRunner = defaultUiPreferencesRunner,
+): Promise<UiPreferencesView> {
+  return mapUiPreferencesResponse(
+    await runner("save_ui_preferences", {
+      preferences: { recording: { audioSourceMode: mode } },
+    }),
   );
 }
 
@@ -361,10 +410,17 @@ function mapAudioReviewCacheUsageResponse(
 
 function mapUiPreferencesResponse(response: unknown): UiPreferencesView {
   let record: Record<string, unknown>;
+  let recording: Record<string, unknown>;
   try {
     record = readIpcDataObject(
       response,
-      ["schemaVersion", "language", "recovered"],
+      ["schemaVersion", "language", "recording", "recovered"],
+      [],
+      SETTINGS_IPC_RESPONSE_INVALID,
+    );
+    recording = readIpcDataObject(
+      record.recording,
+      ["audioSourceMode"],
       [],
       SETTINGS_IPC_RESPONSE_INVALID,
     );
@@ -373,16 +429,18 @@ function mapUiPreferencesResponse(response: unknown): UiPreferencesView {
   }
 
   if (
-    record.schemaVersion !== 1 ||
+    record.schemaVersion !== 2 ||
     !isLanguagePreference(record.language) ||
+    !isRecordingAudioSourceMode(recording.audioSourceMode) ||
     typeof record.recovered !== "boolean"
   ) {
     throw new Error("INVALID_UI_PREFERENCES_RESPONSE");
   }
 
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     language: record.language,
+    recording: { audioSourceMode: recording.audioSourceMode },
     recovered: record.recovered,
   };
 }

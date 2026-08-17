@@ -7,9 +7,15 @@ import type { UiPreferencesView } from "../settingsClient";
 
 function preferences(
   language: UiPreferencesView["language"],
+  audioSourceMode: UiPreferencesView["recording"]["audioSourceMode"] = "mic",
   recovered = false,
 ): UiPreferencesView {
-  return { schemaVersion: 1, language, recovered };
+  return {
+    schemaVersion: 2,
+    language,
+    recording: { audioSourceMode },
+    recovered,
+  };
 }
 
 function deferred<T>() {
@@ -44,7 +50,7 @@ describe("startup locale resolution", () => {
   test("surfaces recovered preference files as a localized nonblocking notice", async () => {
     await expect(
       resolveStartupLocale({
-        readPreferences: async () => preferences("system", true),
+        readPreferences: async () => preferences("system", "mic", true),
         getSystemLanguages: () => ["zh-Hant-HK"],
       }),
     ).resolves.toEqual({

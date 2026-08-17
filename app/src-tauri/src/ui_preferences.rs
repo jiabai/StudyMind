@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::{de, Deserialize, Deserializer, Serialize};
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -10,7 +10,7 @@ use crate::resolve_runtime_paths;
 pub(crate) const UI_PREFERENCES_FILE_NAME: &str = "ui-preferences.json";
 pub(crate) const UI_PREFERENCES_READ_FAILED: &str = "UI_PREFERENCES_READ_FAILED";
 pub(crate) const UI_PREFERENCES_WRITE_FAILED: &str = "UI_PREFERENCES_WRITE_FAILED";
-const UI_PREFERENCES_SCHEMA_VERSION: u8 = 1;
+const UI_PREFERENCES_SCHEMA_VERSION: u8 = 2;
 const UI_PREFERENCES_BACKUP_FILE_NAME: &str = ".ui-preferences.json.backup";
 static UI_PREFERENCES_WRITE_LOCK: Mutex<()> = Mutex::new(());
 
@@ -26,10 +26,63 @@ pub(crate) enum LanguagePreference {
     EnUs,
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+pub(crate) enum RecordingAudioSourceMode {
+    #[serde(rename = "mic")]
+    Mic,
+    #[serde(rename = "system")]
+    System,
+    #[serde(rename = "mixed")]
+    Mixed,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct RecordingPreferences {
+    pub(crate) audio_source_mode: RecordingAudioSourceMode,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SaveUiPreferencesInput {
-    pub(crate) language: LanguagePreference,
+    pub(crate) language: Option<LanguagePreference>,
+    pub(crate) recording: Option<RecordingPreferences>,
+}
+
+impl SaveUiPreferencesInput {
+    pub(crate) fn recording(mode: RecordingAudioSourceMode) -> Self {
+        Self {
+            language: None,
+            recording: Some(RecordingPreferences {
+                audio_source_mode: mode,
+            }),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for SaveUiPreferencesInput {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        struct SaveUiPreferencesInputWire {
+            language: Option<LanguagePreference>,
+            recording: Option<RecordingPreferences>,
+        }
+
+        let input = SaveUiPreferencesInputWire::deserialize(deserializer)?;
+        if input.language.is_none() && input.recording.is_none() {
+            return Err(de::Error::custom(
+                "expected at least one of language or recording",
+            ));
+        }
+
+        Ok(Self {
+            language: input.language,
+            recording: input.recording,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -37,6 +90,7 @@ pub(crate) struct SaveUiPreferencesInput {
 pub(crate) struct UiPreferencesView {
     pub(crate) schema_version: u8,
     pub(crate) language: LanguagePreference,
+    pub(crate) recording: RecordingPreferences,
     pub(crate) recovered: bool,
 }
 
@@ -45,6 +99,33 @@ pub(crate) struct UiPreferencesView {
 struct UiPreferencesFile {
     schema_version: u8,
     language: LanguagePreference,
+    recording: RecordingPreferences,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct UiPreferencesV1File {
+    schema_version: u8,
+    language: LanguagePreference,
+}
+
+#[derive(Debug)]
+struct UiPreferencesState {
+    language: LanguagePreference,
+    recording: RecordingPreferences,
+}
+
+#[derive(Debug)]
+struct ParsedUiPreferences {
+    state: UiPreferencesState,
+    recovered: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum UiPreferencesWireFile {
+    V2(UiPreferencesFile),
+    V1(UiPreferencesV1File),
 }
 
 #[tauri::command]
@@ -74,29 +155,45 @@ pub(crate) fn load_ui_preferences_from_file(path: &Path) -> Result<UiPreferences
         Err(_) => return Err(UI_PREFERENCES_READ_FAILED.to_string()),
     };
 
-    Ok(parse_ui_preferences_content(&content, false))
+    let parsed = parse_ui_preferences_content(&content);
+    Ok(build_view(parsed.state, parsed.recovered))
 }
 
 fn load_missing_ui_preferences_from_backup(path: &Path) -> Result<UiPreferencesView, String> {
     match fs::read(ui_preferences_backup_path(path)) {
-        Ok(content) => Ok(parse_ui_preferences_content(&content, true)),
+        Ok(content) => {
+            let parsed = parse_ui_preferences_content(&content);
+            Ok(build_view(parsed.state, true))
+        }
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(default_view(false)),
         Err(_) => Err(UI_PREFERENCES_READ_FAILED.to_string()),
     }
 }
 
-fn parse_ui_preferences_content(content: &[u8], recovered: bool) -> UiPreferencesView {
-    let Ok(file) = serde_json::from_slice::<UiPreferencesFile>(&content) else {
-        return default_view(true);
-    };
-    if file.schema_version != UI_PREFERENCES_SCHEMA_VERSION {
-        return default_view(true);
-    }
-
-    UiPreferencesView {
-        schema_version: UI_PREFERENCES_SCHEMA_VERSION,
-        language: file.language,
-        recovered,
+fn parse_ui_preferences_content(content: &[u8]) -> ParsedUiPreferences {
+    match serde_json::from_slice::<UiPreferencesWireFile>(content) {
+        Ok(UiPreferencesWireFile::V2(file))
+            if file.schema_version == UI_PREFERENCES_SCHEMA_VERSION =>
+        {
+            ParsedUiPreferences {
+                state: UiPreferencesState {
+                    language: file.language,
+                    recording: file.recording,
+                },
+                recovered: false,
+            }
+        }
+        Ok(UiPreferencesWireFile::V1(file)) if file.schema_version == 1 => ParsedUiPreferences {
+            state: UiPreferencesState {
+                language: file.language,
+                recording: default_recording_preferences(),
+            },
+            recovered: false,
+        },
+        _ => ParsedUiPreferences {
+            state: default_state(),
+            recovered: true,
+        },
     }
 }
 
@@ -104,9 +201,16 @@ pub(crate) fn save_ui_preferences_to_file(
     path: &Path,
     preferences: SaveUiPreferencesInput,
 ) -> Result<UiPreferencesView, String> {
+    let existing =
+        load_ui_preferences_from_file(path).map_err(|_| UI_PREFERENCES_WRITE_FAILED.to_string())?;
+    let merged = UiPreferencesState {
+        language: preferences.language.unwrap_or(existing.language),
+        recording: preferences.recording.unwrap_or(existing.recording),
+    };
     let file = UiPreferencesFile {
         schema_version: UI_PREFERENCES_SCHEMA_VERSION,
-        language: preferences.language,
+        language: merged.language,
+        recording: merged.recording.clone(),
     };
     let bytes = (serde_json::to_string_pretty(&file)
         .map_err(|_| UI_PREFERENCES_WRITE_FAILED.to_string())?
@@ -114,17 +218,31 @@ pub(crate) fn save_ui_preferences_to_file(
         .into_bytes();
     atomic_write(path, &bytes).map_err(|_| UI_PREFERENCES_WRITE_FAILED.to_string())?;
 
-    Ok(UiPreferencesView {
-        schema_version: UI_PREFERENCES_SCHEMA_VERSION,
-        language: preferences.language,
-        recovered: false,
-    })
+    Ok(build_view(merged, false))
 }
 
 fn default_view(recovered: bool) -> UiPreferencesView {
+    build_view(default_state(), recovered)
+}
+
+fn default_state() -> UiPreferencesState {
+    UiPreferencesState {
+        language: LanguagePreference::EnUs,
+        recording: default_recording_preferences(),
+    }
+}
+
+fn default_recording_preferences() -> RecordingPreferences {
+    RecordingPreferences {
+        audio_source_mode: RecordingAudioSourceMode::Mic,
+    }
+}
+
+fn build_view(state: UiPreferencesState, recovered: bool) -> UiPreferencesView {
     UiPreferencesView {
         schema_version: UI_PREFERENCES_SCHEMA_VERSION,
-        language: LanguagePreference::EnUs,
+        language: state.language,
+        recording: state.recording,
         recovered,
     }
 }
@@ -276,8 +394,8 @@ mod tests {
     use super::{
         load_ui_preferences_from_file, replace_existing_with_backup_using,
         save_ui_preferences_to_file, ui_preferences_backup_path, LanguagePreference,
-        SaveUiPreferencesInput, UI_PREFERENCES_FILE_NAME, UI_PREFERENCES_READ_FAILED,
-        UI_PREFERENCES_WRITE_FAILED,
+        RecordingAudioSourceMode, SaveUiPreferencesInput, UI_PREFERENCES_FILE_NAME,
+        UI_PREFERENCES_READ_FAILED, UI_PREFERENCES_WRITE_FAILED,
     };
     use std::fs;
     use std::io;
@@ -289,27 +407,58 @@ mod tests {
         let path = temp_file("missing");
 
         let view = load_ui_preferences_from_file(&path).expect("missing preference is normal");
+        let serialized = serde_json::to_value(view).expect("serialize default preference");
 
-        assert_eq!(view.schema_version, 1);
-        assert_eq!(view.language, LanguagePreference::EnUs);
-        assert!(!view.recovered);
+        assert_eq!(serialized["schemaVersion"], 2);
+        assert_eq!(serialized["language"], "en-US");
+        assert_eq!(serialized["recording"]["audioSourceMode"], "mic");
+        assert_eq!(serialized["recovered"], false);
         assert!(!path.exists());
     }
 
     #[test]
-    fn valid_ui_preferences_round_trip_all_language_values() {
+    fn migrates_v1_ui_preferences_by_synthesizing_mic_recording_mode() {
         for language in ["system", "zh-CN", "zh-TW", "en-US"] {
             let path = temp_file(language);
             write_raw(
                 &path,
                 &format!(r#"{{"schemaVersion":1,"language":"{language}"}}"#),
             );
+            let before = fs::read(&path).expect("read original v1 bytes");
 
             let view = load_ui_preferences_from_file(&path).expect("load valid preference");
             let serialized = serde_json::to_value(view).expect("serialize preference view");
 
-            assert_eq!(serialized["schemaVersion"], 1);
+            assert_eq!(serialized["schemaVersion"], 2);
             assert_eq!(serialized["language"], language);
+            assert_eq!(serialized["recording"]["audioSourceMode"], "mic");
+            assert_eq!(serialized["recovered"], false);
+            assert_eq!(fs::read(&path).expect("read retained v1 bytes"), before);
+        }
+    }
+
+    #[test]
+    fn valid_v2_ui_preferences_round_trip_language_and_recording_values() {
+        for (language, mode) in [
+            ("system", "mic"),
+            ("zh-CN", "system"),
+            ("zh-TW", "mixed"),
+            ("en-US", "mic"),
+        ] {
+            let path = temp_file(&format!("{language}-{mode}"));
+            write_raw(
+                &path,
+                &format!(
+                    r#"{{"schemaVersion":2,"language":"{language}","recording":{{"audioSourceMode":"{mode}"}}}}"#
+                ),
+            );
+
+            let view = load_ui_preferences_from_file(&path).expect("load valid v2 preference");
+            let serialized = serde_json::to_value(view).expect("serialize preference view");
+
+            assert_eq!(serialized["schemaVersion"], 2);
+            assert_eq!(serialized["language"], language);
+            assert_eq!(serialized["recording"]["audioSourceMode"], mode);
             assert_eq!(serialized["recovered"], false);
         }
     }
@@ -318,14 +467,17 @@ mod tests {
     fn damaged_or_future_ui_preferences_recover_without_rewriting() {
         for (name, raw) in [
             ("corrupt", "{not-json"),
-            ("future-schema", r#"{"schemaVersion":2,"language":"en-US"}"#),
+            (
+                "future-schema",
+                r#"{"schemaVersion":3,"language":"en-US","recording":{"audioSourceMode":"mic"}}"#,
+            ),
             (
                 "illegal-language",
-                r#"{"schemaVersion":1,"language":"fr-FR"}"#,
+                r#"{"schemaVersion":2,"language":"fr-FR","recording":{"audioSourceMode":"mic"}}"#,
             ),
             (
                 "unknown-field",
-                r#"{"schemaVersion":1,"language":"system","account":"leak"}"#,
+                r#"{"schemaVersion":2,"language":"system","recording":{"audioSourceMode":"mic"},"account":"leak"}"#,
             ),
         ] {
             let path = temp_file(name);
@@ -333,11 +485,32 @@ mod tests {
             let before = fs::read(&path).expect("read original bytes");
 
             let view = load_ui_preferences_from_file(&path).expect("recover damaged preference");
+            let serialized = serde_json::to_value(view).expect("serialize recovered preference");
 
-            assert_eq!(view.language, LanguagePreference::EnUs);
-            assert!(view.recovered);
+            assert_eq!(serialized["language"], "en-US");
+            assert_eq!(serialized["recording"]["audioSourceMode"], "mic");
+            assert_eq!(serialized["recovered"], true);
             assert_eq!(fs::read(&path).expect("read retained bytes"), before);
         }
+    }
+
+    #[test]
+    fn invalid_recording_mode_recovers_without_rewriting() {
+        let path = temp_file("illegal-recording-mode");
+        write_raw(
+            &path,
+            r#"{"schemaVersion":2,"language":"zh-CN","recording":{"audioSourceMode":"bluetooth"}}"#,
+        );
+        let before = fs::read(&path).expect("read original bytes");
+
+        let view = load_ui_preferences_from_file(&path).expect("recover invalid recording");
+        let serialized = serde_json::to_value(view).expect("serialize recovered preference");
+
+        assert_eq!(serialized["schemaVersion"], 2);
+        assert_eq!(serialized["language"], "en-US");
+        assert_eq!(serialized["recording"]["audioSourceMode"], "mic");
+        assert_eq!(serialized["recovered"], true);
+        assert_eq!(fs::read(&path).expect("read retained bytes"), before);
     }
 
     #[test]
@@ -348,9 +521,11 @@ mod tests {
         fs::write(&path, &original).expect("write invalid UTF-8 preference");
 
         let view = load_ui_preferences_from_file(&path).expect("recover invalid UTF-8");
+        let serialized = serde_json::to_value(view).expect("serialize recovered preference");
 
-        assert_eq!(view.language, LanguagePreference::EnUs);
-        assert!(view.recovered);
+        assert_eq!(serialized["language"], "en-US");
+        assert_eq!(serialized["recording"]["audioSourceMode"], "mic");
+        assert_eq!(serialized["recovered"], true);
         assert_eq!(fs::read(&path).expect("read retained bytes"), original);
     }
 
@@ -359,21 +534,23 @@ mod tests {
         let path = temp_file("repair");
         write_raw(&path, "{not-json");
 
-        let view = save_ui_preferences_to_file(
-            &path,
-            SaveUiPreferencesInput {
-                language: LanguagePreference::ZhTw,
-            },
-        )
-        .expect("repair preference");
+        let input: SaveUiPreferencesInput = serde_json::from_value(serde_json::json!({
+            "language": "zh-TW",
+            "recording": { "audioSourceMode": "mixed" },
+        }))
+        .expect("deserialize v2 save input");
+        let view = save_ui_preferences_to_file(&path, input).expect("repair preference");
         let saved: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(&path).expect("read saved preference"))
                 .expect("saved JSON");
+        let serialized = serde_json::to_value(view).expect("serialize saved view");
 
-        assert_eq!(view.language, LanguagePreference::ZhTw);
-        assert!(!view.recovered);
-        assert_eq!(saved["schemaVersion"], 1);
+        assert_eq!(serialized["language"], "zh-TW");
+        assert_eq!(serialized["recording"]["audioSourceMode"], "mixed");
+        assert_eq!(serialized["recovered"], false);
+        assert_eq!(saved["schemaVersion"], 2);
         assert_eq!(saved["language"], "zh-TW");
+        assert_eq!(saved["recording"]["audioSourceMode"], "mixed");
         assert!(saved.get("recovered").is_none());
     }
 
@@ -382,6 +559,7 @@ mod tests {
         for payload in [
             serde_json::json!({"language": "fr-FR"}),
             serde_json::json!({"language": 7}),
+            serde_json::json!({"recording": {"audioSourceMode": "bluetooth"}}),
             serde_json::json!({"language": "system", "taskId": "not-local"}),
         ] {
             assert!(serde_json::from_value::<SaveUiPreferencesInput>(payload).is_err());
@@ -389,21 +567,95 @@ mod tests {
     }
 
     #[test]
+    fn save_input_rejects_empty_partial_updates() {
+        assert!(serde_json::from_value::<SaveUiPreferencesInput>(serde_json::json!({})).is_err());
+    }
+
+    #[test]
     fn atomic_save_replaces_existing_file_without_temp_residue() {
         let path = temp_file("replace-existing");
-        write_raw(&path, r#"{"schemaVersion":1,"language":"zh-CN"}"#);
-
-        save_ui_preferences_to_file(
+        write_raw(
             &path,
-            SaveUiPreferencesInput {
-                language: LanguagePreference::EnUs,
-            },
-        )
-        .expect("replace existing preference");
+            r#"{"schemaVersion":2,"language":"zh-CN","recording":{"audioSourceMode":"mic"}}"#,
+        );
+
+        let input: SaveUiPreferencesInput = serde_json::from_value(serde_json::json!({
+            "language": "en-US",
+            "recording": { "audioSourceMode": "system" },
+        }))
+        .expect("deserialize v2 save input");
+        save_ui_preferences_to_file(&path, input).expect("replace existing preference");
 
         let view = load_ui_preferences_from_file(&path).expect("load replacement");
-        assert_eq!(view.language, LanguagePreference::EnUs);
+        let serialized = serde_json::to_value(view).expect("serialize replacement");
+        assert_eq!(serialized["language"], "en-US");
+        assert_eq!(serialized["recording"]["audioSourceMode"], "system");
         assert_no_temp_files(path.parent().expect("parent"));
+    }
+
+    #[test]
+    fn recording_only_save_preserves_existing_language() {
+        let path = temp_file("recording-only-save");
+        write_raw(
+            &path,
+            r#"{"schemaVersion":2,"language":"zh-CN","recording":{"audioSourceMode":"mic"}}"#,
+        );
+        let input = SaveUiPreferencesInput::recording(RecordingAudioSourceMode::System);
+
+        let view = save_ui_preferences_to_file(&path, input).expect("save recording only");
+        let serialized = serde_json::to_value(view).expect("serialize saved view");
+        let saved: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&path).expect("read saved preference"))
+                .expect("saved JSON");
+
+        assert_eq!(serialized["schemaVersion"], 2);
+        assert_eq!(serialized["language"], "zh-CN");
+        assert_eq!(serialized["recording"]["audioSourceMode"], "system");
+        assert_eq!(serialized["recovered"], false);
+        assert_eq!(saved["language"], "zh-CN");
+        assert_eq!(saved["recording"]["audioSourceMode"], "system");
+    }
+
+    #[test]
+    fn language_only_save_preserves_existing_recording() {
+        let path = temp_file("language-only-save");
+        write_raw(
+            &path,
+            r#"{"schemaVersion":2,"language":"zh-CN","recording":{"audioSourceMode":"mixed"}}"#,
+        );
+
+        let input = SaveUiPreferencesInput {
+            language: Some(LanguagePreference::EnUs),
+            recording: None,
+        };
+        let view = save_ui_preferences_to_file(&path, input).expect("save language only");
+        let serialized = serde_json::to_value(view).expect("serialize saved view");
+
+        assert_eq!(serialized["language"], "en-US");
+        assert_eq!(serialized["recording"]["audioSourceMode"], "mixed");
+        assert_eq!(serialized["recovered"], false);
+    }
+
+    #[test]
+    fn partial_save_repairs_corrupt_file_from_defaults() {
+        let path = temp_file("partial-save-repair");
+        write_raw(&path, "{not-json");
+
+        let input = SaveUiPreferencesInput {
+            language: Some(LanguagePreference::ZhTw),
+            recording: None,
+        };
+        let view = save_ui_preferences_to_file(&path, input).expect("repair preference");
+        let serialized = serde_json::to_value(view).expect("serialize saved view");
+        let saved: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&path).expect("read saved preference"))
+                .expect("saved JSON");
+
+        assert_eq!(serialized["language"], "zh-TW");
+        assert_eq!(serialized["recording"]["audioSourceMode"], "mic");
+        assert_eq!(serialized["recovered"], false);
+        assert_eq!(saved["schemaVersion"], 2);
+        assert_eq!(saved["recording"]["audioSourceMode"], "mic");
     }
 
     #[test]
@@ -414,7 +666,8 @@ mod tests {
         let error = save_ui_preferences_to_file(
             &path,
             SaveUiPreferencesInput {
-                language: LanguagePreference::ZhCn,
+                language: Some(LanguagePreference::ZhCn),
+                recording: None,
             },
         )
         .expect_err("directory destination must fail");
@@ -444,8 +697,14 @@ mod tests {
                 .parent()
                 .expect("parent")
                 .join(format!(".ui-preferences.json.{error_code}.tmp"));
-            write_raw(&path, r#"{"schemaVersion":1,"language":"zh-CN"}"#);
-            write_raw(&temp, r#"{"schemaVersion":1,"language":"en-US"}"#);
+            write_raw(
+                &path,
+                r#"{"schemaVersion":2,"language":"zh-CN","recording":{"audioSourceMode":"mic"}}"#,
+            );
+            write_raw(
+                &temp,
+                r#"{"schemaVersion":2,"language":"en-US","recording":{"audioSourceMode":"system"}}"#,
+            );
 
             let error = replace_existing_with_backup_using(
                 &temp,
@@ -456,10 +715,12 @@ mod tests {
             )
             .expect_err("replace must fail");
             let view = load_ui_preferences_from_file(&path).expect("old preference remains");
+            let serialized = serde_json::to_value(view).expect("serialize preserved preference");
 
             assert_eq!(error.raw_os_error(), Some(error_code));
-            assert_eq!(view.language, LanguagePreference::ZhCn);
-            assert!(!view.recovered);
+            assert_eq!(serialized["language"], "zh-CN");
+            assert_eq!(serialized["recording"]["audioSourceMode"], "mic");
+            assert_eq!(serialized["recovered"], false);
             assert!(!temp.exists(), "new temp survived error {error_code}");
         }
     }
@@ -472,8 +733,14 @@ mod tests {
             .parent()
             .expect("parent")
             .join(".ui-preferences.json.1177.tmp");
-        write_raw(&path, r#"{"schemaVersion":1,"language":"zh-TW"}"#);
-        write_raw(&temp, r#"{"schemaVersion":1,"language":"en-US"}"#);
+        write_raw(
+            &path,
+            r#"{"schemaVersion":2,"language":"zh-TW","recording":{"audioSourceMode":"mixed"}}"#,
+        );
+        write_raw(
+            &temp,
+            r#"{"schemaVersion":2,"language":"en-US","recording":{"audioSourceMode":"mic"}}"#,
+        );
 
         let error = replace_existing_with_backup_using(
             &temp,
@@ -487,10 +754,12 @@ mod tests {
         )
         .expect_err("replace must fail");
         let view = load_ui_preferences_from_file(&path).expect("restored old preference");
+        let serialized = serde_json::to_value(view).expect("serialize restored preference");
 
         assert_eq!(error.raw_os_error(), Some(1177));
-        assert_eq!(view.language, LanguagePreference::ZhTw);
-        assert!(!view.recovered);
+        assert_eq!(serialized["language"], "zh-TW");
+        assert_eq!(serialized["recording"]["audioSourceMode"], "mixed");
+        assert_eq!(serialized["recovered"], false);
         assert!(!backup.exists());
         assert!(!temp.exists());
     }
@@ -503,8 +772,14 @@ mod tests {
             .parent()
             .expect("parent")
             .join(".ui-preferences.json.1177-restore-failed.tmp");
-        write_raw(&path, r#"{"schemaVersion":1,"language":"zh-CN"}"#);
-        write_raw(&temp, r#"{"schemaVersion":1,"language":"en-US"}"#);
+        write_raw(
+            &path,
+            r#"{"schemaVersion":2,"language":"zh-CN","recording":{"audioSourceMode":"mixed"}}"#,
+        );
+        write_raw(
+            &temp,
+            r#"{"schemaVersion":2,"language":"en-US","recording":{"audioSourceMode":"mic"}}"#,
+        );
 
         replace_existing_with_backup_using(
             &temp,
@@ -522,18 +797,27 @@ mod tests {
         assert!(backup.exists());
         assert!(!temp.exists());
         let recovered = load_ui_preferences_from_file(&path).expect("load backup recovery");
-        assert_eq!(recovered.language, LanguagePreference::ZhCn);
-        assert!(recovered.recovered);
+        let recovered_serialized =
+            serde_json::to_value(recovered).expect("serialize recovered backup preference");
+        assert_eq!(recovered_serialized["language"], "zh-CN");
+        assert_eq!(
+            recovered_serialized["recording"]["audioSourceMode"],
+            "mixed"
+        );
+        assert_eq!(recovered_serialized["recovered"], true);
 
-        let saved = save_ui_preferences_to_file(
-            &path,
-            SaveUiPreferencesInput {
-                language: LanguagePreference::EnUs,
-            },
-        )
-        .expect("next save repairs recovered backup");
-        assert_eq!(saved.language, LanguagePreference::EnUs);
-        assert!(!saved.recovered);
+        let input: SaveUiPreferencesInput = serde_json::from_value(serde_json::json!({
+            "language": "en-US",
+            "recording": { "audioSourceMode": "system" },
+        }))
+        .expect("deserialize v2 save input");
+        let saved =
+            save_ui_preferences_to_file(&path, input).expect("next save repairs recovered backup");
+        let saved_serialized =
+            serde_json::to_value(saved).expect("serialize saved repaired preference");
+        assert_eq!(saved_serialized["language"], "en-US");
+        assert_eq!(saved_serialized["recording"]["audioSourceMode"], "system");
+        assert_eq!(saved_serialized["recovered"], false);
         assert!(!backup.exists());
         assert!(!temp.exists());
     }
