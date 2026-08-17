@@ -34,6 +34,29 @@ const VALID_STATE = {
   elapsedMs: 4_321,
 } as const;
 
+class CapabilityResponse {
+  platform = "windows";
+  microphone = { available: true };
+  systemAudio = { available: true };
+}
+
+class StartResponse {
+  sessionId = "session-123";
+}
+
+class StopResponse {
+  path = "C:\\Users\\demo\\Recordings\\lecture.wav";
+  displayName = "lecture.wav";
+  durationMs = 12_345;
+  sizeBytes = 98_765;
+}
+
+class StateResponse {
+  sessionId = "session-123";
+  mode = "mixed";
+  elapsedMs = 4_321;
+}
+
 function expectRecordingError(error: unknown, code: string): void {
   expect(error).toBeInstanceOf(RecordingClientError);
   expect(error).toMatchObject({ code, message: code });
@@ -56,7 +79,9 @@ describe("recording client", () => {
   });
 
   test("maps capabilities, start, stop, and state responses", async () => {
-    const runner: RecordingCommandRunner = async (command) => {
+    const calls: Array<{ command: string; args: unknown }> = [];
+    const runner: RecordingCommandRunner = async (command, args) => {
+      calls.push({ command, args });
       if (command === "get_recording_capabilities") return VALID_CAPABILITIES;
       if (command === "start_recording") return VALID_START;
       if (command === "stop_recording") return VALID_STOP;
@@ -85,6 +110,12 @@ describe("recording client", () => {
       mode: "mixed",
       elapsedMs: 4_321,
     });
+    expect(calls).toEqual([
+      { command: "get_recording_capabilities", args: {} },
+      { command: "start_recording", args: { mode: "mic" } },
+      { command: "stop_recording", args: { sessionId: "session-123" } },
+      { command: "get_recording_state", args: {} },
+    ]);
   });
 
   test("cancels with the exact envelope and accepts only nullish success", async () => {
@@ -113,6 +144,9 @@ describe("recording client", () => {
 
   test.each([
     null,
+    [],
+    new Date("2026-08-18T00:00:00.000Z"),
+    new CapabilityResponse(),
     {},
     { platform: "windows", microphone: { available: true } },
     { ...VALID_CAPABILITIES, platform: "linux" },
@@ -138,6 +172,9 @@ describe("recording client", () => {
   });
 
   test.each([
+    [],
+    new Date("2026-08-18T00:00:00.000Z"),
+    new StartResponse(),
     {},
     { sessionId: "" },
     { sessionId: 42 },
@@ -152,6 +189,9 @@ describe("recording client", () => {
   });
 
   test.each([
+    [],
+    new Date("2026-08-18T00:00:00.000Z"),
+    new StopResponse(),
     {},
     { ...VALID_STOP, displayName: "" },
     { ...VALID_STOP, durationMs: -1 },
@@ -168,6 +208,27 @@ describe("recording client", () => {
   });
 
   test("rejects unsafe integer state responses and unknown modes", async () => {
+    await expect(
+      getRecordingState(async () => []),
+    ).rejects.toSatisfy((error: unknown) => {
+      expectRecordingError(error, "RECORDING_IPC_RESPONSE_INVALID");
+      return true;
+    });
+
+    await expect(
+      getRecordingState(async () => new Date("2026-08-18T00:00:00.000Z")),
+    ).rejects.toSatisfy((error: unknown) => {
+      expectRecordingError(error, "RECORDING_IPC_RESPONSE_INVALID");
+      return true;
+    });
+
+    await expect(
+      getRecordingState(async () => new StateResponse()),
+    ).rejects.toSatisfy((error: unknown) => {
+      expectRecordingError(error, "RECORDING_IPC_RESPONSE_INVALID");
+      return true;
+    });
+
     await expect(
       getRecordingState(async () => ({
         ...VALID_STATE,
@@ -259,6 +320,36 @@ describe("recording client", () => {
           return true;
         },
       );
+      expect(runner).not.toHaveBeenCalled();
+    },
+  );
+
+  test.each(["", "x".repeat(4097), "desktop", 42, null])(
+    "rejects invalid start mode before invoking Tauri: %j",
+    async (mode) => {
+      const runner = vi.fn<RecordingCommandRunner>();
+
+      await expect(startRecording(mode as never, runner)).rejects.toSatisfy(
+        (error: unknown) => {
+          expectRecordingError(error, "RECORDING_IPC_RESPONSE_INVALID");
+          return true;
+        },
+      );
+      expect(runner).not.toHaveBeenCalled();
+    },
+  );
+
+  test.each(["", "x".repeat(4097), 42, null])(
+    "rejects invalid cancel session input before invoking Tauri: %j",
+    async (sessionId) => {
+      const runner = vi.fn<RecordingCommandRunner>();
+
+      await expect(
+        cancelRecording(sessionId as never, runner),
+      ).rejects.toSatisfy((error: unknown) => {
+        expectRecordingError(error, "RECORDING_SESSION_INVALID");
+        return true;
+      });
       expect(runner).not.toHaveBeenCalled();
     },
   );
