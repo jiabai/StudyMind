@@ -1,4 +1,12 @@
-import { describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
+
+const { invokeMock } = vi.hoisted(() => ({
+  invokeMock: vi.fn(),
+}));
+
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: invokeMock,
+}));
 
 import {
   cancelRecording,
@@ -62,7 +70,52 @@ function expectRecordingError(error: unknown, code: string): void {
   expect(error).toMatchObject({ code, message: code });
 }
 
+afterEach(() => {
+  invokeMock.mockReset();
+});
+
 describe("recording client", () => {
+  test("uses the default invoke runner for every public API", async () => {
+    invokeMock
+      .mockResolvedValueOnce(VALID_CAPABILITIES)
+      .mockResolvedValueOnce(VALID_START)
+      .mockResolvedValueOnce(VALID_STOP)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(VALID_STATE);
+
+    await expect(getRecordingCapabilities()).resolves.toEqual({
+      platform: "windows",
+      microphone: { available: true },
+      systemAudio: {
+        available: false,
+        reasonCode: "RECORDING_SYSTEM_AUDIO_UNAVAILABLE",
+      },
+    });
+    await expect(startRecording("mic")).resolves.toEqual({
+      sessionId: "session-123",
+    });
+    await expect(stopRecording("session-123")).resolves.toEqual(VALID_STOP);
+    await expect(cancelRecording("session-123")).resolves.toBeUndefined();
+    await expect(getRecordingState()).resolves.toEqual(VALID_STATE);
+
+    expect(invokeMock).toHaveBeenCalledTimes(5);
+    expect(invokeMock).toHaveBeenNthCalledWith(
+      1,
+      "get_recording_capabilities",
+      {},
+    );
+    expect(invokeMock).toHaveBeenNthCalledWith(2, "start_recording", {
+      mode: "mic",
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(3, "stop_recording", {
+      sessionId: "session-123",
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(4, "cancel_recording", {
+      sessionId: "session-123",
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(5, "get_recording_state", {});
+  });
+
   test("starts mixed recording with the exact Tauri envelope", async () => {
     const calls: Array<{ command: string; args: unknown }> = [];
     const runner: RecordingCommandRunner = async (command, args) => {
@@ -118,7 +171,28 @@ describe("recording client", () => {
     ]);
   });
 
-  test("cancels with the exact envelope and accepts only nullish success", async () => {
+  test.each([null, undefined])(
+    "accepts %s as a successful cancel response",
+    async (response) => {
+      await expect(
+        cancelRecording("session-123", async () => response),
+      ).resolves.toBeUndefined();
+    },
+  );
+
+  test.each([0, 42, true, false, "cancelled", [], [null], {}])(
+    "rejects non-nullish cancel response %j",
+    async (response) => {
+      await expect(
+        cancelRecording("session-123", async () => response),
+      ).rejects.toSatisfy((error: unknown) => {
+        expectRecordingError(error, "RECORDING_IPC_RESPONSE_INVALID");
+        return true;
+      });
+    },
+  );
+
+  test("cancels with the exact envelope", async () => {
     const calls: Array<{ command: string; args: unknown }> = [];
     const runner: RecordingCommandRunner = async (command, args) => {
       calls.push({ command, args });
@@ -130,12 +204,6 @@ describe("recording client", () => {
       { command: "cancel_recording", args: { sessionId: "session-123" } },
     ]);
 
-    await expect(
-      cancelRecording("session-123", async () => ({ cancelled: true })),
-    ).rejects.toSatisfy((error: unknown) => {
-      expectRecordingError(error, "RECORDING_IPC_RESPONSE_INVALID");
-      return true;
-    });
   });
 
   test("accepts null for an idle recording state", async () => {
@@ -169,6 +237,47 @@ describe("recording client", () => {
         return true;
       },
     );
+  });
+
+  test("rejects symbol own keys in capability responses", async () => {
+    const payload = {
+      ...VALID_CAPABILITIES,
+      [Symbol("unexpected")]: true,
+    };
+
+    await expect(getRecordingCapabilities(async () => payload)).rejects.toSatisfy(
+      (error: unknown) => {
+        expectRecordingError(error, "RECORDING_IPC_RESPONSE_INVALID");
+        return true;
+      },
+    );
+  });
+
+  test("rejects nested capability accessors without evaluating them", async () => {
+    let getterCalls = 0;
+    const microphone = Object.defineProperty(
+      {},
+      "available",
+      {
+        enumerable: true,
+        get() {
+          getterCalls += 1;
+          return true;
+        },
+      },
+    );
+
+    await expect(
+      getRecordingCapabilities(async () => ({
+        platform: "windows",
+        microphone,
+        systemAudio: { available: true },
+      })),
+    ).rejects.toSatisfy((error: unknown) => {
+      expectRecordingError(error, "RECORDING_IPC_RESPONSE_INVALID");
+      return true;
+    });
+    expect(getterCalls).toBe(0);
   });
 
   test.each([
@@ -205,6 +314,45 @@ describe("recording client", () => {
         return true;
       },
     );
+  });
+
+  test.each(["path", "displayName"] as const)(
+    "rejects overlong stop response %s",
+    async (field) => {
+      await expect(
+        stopRecording("session-123", async () => ({
+          ...VALID_STOP,
+          [field]: "x".repeat(4097),
+        })),
+      ).rejects.toSatisfy((error: unknown) => {
+        expectRecordingError(error, "RECORDING_IPC_RESPONSE_INVALID");
+        return true;
+      });
+    },
+  );
+
+  test("rejects an overlong start response session id", async () => {
+    await expect(
+      startRecording("mic", async () => ({ sessionId: "x".repeat(4097) })),
+    ).rejects.toSatisfy((error: unknown) => {
+      expectRecordingError(error, "RECORDING_IPC_RESPONSE_INVALID");
+      return true;
+    });
+  });
+
+  test("rejects an overlong capability reason code", async () => {
+    await expect(
+      getRecordingCapabilities(async () => ({
+        ...VALID_CAPABILITIES,
+        systemAudio: {
+          available: false,
+          reasonCode: "x".repeat(129),
+        },
+      })),
+    ).rejects.toSatisfy((error: unknown) => {
+      expectRecordingError(error, "RECORDING_IPC_RESPONSE_INVALID");
+      return true;
+    });
   });
 
   test("rejects unsafe integer state responses and unknown modes", async () => {
@@ -244,6 +392,103 @@ describe("recording client", () => {
     ).rejects.toSatisfy((error: unknown) => {
       expectRecordingError(error, "RECORDING_IPC_RESPONSE_INVALID");
       return true;
+    });
+  });
+
+  test("rejects an overlong state session id", async () => {
+    await expect(
+      getRecordingState(async () => ({
+        ...VALID_STATE,
+        sessionId: "x".repeat(4097),
+      })),
+    ).rejects.toSatisfy((error: unknown) => {
+      expectRecordingError(error, "RECORDING_IPC_RESPONSE_INVALID");
+      return true;
+    });
+  });
+
+  const INVALID_NON_INTEGER_NUMBERS = [
+    NaN,
+    Infinity,
+    -Infinity,
+    1.5,
+    -1,
+  ];
+
+  test.each(INVALID_NON_INTEGER_NUMBERS)(
+    "rejects invalid durationMs boundary %p",
+    async (durationMs) => {
+      await expect(
+        stopRecording("session-123", async () => ({
+          ...VALID_STOP,
+          durationMs,
+        })),
+      ).rejects.toSatisfy((error: unknown) => {
+        expectRecordingError(error, "RECORDING_IPC_RESPONSE_INVALID");
+        return true;
+      });
+    },
+  );
+
+  test.each(INVALID_NON_INTEGER_NUMBERS)(
+    "rejects invalid sizeBytes boundary %p",
+    async (sizeBytes) => {
+      await expect(
+        stopRecording("session-123", async () => ({
+          ...VALID_STOP,
+          sizeBytes,
+        })),
+      ).rejects.toSatisfy((error: unknown) => {
+        expectRecordingError(error, "RECORDING_IPC_RESPONSE_INVALID");
+        return true;
+      });
+    },
+  );
+
+  test.each(INVALID_NON_INTEGER_NUMBERS)(
+    "rejects invalid elapsedMs boundary %p",
+    async (elapsedMs) => {
+      await expect(
+        getRecordingState(async () => ({
+          ...VALID_STATE,
+          elapsedMs,
+        })),
+      ).rejects.toSatisfy((error: unknown) => {
+        expectRecordingError(error, "RECORDING_IPC_RESPONSE_INVALID");
+        return true;
+      });
+    },
+  );
+
+  test("accepts zero numeric values and maximum allowed string lengths", async () => {
+    const maxLength = "x".repeat(4096);
+
+    await expect(
+      startRecording("mic", async () => ({ sessionId: maxLength })),
+    ).resolves.toEqual({ sessionId: maxLength });
+    await expect(
+      stopRecording("session-123", async () => ({
+        path: maxLength,
+        displayName: maxLength,
+        durationMs: 0,
+        sizeBytes: 0,
+      })),
+    ).resolves.toEqual({
+      path: maxLength,
+      displayName: maxLength,
+      durationMs: 0,
+      sizeBytes: 0,
+    });
+    await expect(
+      getRecordingState(async () => ({
+        sessionId: maxLength,
+        mode: "mic",
+        elapsedMs: 0,
+      })),
+    ).resolves.toEqual({
+      sessionId: maxLength,
+      mode: "mic",
+      elapsedMs: 0,
     });
   });
 
