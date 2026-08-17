@@ -23,6 +23,7 @@ import type { LocalMediaSelectionView } from "../../localMediaContract";
 
 export type RecordingCapabilityStatus =
   | "loading"
+  | "unknown"
   | "ready"
   | "unsupported"
   | "unavailable";
@@ -166,6 +167,15 @@ function isModeAvailableFromCapabilities(
   return capabilities.microphone.available && capabilities.systemAudio.available;
 }
 
+function hasUsableRecordingSource(
+  capabilities: RecordingCapabilities,
+): boolean {
+  return (
+    capabilities.platform === "windows" &&
+    (capabilities.microphone.available || capabilities.systemAudio.available)
+  );
+}
+
 function preferenceMode(value: unknown): RecordingMode {
   return isRecordingMode(value) ? value : "mic";
 }
@@ -256,6 +266,16 @@ export function useRecordingController({
         reportError(errorCode);
         return details;
       }
+      if (!hasUsableRecordingSource(details)) {
+        const errorCode = "RECORDING_SOURCE_UNAVAILABLE" as const;
+        updateCapability({ status: "unavailable", details, errorCode });
+        if (sessionRef.current.status === "idle") {
+          modeRef.current = "mic";
+          setModeState("mic");
+        }
+        reportError(errorCode);
+        return details;
+      }
       updateCapability({ status: "ready", details });
       const preferredMode = preferenceModeRef.current;
       const nextMode = isModeAvailableFromCapabilities(details, preferredMode)
@@ -273,6 +293,10 @@ export function useRecordingController({
         ? "unsupported"
         : "unavailable";
       updateCapability({ status, errorCode });
+      if (sessionRef.current.status === "idle") {
+        modeRef.current = "mic";
+        setModeState("mic");
+      }
       reportError(errorCode);
       return null;
     }
@@ -348,6 +372,8 @@ export function useRecordingController({
     }
     invalidatePreferenceLoad();
     operationRef.current = "start";
+    handoffResultRef.current = null;
+    setHandoff({ status: "idle" });
     updateSession({ status: "starting" });
     setActiveSessionId(null);
     activeSessionIdRef.current = null;
@@ -469,7 +495,12 @@ export function useRecordingController({
   }, []);
 
   const requestDiscard = useCallback(() => {
-    if (sessionRef.current.status !== "recording") return;
+    if (
+      operationRef.current === "cancel" ||
+      sessionRef.current.status !== "recording"
+    ) {
+      return;
+    }
     discardConfirmationRef.current = true;
     setDiscardConfirmationOpen(true);
   }, []);
@@ -496,6 +527,8 @@ export function useRecordingController({
     try {
       await recordingClient.cancelRecording(sessionId);
       if (!mountedRef.current) return;
+      discardConfirmationRef.current = false;
+      setDiscardConfirmationOpen(false);
       setActiveSessionId(null);
       activeSessionIdRef.current = null;
       setStartedAt(null);
@@ -535,6 +568,7 @@ export function useRecordingController({
     };
     const onKeyDown = (event: Event) => {
       if ((event as KeyboardEvent).key !== "Escape") return;
+      if (operationRef.current === "cancel") return;
       if (discardConfirmationRef.current) {
         discardConfirmationRef.current = false;
         setDiscardConfirmationOpen(false);

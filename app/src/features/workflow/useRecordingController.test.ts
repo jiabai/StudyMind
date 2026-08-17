@@ -52,7 +52,7 @@ type WindowHarness = {
 
 type RecordingController = {
   capability: {
-    status: "loading" | "ready" | "unsupported" | "unavailable";
+    status: "loading" | "unknown" | "ready" | "unsupported" | "unavailable";
     details?: RecordingCapabilities;
     errorCode?: string;
   };
@@ -73,6 +73,7 @@ type RecordingController = {
   closeDiscard: () => void;
   retryHandoff: () => Promise<void>;
   isModeAvailable: (mode: RecordingMode) => boolean;
+  modeSelectionDisabled: boolean;
 };
 
 type ControllerDependencies = {
@@ -110,6 +111,18 @@ const UNSUPPORTED_CAPABILITIES: RecordingCapabilities = {
   platform: "unsupported",
   microphone: { available: false },
   systemAudio: { available: false },
+};
+
+const UNAVAILABLE_CAPABILITIES: RecordingCapabilities = {
+  platform: "windows",
+  microphone: {
+    available: false,
+    reasonCode: "RECORDING_MIC_INIT_FAILED",
+  },
+  systemAudio: {
+    available: false,
+    reasonCode: "RECORDING_SYSTEM_AUDIO_UNAVAILABLE",
+  },
 };
 
 const PREFERENCES: UiPreferencesView = {
@@ -365,6 +378,28 @@ describe("useRecordingController", () => {
     expect(deps.recordingClient.startRecording).not.toHaveBeenCalled();
   });
 
+  test("keeps capability loading while the initial probe is pending", async () => {
+    const capabilities = createDeferred<RecordingCapabilities>();
+    const { render } = await createController({
+      recordingClient: {
+        getRecordingCapabilities: vi.fn().mockReturnValue(capabilities.promise),
+        startRecording: vi.fn(),
+        stopRecording: vi.fn(),
+        cancelRecording: vi.fn(),
+      },
+    });
+
+    let controller = render();
+    expect(controller.capability.status).toBe("loading");
+    expect(controller.modeSelectionDisabled).toBe(true);
+
+    capabilities.resolve(CAPABILITIES);
+    await settle();
+    controller = render();
+    expect(controller.capability.status).toBe("ready");
+    expect(controller.modeSelectionDisabled).toBe(false);
+  });
+
   test.each([
     ["unsupported", "RECORDING_PLATFORM_UNSUPPORTED"],
     ["unavailable", "RECORDING_CAPABILITY_PROBE_FAILED"],
@@ -520,6 +555,88 @@ describe("useRecordingController", () => {
 
     expect(controller.capability.status).toBe("unsupported");
     expect(controller.mode).toBe("mic");
+  });
+
+  test.each([
+    ["unavailable", "RECORDING_CAPABILITY_PROBE_FAILED"],
+    ["unsupported", "RECORDING_PLATFORM_UNSUPPORTED"],
+  ] as const)(
+    "falls back visible mode to mic while foreground probe is %s and restores the preference after recovery",
+    async (status, code) => {
+      const getCapabilities = vi
+        .fn<() => Promise<RecordingCapabilities>>()
+        .mockResolvedValueOnce(CAPABILITIES)
+        .mockRejectedValueOnce({ code })
+        .mockResolvedValueOnce(CAPABILITIES);
+      const { render, windowHarness } = await createController({
+        recordingClient: {
+          getRecordingCapabilities: getCapabilities,
+          startRecording: vi.fn(),
+          stopRecording: vi.fn(),
+          cancelRecording: vi.fn(),
+        },
+        readPreferences: vi.fn().mockResolvedValue({
+          ...PREFERENCES,
+          recording: { audioSourceMode: "system" },
+        }),
+      });
+
+      let controller = render();
+      await settle();
+      controller = render();
+      expect(controller.mode).toBe("system");
+
+      windowHarness.dispatch("focus");
+      await settle();
+      controller = render();
+
+      expect(controller.capability.status).toBe(status);
+      expect(controller.mode).toBe("mic");
+
+      windowHarness.dispatch("focus");
+      await settle();
+      controller = render();
+      expect(controller.capability.status).toBe("ready");
+      expect(controller.mode).toBe("system");
+    },
+  );
+
+  test("marks a successful Windows probe unavailable when no source is usable and preserves the preference", async () => {
+    const getCapabilities = vi
+      .fn<() => Promise<RecordingCapabilities>>()
+      .mockResolvedValueOnce(CAPABILITIES)
+      .mockResolvedValueOnce(UNAVAILABLE_CAPABILITIES)
+      .mockResolvedValueOnce(CAPABILITIES);
+    const { render, windowHarness } = await createController({
+      recordingClient: {
+        getRecordingCapabilities: getCapabilities,
+        startRecording: vi.fn(),
+        stopRecording: vi.fn(),
+        cancelRecording: vi.fn(),
+      },
+      readPreferences: vi.fn().mockResolvedValue({
+        ...PREFERENCES,
+        recording: { audioSourceMode: "system" },
+      }),
+    });
+
+    let controller = render();
+    await settle();
+    controller = render();
+    expect(controller.mode).toBe("system");
+
+    windowHarness.dispatch("focus");
+    await settle();
+    controller = render();
+
+    expect(controller.capability.status).toBe("unavailable");
+    expect(controller.mode).toBe("mic");
+
+    windowHarness.dispatch("focus");
+    await settle();
+    controller = render();
+    expect(controller.capability.status).toBe("ready");
+    expect(controller.mode).toBe("system");
   });
 
   test("saves a successful mic fallback and keeps it after a later foreground refresh", async () => {
@@ -787,6 +904,30 @@ describe("useRecordingController", () => {
     expect(controller.handoff).toEqual({ status: "idle" });
   });
 
+  test("clears stale handoff state and result when a new start begins", async () => {
+    const selectLocalMediaByPath = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("handoff failed"));
+    const { deps, render } = await startRecordingSession({
+      selectLocalMediaByPath,
+    });
+    let controller = render();
+
+    await controller.stop();
+    controller = render();
+    expect(controller.handoff.status).toBe("retryable");
+    expect(selectLocalMediaByPath).toHaveBeenCalledTimes(1);
+
+    await controller.start();
+    controller = render();
+    expect(controller.session.status).toBe("recording");
+    expect(controller.handoff).toEqual({ status: "idle" });
+
+    await controller.retryHandoff();
+    expect(selectLocalMediaByPath).toHaveBeenCalledTimes(1);
+    expect(deps.recordingClient.startRecording).toHaveBeenCalledTimes(2);
+  });
+
   test("clears a failed stop operation and allows a fresh start", async () => {
     const stopRecording = vi.fn().mockRejectedValueOnce({
       code: "RECORDING_FINALIZE_FAILED",
@@ -835,6 +976,44 @@ describe("useRecordingController", () => {
     controller = render();
     expect(deps.recordingClient.cancelRecording).toHaveBeenCalledWith("session-1");
     expect(controller.session.status).toBe("idle");
+    expect(controller.activeSessionId).toBeNull();
+  });
+
+  test("ignores discard requests while cancel is pending and closes confirmation on success", async () => {
+    const pendingCancel = createDeferred<void>();
+    const cancelRecording = vi.fn().mockReturnValue(pendingCancel.promise);
+    const { deps, render, windowHarness } = await startRecordingSession({
+      recordingClient: {
+        getRecordingCapabilities: vi.fn().mockResolvedValue(CAPABILITIES),
+        startRecording: vi.fn().mockResolvedValue({ sessionId: "pending-cancel" }),
+        stopRecording: vi.fn().mockResolvedValue(RESULT),
+        cancelRecording,
+      },
+    });
+    let controller = render();
+
+    controller.requestDiscard();
+    controller = render();
+    expect(controller.discardConfirmationOpen).toBe(true);
+
+    const confirmPromise = controller.confirmDiscard();
+    controller = render();
+    expect(deps.recordingClient.cancelRecording).toHaveBeenCalledWith("pending-cancel");
+    expect(controller.discardConfirmationOpen).toBe(false);
+
+    controller.requestDiscard();
+    controller = render();
+    expect(controller.discardConfirmationOpen).toBe(false);
+
+    windowHarness.dispatch("keydown", { key: "Escape" });
+    controller = render();
+    expect(controller.discardConfirmationOpen).toBe(false);
+
+    pendingCancel.resolve();
+    await confirmPromise;
+    controller = render();
+    expect(controller.session.status).toBe("idle");
+    expect(controller.discardConfirmationOpen).toBe(false);
     expect(controller.activeSessionId).toBeNull();
   });
 
