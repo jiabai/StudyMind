@@ -367,7 +367,7 @@ describe("useRecordingController", () => {
 
     expect(deps.recordingClient.getRecordingCapabilities).toHaveBeenCalledTimes(1);
     expect(deps.recordingClient.startRecording).not.toHaveBeenCalled();
-    expect(controller.capability.status).toBe("loading");
+    expect(controller.capability.status).toBe("unknown");
 
     await settle();
     controller = render();
@@ -390,8 +390,11 @@ describe("useRecordingController", () => {
     });
 
     let controller = render();
-    expect(controller.capability.status).toBe("loading");
+    expect(controller.capability.status).toBe("unknown");
     expect(controller.modeSelectionDisabled).toBe(true);
+
+    controller = render();
+    expect(controller.capability.status).toBe("loading");
 
     capabilities.resolve(CAPABILITIES);
     await settle();
@@ -768,6 +771,89 @@ describe("useRecordingController", () => {
       errorCode: "RECORDING_CAPABILITY_PROBE_FAILED",
     });
     expect(JSON.stringify(controller)).not.toContain("private probe detail");
+  });
+
+  test("does not let a foreground refresh cancel the start-time capability probe", async () => {
+    const startProbe = createDeferred<RecordingCapabilities>();
+    const foregroundProbe = createDeferred<RecordingCapabilities>();
+    const getCapabilities = vi
+      .fn<() => Promise<RecordingCapabilities>>()
+      .mockResolvedValueOnce(CAPABILITIES)
+      .mockReturnValueOnce(startProbe.promise)
+      .mockReturnValueOnce(foregroundProbe.promise);
+    const startRecording = vi
+      .fn<(mode: RecordingMode) => Promise<{ sessionId: string }>>()
+      .mockResolvedValue({ sessionId: "session-concurrent-start" });
+    const { deps, render, windowHarness } = await createController({
+      recordingClient: {
+        getRecordingCapabilities: getCapabilities,
+        startRecording,
+        stopRecording: vi.fn().mockResolvedValue(RESULT),
+        cancelRecording: vi.fn().mockResolvedValue(undefined),
+      },
+    });
+
+    let controller = render();
+    await settle();
+    controller = render();
+
+    const startPromise = controller.start();
+    await settle();
+    windowHarness.dispatch("focus");
+    startProbe.resolve(CAPABILITIES);
+
+    await startPromise;
+    expect(startRecording).toHaveBeenCalledWith("mic");
+    expect(deps.saveAudioSourceMode).toHaveBeenCalledWith("mic");
+
+    foregroundProbe.resolve(CAPABILITIES);
+    await settle();
+  });
+
+  test("allows stop while the post-start preference save is pending", async () => {
+    const pendingSave = createDeferred<UiPreferencesView>();
+    const saveAudioSourceMode = vi.fn().mockReturnValue(pendingSave.promise);
+    const { deps, render } = await createController({ saveAudioSourceMode });
+
+    let controller = render();
+    await settle();
+    controller = render();
+
+    const startPromise = controller.start();
+    await settle();
+    controller = render();
+    expect(controller.session.status).toBe("recording");
+
+    const stopPromise = controller.stop();
+    await settle();
+    expect(deps.recordingClient.stopRecording).toHaveBeenCalledWith("session-1");
+
+    pendingSave.resolve(PREFERENCES);
+    await Promise.all([startPromise, stopPromise]);
+  });
+
+  test("allows discard confirmation while the post-start preference save is pending", async () => {
+    const pendingSave = createDeferred<UiPreferencesView>();
+    const saveAudioSourceMode = vi.fn().mockReturnValue(pendingSave.promise);
+    const { deps, render } = await createController({ saveAudioSourceMode });
+
+    let controller = render();
+    await settle();
+    controller = render();
+
+    const startPromise = controller.start();
+    await settle();
+    controller = render();
+    expect(controller.session.status).toBe("recording");
+
+    controller.requestDiscard();
+    controller = render();
+    const discardPromise = controller.confirmDiscard();
+    await settle();
+    expect(deps.recordingClient.cancelRecording).toHaveBeenCalledWith("session-1");
+
+    pendingSave.resolve(PREFERENCES);
+    await Promise.all([startPromise, discardPromise]);
   });
 
   test("enters recording and saves only after a successful start", async () => {

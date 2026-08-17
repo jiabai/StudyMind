@@ -197,7 +197,7 @@ export function useRecordingController({
   onError,
 }: UseRecordingControllerOptions = {}): RecordingController {
   const [capability, setCapability] = useState<RecordingCapabilityView>({
-    status: "loading",
+    status: "unknown",
   });
   const [mode, setModeState] = useState<RecordingMode>("mic");
   const [session, setSession] = useState<RecordingSessionView>({
@@ -221,6 +221,7 @@ export function useRecordingController({
   const preferenceModeRef = useRef<RecordingMode>("mic");
   const handoffResultRef = useRef<RecordingResult | null>(null);
   const capabilityRequestRef = useRef(0);
+  const startCapabilityRequestRef = useRef(0);
   const preferenceRequestRef = useRef(0);
   const operationRef = useRef<"start" | "stop" | "cancel" | "handoff" | null>(null);
 
@@ -249,13 +250,15 @@ export function useRecordingController({
     preferenceRequestRef.current += 1;
   };
 
-  const refreshCapabilities = async (): Promise<RecordingCapabilities | null> => {
-    const requestId = capabilityRequestRef.current + 1;
-    capabilityRequestRef.current = requestId;
+  const refreshCapabilities = async (
+    requestRef: { current: number } = capabilityRequestRef,
+  ): Promise<RecordingCapabilities | null> => {
+    const requestId = requestRef.current + 1;
+    requestRef.current = requestId;
     if (mountedRef.current) updateCapability({ status: "loading" });
     try {
       const details = await recordingClient.getRecordingCapabilities();
-      if (!mountedRef.current || requestId !== capabilityRequestRef.current) return null;
+      if (!mountedRef.current || requestId !== requestRef.current) return null;
       if (details.platform === "unsupported") {
         const errorCode = "RECORDING_PLATFORM_UNSUPPORTED" as const;
         updateCapability({ status: "unsupported", details, errorCode });
@@ -287,7 +290,7 @@ export function useRecordingController({
       }
       return details;
     } catch (error) {
-      if (!mountedRef.current || requestId !== capabilityRequestRef.current) return null;
+      if (!mountedRef.current || requestId !== requestRef.current) return null;
       const errorCode = stableErrorCode(error, "RECORDING_CAPABILITY_PROBE_FAILED");
       const status = errorCode === "RECORDING_PLATFORM_UNSUPPORTED"
         ? "unsupported"
@@ -361,6 +364,16 @@ export function useRecordingController({
     setModeState(nextMode);
   }, []);
 
+  const saveAudioSourceModeBestEffort = (nextMode: RecordingMode) => {
+    try {
+      void saveAudioSourceMode(nextMode).catch(() => {
+        reportError("RECORDING_PREFERENCES_UNAVAILABLE");
+      });
+    } catch {
+      reportError("RECORDING_PREFERENCES_UNAVAILABLE");
+    }
+  };
+
   const start = useCallback(async () => {
     if (
       operationRef.current ||
@@ -379,7 +392,7 @@ export function useRecordingController({
     activeSessionIdRef.current = null;
     setElapsedMs(0);
     try {
-      const details = await refreshCapabilities();
+      const details = await refreshCapabilities(startCapabilityRequestRef);
       if (!details || !mountedRef.current) {
         if (mountedRef.current) {
           const errorCode = capabilityRef.current.errorCode ??
@@ -421,11 +434,7 @@ export function useRecordingController({
       startedAtRef.current = startedAtValue;
       setElapsedMs(0);
       updateSession({ status: "recording" });
-      try {
-        await saveAudioSourceMode(actualMode);
-      } catch {
-        reportError("RECORDING_PREFERENCES_UNAVAILABLE");
-      }
+      saveAudioSourceModeBestEffort(actualMode);
     } catch (error) {
       if (mountedRef.current) {
         const errorCode = stableErrorCode(error, "RECORDING_UNKNOWN_ERROR");
