@@ -106,6 +106,12 @@ const MIC_ONLY_CAPABILITIES: RecordingCapabilities = {
   },
 };
 
+const UNSUPPORTED_CAPABILITIES: RecordingCapabilities = {
+  platform: "unsupported",
+  microphone: { available: false },
+  systemAudio: { available: false },
+};
+
 const PREFERENCES: UiPreferencesView = {
   schemaVersion: 2,
   language: "en-US",
@@ -416,6 +422,21 @@ describe("useRecordingController", () => {
     expect(controller.isModeAvailable("mixed")).toBe(false);
   });
 
+  test("falls back an illegal preference value to mic", async () => {
+    const { render } = await createController({
+      readPreferences: vi.fn().mockResolvedValue({
+        ...PREFERENCES,
+        recording: { audioSourceMode: "speaker" },
+      } as never),
+    });
+
+    let controller = render();
+    await settle();
+    controller = render();
+
+    expect(controller.mode).toBe("mic");
+  });
+
   test("falls back to mic when preference loading fails", async () => {
     const { deps, render } = await createController({
       readPreferences: vi.fn().mockRejectedValue(new Error("private settings path")),
@@ -468,6 +489,139 @@ describe("useRecordingController", () => {
     expect(controller.session.status).toBe("recording");
     expect(controller.activeSessionId).toBe("session-2");
     expect(deps.recordingClient.getRecordingCapabilities).toHaveBeenCalledTimes(2);
+  });
+
+  test("falls back the visible mode to mic when foreground capabilities become unsupported", async () => {
+    const getCapabilities = vi
+      .fn()
+      .mockResolvedValueOnce(CAPABILITIES)
+      .mockResolvedValueOnce(UNSUPPORTED_CAPABILITIES);
+    const { render, windowHarness } = await createController({
+      recordingClient: {
+        getRecordingCapabilities: getCapabilities,
+        startRecording: vi.fn(),
+        stopRecording: vi.fn(),
+        cancelRecording: vi.fn(),
+      },
+      readPreferences: vi.fn().mockResolvedValue({
+        ...PREFERENCES,
+        recording: { audioSourceMode: "system" },
+      }),
+    });
+
+    let controller = render();
+    await settle();
+    controller = render();
+    expect(controller.mode).toBe("system");
+
+    windowHarness.dispatch("focus");
+    await settle();
+    controller = render();
+
+    expect(controller.capability.status).toBe("unsupported");
+    expect(controller.mode).toBe("mic");
+  });
+
+  test("saves a successful mic fallback and keeps it after a later foreground refresh", async () => {
+    const getCapabilities = vi
+      .fn()
+      .mockResolvedValueOnce(CAPABILITIES)
+      .mockResolvedValueOnce(MIC_ONLY_CAPABILITIES)
+      .mockResolvedValueOnce(CAPABILITIES);
+    const { deps, render, windowHarness } = await createController({
+      recordingClient: {
+        getRecordingCapabilities: getCapabilities,
+        startRecording: vi.fn().mockResolvedValue({ sessionId: "session-fallback" }),
+        stopRecording: vi.fn().mockResolvedValue(RESULT),
+        cancelRecording: vi.fn(),
+      },
+      readPreferences: vi.fn().mockResolvedValue({
+        ...PREFERENCES,
+        recording: { audioSourceMode: "system" },
+      }),
+    });
+
+    let controller = render();
+    await settle();
+    controller = render();
+    await controller.start();
+    controller = render();
+    expect(controller.mode).toBe("mic");
+    expect(deps.saveAudioSourceMode).toHaveBeenCalledWith("mic");
+
+    await controller.stop();
+    controller = render();
+    windowHarness.dispatch("focus");
+    await settle();
+    controller = render();
+
+    expect(controller.session.status).toBe("idle");
+    expect(controller.mode).toBe("mic");
+  });
+
+  test("ignores a stale preference that resolves after start succeeds", async () => {
+    const preferences = createDeferred<UiPreferencesView>();
+    const { render, windowHarness } = await createController({
+      recordingClient: {
+        getRecordingCapabilities: vi.fn().mockResolvedValue(CAPABILITIES),
+        startRecording: vi.fn().mockResolvedValue({ sessionId: "session-stale-start" }),
+        stopRecording: vi.fn().mockResolvedValue(RESULT),
+        cancelRecording: vi.fn(),
+      },
+      readPreferences: vi.fn().mockReturnValue(preferences.promise),
+    });
+
+    let controller = render();
+    await settle();
+    controller = render();
+    await controller.start();
+    controller = render();
+    expect(controller.mode).toBe("mic");
+
+    preferences.resolve({
+      ...PREFERENCES,
+      recording: { audioSourceMode: "system" },
+    });
+    await settle();
+    controller = render();
+    await controller.stop();
+    controller = render();
+    windowHarness.dispatch("focus");
+    await settle();
+    controller = render();
+
+    expect(controller.mode).toBe("mic");
+  });
+
+  test("ignores a stale preference after a newer explicit mode selection", async () => {
+    const preferences = createDeferred<UiPreferencesView>();
+    const { render, windowHarness } = await createController({
+      readPreferences: vi.fn().mockReturnValue(preferences.promise),
+    });
+
+    let controller = render();
+    await settle();
+    controller = render();
+    await settle();
+    controller = render();
+    expect(controller.capability.status).toBe("ready");
+    expect(controller.isModeAvailable("system")).toBe(true);
+    controller.setMode("system");
+    controller = render();
+    expect(controller.mode).toBe("system");
+
+    preferences.resolve({
+      ...PREFERENCES,
+      recording: { audioSourceMode: "mic" },
+    });
+    await settle();
+    controller = render();
+    expect(controller.mode).toBe("system");
+
+    windowHarness.dispatch("focus");
+    await settle();
+    controller = render();
+    expect(controller.mode).toBe("system");
   });
 
   test("surfaces a stable error when the start-time capability recheck fails", async () => {
@@ -633,6 +787,34 @@ describe("useRecordingController", () => {
     expect(controller.handoff).toEqual({ status: "idle" });
   });
 
+  test("clears a failed stop operation and allows a fresh start", async () => {
+    const stopRecording = vi.fn().mockRejectedValueOnce({
+      code: "RECORDING_FINALIZE_FAILED",
+    });
+    const { deps, render } = await startRecordingSession({
+      recordingClient: {
+        getRecordingCapabilities: vi.fn().mockResolvedValue(CAPABILITIES),
+        startRecording: vi.fn().mockResolvedValue({ sessionId: "session-retry" }),
+        stopRecording,
+        cancelRecording: vi.fn(),
+      },
+    });
+    let controller = render();
+
+    await controller.stop();
+    controller = render();
+    expect(controller.session).toEqual({
+      status: "error",
+      errorCode: "RECORDING_FINALIZE_FAILED",
+    });
+    expect(controller.activeSessionId).toBeNull();
+
+    await controller.start();
+    controller = render();
+    expect(deps.recordingClient.startRecording).toHaveBeenCalledTimes(2);
+    expect(controller.session.status).toBe("recording");
+  });
+
   test("requires explicit discard confirmation and supports close without cancelling", async () => {
     const { deps, render } = await startRecordingSession();
     let controller = render();
@@ -652,6 +834,38 @@ describe("useRecordingController", () => {
     await controller.confirmDiscard();
     controller = render();
     expect(deps.recordingClient.cancelRecording).toHaveBeenCalledWith("session-1");
+    expect(controller.session.status).toBe("idle");
+    expect(controller.activeSessionId).toBeNull();
+  });
+
+  test("restores recording after a failed cancel and permits retry", async () => {
+    const cancelRecording = vi
+      .fn()
+      .mockRejectedValueOnce({ code: "RECORDING_CANCEL_FAILED" })
+      .mockResolvedValueOnce(undefined);
+    const { deps, render } = await startRecordingSession({
+      recordingClient: {
+        getRecordingCapabilities: vi.fn().mockResolvedValue(CAPABILITIES),
+        startRecording: vi.fn().mockResolvedValue({ sessionId: "session-cancel-retry" }),
+        stopRecording: vi.fn().mockResolvedValue(RESULT),
+        cancelRecording,
+      },
+    });
+    let controller = render();
+
+    controller.requestDiscard();
+    await controller.confirmDiscard();
+    controller = render();
+    expect(controller.session).toEqual({
+      status: "recording",
+      errorCode: "RECORDING_CANCEL_FAILED",
+    });
+    expect(controller.activeSessionId).toBe("session-cancel-retry");
+
+    controller.requestDiscard();
+    await controller.confirmDiscard();
+    controller = render();
+    expect(deps.recordingClient.cancelRecording).toHaveBeenCalledTimes(2);
     expect(controller.session.status).toBe("idle");
     expect(controller.activeSessionId).toBeNull();
   });

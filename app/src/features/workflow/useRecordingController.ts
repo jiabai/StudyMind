@@ -211,6 +211,7 @@ export function useRecordingController({
   const preferenceModeRef = useRef<RecordingMode>("mic");
   const handoffResultRef = useRef<RecordingResult | null>(null);
   const capabilityRequestRef = useRef(0);
+  const preferenceRequestRef = useRef(0);
   const operationRef = useRef<"start" | "stop" | "cancel" | "handoff" | null>(null);
 
   capabilityRef.current = capability;
@@ -234,6 +235,10 @@ export function useRecordingController({
     setCapability(next);
   };
 
+  const invalidatePreferenceLoad = () => {
+    preferenceRequestRef.current += 1;
+  };
+
   const refreshCapabilities = async (): Promise<RecordingCapabilities | null> => {
     const requestId = capabilityRequestRef.current + 1;
     capabilityRequestRef.current = requestId;
@@ -244,6 +249,10 @@ export function useRecordingController({
       if (details.platform === "unsupported") {
         const errorCode = "RECORDING_PLATFORM_UNSUPPORTED" as const;
         updateCapability({ status: "unsupported", details, errorCode });
+        if (sessionRef.current.status === "idle") {
+          modeRef.current = "mic";
+          setModeState("mic");
+        }
         reportError(errorCode);
         return details;
       }
@@ -270,6 +279,8 @@ export function useRecordingController({
   };
 
   const loadPreferences = async (): Promise<void> => {
+    const requestId = preferenceRequestRef.current + 1;
+    preferenceRequestRef.current = requestId;
     try {
       const preferences = await readPreferences();
       const nextPreferenceMode = preferenceMode(
@@ -277,8 +288,14 @@ export function useRecordingController({
           ? preferences.recording.audioSourceMode
           : undefined,
       );
+      if (
+        !mountedRef.current ||
+        requestId !== preferenceRequestRef.current ||
+        sessionRef.current.status !== "idle"
+      ) {
+        return;
+      }
       preferenceModeRef.current = nextPreferenceMode;
-      if (!mountedRef.current || sessionRef.current.status !== "idle") return;
       const nextMode = isModeAvailableFromCapabilities(
         capabilityRef.current.details,
         nextPreferenceMode,
@@ -288,8 +305,15 @@ export function useRecordingController({
       modeRef.current = nextMode;
       setModeState(nextMode);
     } catch {
+      if (
+        !mountedRef.current ||
+        requestId !== preferenceRequestRef.current ||
+        sessionRef.current.status !== "idle"
+      ) {
+        return;
+      }
       preferenceModeRef.current = "mic";
-      if (mountedRef.current) reportError("RECORDING_PREFERENCES_UNAVAILABLE");
+      reportError("RECORDING_PREFERENCES_UNAVAILABLE");
     }
   };
 
@@ -307,6 +331,7 @@ export function useRecordingController({
     ) {
       return;
     }
+    invalidatePreferenceLoad();
     preferenceModeRef.current = nextMode;
     modeRef.current = nextMode;
     setModeState(nextMode);
@@ -321,6 +346,7 @@ export function useRecordingController({
     ) {
       return;
     }
+    invalidatePreferenceLoad();
     operationRef.current = "start";
     updateSession({ status: "starting" });
     setActiveSessionId(null);
@@ -360,6 +386,7 @@ export function useRecordingController({
       const started = await recordingClient.startRecording(actualMode);
       if (!mountedRef.current) return;
       const startedAtValue = clock();
+      preferenceModeRef.current = actualMode;
       modeRef.current = actualMode;
       setModeState(actualMode);
       setActiveSessionId(started.sessionId);
