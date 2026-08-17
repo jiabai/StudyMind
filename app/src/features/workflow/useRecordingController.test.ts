@@ -924,6 +924,66 @@ describe("useRecordingController", () => {
     expect(JSON.stringify(controller)).not.toContain("token.wav");
   });
 
+  test("allows selecting available modes after a failed start", async () => {
+    const { render } = await createController({
+      recordingClient: {
+        getRecordingCapabilities: vi.fn().mockResolvedValue(CAPABILITIES),
+        startRecording: vi.fn().mockRejectedValue({
+          code: "RECORDING_MIC_ACCESS_DENIED",
+        }),
+        stopRecording: vi.fn(),
+        cancelRecording: vi.fn(),
+      },
+    });
+    let controller = render();
+    await settle();
+    controller = render();
+
+    await controller.start();
+    controller = render();
+
+    expect(controller.session.status).toBe("error");
+    expect(controller.modeSelectionDisabled).toBe(false);
+
+    controller.setMode("system");
+    controller = render();
+    expect(controller.mode).toBe("system");
+
+    controller.setMode("mixed");
+    controller = render();
+    expect(controller.mode).toBe("mixed");
+  });
+
+  test("still rejects unavailable modes after a failed start", async () => {
+    const { render } = await createController({
+      recordingClient: {
+        getRecordingCapabilities: vi
+          .fn()
+          .mockResolvedValue(MIC_ONLY_CAPABILITIES),
+        startRecording: vi.fn().mockRejectedValue({
+          code: "RECORDING_MIC_ACCESS_DENIED",
+        }),
+        stopRecording: vi.fn(),
+        cancelRecording: vi.fn(),
+      },
+    });
+    let controller = render();
+    await settle();
+    controller = render();
+
+    await controller.start();
+    controller = render();
+    expect(controller.session.status).toBe("error");
+    expect(controller.modeSelectionDisabled).toBe(false);
+
+    controller.setMode("system");
+    controller = render();
+    expect(controller.mode).toBe("mic");
+    controller.setMode("mixed");
+    controller = render();
+    expect(controller.mode).toBe("mic");
+  });
+
   test("updates elapsed time from the injected clock and fixes mode during recording", async () => {
     let now = 1_000;
     const timer = createTimerHarness();

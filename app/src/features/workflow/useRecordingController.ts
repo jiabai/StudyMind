@@ -353,7 +353,8 @@ export function useRecordingController({
   const setMode = useCallback((nextMode: RecordingMode) => {
     if (
       !isRecordingMode(nextMode) ||
-      sessionRef.current.status !== "idle" ||
+      (sessionRef.current.status !== "idle" &&
+        sessionRef.current.status !== "error") ||
       !isModeAvailableFromCapabilities(capabilityRef.current.details, nextMode)
     ) {
       return;
@@ -631,6 +632,9 @@ export function useRecordingController({
     retryHandoff,
     isModeAvailable,
     modeSelectionDisabled:
-      capability.status !== "ready" || session.status !== "idle",
+      capability.status !== "ready" ||
+      session.status === "starting" ||
+      session.status === "recording" ||
+      session.status === "stopping",
   };
 }
