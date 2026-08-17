@@ -98,6 +98,15 @@ const CAPABILITIES: RecordingCapabilities = {
   systemAudio: { available: true },
 };
 
+const SYSTEM_ONLY_CAPABILITIES: RecordingCapabilities = {
+  platform: "windows",
+  microphone: {
+    available: false,
+    reasonCode: "RECORDING_MIC_INIT_FAILED",
+  },
+  systemAudio: { available: true },
+};
+
 const MIC_ONLY_CAPABILITIES: RecordingCapabilities = {
   platform: "windows",
   microphone: { available: true },
@@ -473,6 +482,38 @@ describe("useRecordingController", () => {
     controller = render();
 
     expect(controller.mode).toBe("mic");
+  });
+
+  test("uses system audio consistently when it is the only available Windows source", async () => {
+    const startRecording = vi
+      .fn<(mode: RecordingMode) => Promise<{ sessionId: string }>>()
+      .mockResolvedValue({ sessionId: "system-only-session" });
+    const { deps, render } = await createController({
+      recordingClient: {
+        getRecordingCapabilities: vi.fn().mockResolvedValue(SYSTEM_ONLY_CAPABILITIES),
+        startRecording,
+        stopRecording: vi.fn().mockResolvedValue(RESULT),
+        cancelRecording: vi.fn().mockResolvedValue(undefined),
+      },
+    });
+
+    let controller = render();
+    await settle();
+    controller = render();
+
+    expect(controller.capability).toEqual({
+      status: "ready",
+      details: SYSTEM_ONLY_CAPABILITIES,
+    });
+    expect(controller.mode).toBe("system");
+
+    await controller.start();
+    controller = render();
+
+    expect(startRecording).toHaveBeenCalledWith("system");
+    expect(controller.mode).toBe("system");
+    expect(controller.session).toEqual({ status: "recording" });
+    expect(deps.onError).not.toHaveBeenCalledWith("RECORDING_SOURCE_UNAVAILABLE");
   });
 
   test("falls back to mic when preference loading fails", async () => {
@@ -854,6 +895,93 @@ describe("useRecordingController", () => {
 
     pendingSave.resolve(PREFERENCES);
     await Promise.all([startPromise, discardPromise]);
+  });
+
+  test("serializes pending preference saves across cancel and the next start", async () => {
+    const firstSave = createDeferred<UiPreferencesView>();
+    const secondSave = createDeferred<UiPreferencesView>();
+    const saveAudioSourceMode = vi
+      .fn<(mode: RecordingMode) => Promise<UiPreferencesView>>()
+      .mockImplementation((mode) =>
+        mode === "mic" ? firstSave.promise : secondSave.promise,
+      );
+    const { deps, render } = await createController({ saveAudioSourceMode });
+
+    let controller = render();
+    await settle();
+    controller = render();
+
+    await controller.start();
+    controller = render();
+    expect(controller.session.status).toBe("recording");
+    expect(saveAudioSourceMode).toHaveBeenNthCalledWith(1, "mic");
+
+    controller.requestDiscard();
+    controller = render();
+    await controller.confirmDiscard();
+    controller = render();
+    expect(controller.session.status).toBe("idle");
+
+    controller.setMode("system");
+    controller = render();
+    await controller.start();
+    controller = render();
+    expect(controller.session.status).toBe("recording");
+    expect(deps.recordingClient.startRecording).toHaveBeenLastCalledWith("system");
+    expect(saveAudioSourceMode).toHaveBeenCalledTimes(1);
+
+    firstSave.resolve(PREFERENCES);
+    await settle();
+    await settle();
+    expect(saveAudioSourceMode).toHaveBeenNthCalledWith(2, "system");
+    expect(saveAudioSourceMode.mock.invocationCallOrder[1]).toBeGreaterThan(
+      saveAudioSourceMode.mock.invocationCallOrder[0],
+    );
+
+    secondSave.resolve(PREFERENCES);
+    await settle();
+  });
+
+  test("uses dependency implementations from the latest render", async () => {
+    const nextStartRecording = vi
+      .fn<(mode: RecordingMode) => Promise<{ sessionId: string }>>()
+      .mockResolvedValue({ sessionId: "latest-session" });
+    const nextGetCapabilities = vi
+      .fn<() => Promise<RecordingCapabilities>>()
+      .mockResolvedValue(CAPABILITIES);
+    const nextSaveAudioSourceMode = vi
+      .fn<(mode: RecordingMode) => Promise<UiPreferencesView>>()
+      .mockResolvedValue(PREFERENCES);
+    const nextSelectLocalMediaByPath = vi
+      .fn<(path: string) => Promise<LocalMediaSelectionView>>()
+      .mockResolvedValue(SELECTION);
+    const nextOnLocalMediaSelected = vi.fn();
+    const created = await createController();
+
+    let controller = created.render();
+    await settle();
+    controller = created.render();
+
+    created.deps.recordingClient = {
+      getRecordingCapabilities: nextGetCapabilities,
+      startRecording: nextStartRecording,
+      stopRecording: vi.fn().mockResolvedValue(RESULT),
+      cancelRecording: vi.fn().mockResolvedValue(undefined),
+    };
+    created.deps.saveAudioSourceMode = nextSaveAudioSourceMode;
+    created.deps.selectLocalMediaByPath = nextSelectLocalMediaByPath;
+    created.deps.onLocalMediaSelected = nextOnLocalMediaSelected;
+    controller = created.render();
+
+    await controller.start();
+    controller = created.render();
+    await controller.stop();
+
+    expect(nextGetCapabilities).toHaveBeenCalled();
+    expect(nextStartRecording).toHaveBeenCalledWith("mic");
+    expect(nextSaveAudioSourceMode).toHaveBeenCalledWith("mic");
+    expect(nextSelectLocalMediaByPath).toHaveBeenCalledWith(RESULT.path);
+    expect(nextOnLocalMediaSelected).toHaveBeenCalledWith(SELECTION);
   });
 
   test("enters recording and saves only after a successful start", async () => {

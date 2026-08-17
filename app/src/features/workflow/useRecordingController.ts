@@ -176,6 +176,19 @@ function hasUsableRecordingSource(
   );
 }
 
+function selectAvailableRecordingMode(
+  capabilities: RecordingCapabilities,
+  preferredMode: RecordingMode,
+): RecordingMode | null {
+  const candidates: RecordingMode[] = [preferredMode, "mic", "system"];
+  for (const candidate of candidates) {
+    if (isModeAvailableFromCapabilities(capabilities, candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
 function preferenceMode(value: unknown): RecordingMode {
   return isRecordingMode(value) ? value : "mic";
 }
@@ -223,7 +236,15 @@ export function useRecordingController({
   const capabilityRequestRef = useRef(0);
   const startCapabilityRequestRef = useRef(0);
   const preferenceRequestRef = useRef(0);
+  const preferenceSaveQueueRef = useRef(Promise.resolve());
   const operationRef = useRef<"start" | "stop" | "cancel" | "handoff" | null>(null);
+  const recordingClientRef = useRef(recordingClient);
+  const readPreferencesRef = useRef(readPreferences);
+  const saveAudioSourceModeRef = useRef(saveAudioSourceMode);
+  const selectLocalMediaByPathRef = useRef(selectLocalMediaByPath);
+  const onLocalMediaSelectedRef = useRef(onLocalMediaSelected);
+  const onErrorRef = useRef(onError);
+  const clockRef = useRef(clock);
 
   capabilityRef.current = capability;
   modeRef.current = mode;
@@ -231,9 +252,16 @@ export function useRecordingController({
   activeSessionIdRef.current = activeSessionId;
   startedAtRef.current = startedAt;
   discardConfirmationRef.current = discardConfirmationOpen;
+  recordingClientRef.current = recordingClient;
+  readPreferencesRef.current = readPreferences;
+  saveAudioSourceModeRef.current = saveAudioSourceMode;
+  selectLocalMediaByPathRef.current = selectLocalMediaByPath;
+  onLocalMediaSelectedRef.current = onLocalMediaSelected;
+  onErrorRef.current = onError;
+  clockRef.current = clock;
 
   const reportError = (errorCode: RecordingControllerErrorCode) => {
-    onError?.(errorCode);
+    onErrorRef.current?.(errorCode);
   };
 
   const updateSession = (next: RecordingSessionView) => {
@@ -257,7 +285,7 @@ export function useRecordingController({
     requestRef.current = requestId;
     if (mountedRef.current) updateCapability({ status: "loading" });
     try {
-      const details = await recordingClient.getRecordingCapabilities();
+      const details = await recordingClientRef.current.getRecordingCapabilities();
       if (!mountedRef.current || requestId !== requestRef.current) return null;
       if (details.platform === "unsupported") {
         const errorCode = "RECORDING_PLATFORM_UNSUPPORTED" as const;
@@ -281,9 +309,7 @@ export function useRecordingController({
       }
       updateCapability({ status: "ready", details });
       const preferredMode = preferenceModeRef.current;
-      const nextMode = isModeAvailableFromCapabilities(details, preferredMode)
-        ? preferredMode
-        : "mic";
+      const nextMode = selectAvailableRecordingMode(details, preferredMode) ?? "mic";
       if (sessionRef.current.status === "idle") {
         modeRef.current = nextMode;
         setModeState(nextMode);
@@ -309,7 +335,7 @@ export function useRecordingController({
     const requestId = preferenceRequestRef.current + 1;
     preferenceRequestRef.current = requestId;
     try {
-      const preferences = await readPreferences();
+      const preferences = await readPreferencesRef.current();
       const nextPreferenceMode = preferenceMode(
         preferences && preferences.recording
           ? preferences.recording.audioSourceMode
@@ -328,7 +354,12 @@ export function useRecordingController({
         nextPreferenceMode,
       )
         ? nextPreferenceMode
-        : "mic";
+        : capabilityRef.current.details
+          ? selectAvailableRecordingMode(
+              capabilityRef.current.details,
+              nextPreferenceMode,
+            ) ?? "mic"
+          : "mic";
       modeRef.current = nextMode;
       setModeState(nextMode);
     } catch {
@@ -366,13 +397,14 @@ export function useRecordingController({
   }, []);
 
   const saveAudioSourceModeBestEffort = (nextMode: RecordingMode) => {
-    try {
-      void saveAudioSourceMode(nextMode).catch(() => {
+    const save = preferenceSaveQueueRef.current.then(async () => {
+      try {
+        await saveAudioSourceModeRef.current(nextMode);
+      } catch {
         reportError("RECORDING_PREFERENCES_UNAVAILABLE");
-      });
-    } catch {
-      reportError("RECORDING_PREFERENCES_UNAVAILABLE");
-    }
+      }
+    });
+    preferenceSaveQueueRef.current = save.catch(() => undefined);
   };
 
   const start = useCallback(async () => {
@@ -408,11 +440,7 @@ export function useRecordingController({
         return;
       }
       const requestedMode = modeRef.current;
-      const actualMode = isModeAvailableFromCapabilities(details, requestedMode)
-        ? requestedMode
-        : isModeAvailableFromCapabilities(details, "mic")
-          ? "mic"
-          : null;
+      const actualMode = selectAvailableRecordingMode(details, requestedMode);
       if (!actualMode) {
         const errorCode = "RECORDING_SOURCE_UNAVAILABLE" as const;
         updateSession({ status: "error", errorCode });
@@ -423,9 +451,9 @@ export function useRecordingController({
         modeRef.current = actualMode;
         setModeState(actualMode);
       }
-      const started = await recordingClient.startRecording(actualMode);
+      const started = await recordingClientRef.current.startRecording(actualMode);
       if (!mountedRef.current) return;
-      const startedAtValue = clock();
+      const startedAtValue = clockRef.current();
       preferenceModeRef.current = actualMode;
       modeRef.current = actualMode;
       setModeState(actualMode);
@@ -449,9 +477,9 @@ export function useRecordingController({
 
   const completeHandoff = async (result: RecordingResult): Promise<boolean> => {
     try {
-      const selection = await selectLocalMediaByPath(result.path);
+      const selection = await selectLocalMediaByPathRef.current(result.path);
       if (!mountedRef.current) return false;
-      onLocalMediaSelected(selection);
+      onLocalMediaSelectedRef.current(selection);
       handoffResultRef.current = null;
       setHandoff({ status: "idle" });
       updateSession({ status: "idle" });
@@ -479,7 +507,7 @@ export function useRecordingController({
     operationRef.current = "stop";
     updateSession({ status: "stopping" });
     try {
-      const result = await recordingClient.stopRecording(sessionId);
+      const result = await recordingClientRef.current.stopRecording(sessionId);
       if (!mountedRef.current) return;
       handoffResultRef.current = result;
       setActiveSessionId(null);
@@ -535,7 +563,7 @@ export function useRecordingController({
     discardConfirmationRef.current = false;
     setDiscardConfirmationOpen(false);
     try {
-      await recordingClient.cancelRecording(sessionId);
+      await recordingClientRef.current.cancelRecording(sessionId);
       if (!mountedRef.current) return;
       discardConfirmationRef.current = false;
       setDiscardConfirmationOpen(false);
