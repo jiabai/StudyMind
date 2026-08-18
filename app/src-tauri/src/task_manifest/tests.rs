@@ -866,3 +866,109 @@ fn local_manifest_value(
         "insights_count": 0
     })
 }
+
+#[test]
+fn finalize_processing_tombstones_rewrites_only_processing_manifests() {
+    let output_root = temp_dir("finalize-tombstones");
+    fs::create_dir_all(output_root.join("tasks")).expect("create tasks dir");
+
+    // processing tombstone：模拟 worker 原生崩溃后的磁盘状态
+    let processing_dir = output_root
+        .join("tasks")
+        .join("20260818-234000-local-crashabc");
+    fs::create_dir_all(&processing_dir).expect("create processing task dir");
+    fs::write(
+        processing_dir.join("StudyMind-task.json"),
+        r#"{
+  "schema_version": 4,
+  "task_id": "20260818-234000-local-crashabc",
+  "created_at": "2026-08-18T23:40:00Z",
+  "local_source": {
+    "display_name": "recording.wav",
+    "media_kind": "audio",
+    "extension": "wav"
+  },
+  "platform": "local",
+  "status": "processing",
+  "model": "iic/SenseVoiceSmall",
+  "artifacts": {},
+  "error": null,
+  "text_preview": "",
+  "insights_count": 0
+}"#,
+    )
+    .expect("write processing tombstone");
+
+    // completed 任务：不应被改写
+    let completed_dir = output_root
+        .join("tasks")
+        .join("20260818-230000-local-okabc");
+    fs::create_dir_all(&completed_dir).expect("create completed task dir");
+    fs::write(
+        completed_dir.join("StudyMind-task.json"),
+        r#"{
+  "schema_version": 4,
+  "task_id": "20260818-230000-local-okabc",
+  "created_at": "2026-08-18T23:00:00Z",
+  "local_source": {
+    "display_name": "recording2.wav",
+    "media_kind": "audio",
+    "extension": "wav"
+  },
+  "platform": "local",
+  "status": "completed",
+  "model": "iic/SenseVoiceSmall",
+  "artifacts": {},
+  "error": null,
+  "text_preview": "",
+  "insights_count": 0
+}"#,
+    )
+    .expect("write completed manifest");
+
+    let count = super::finalize_processing_tombstones(
+        &output_root,
+        "failed",
+        "WORKER_PROCESS_FAILED",
+        "Local media worker failed before returning a structured result.",
+        "video_extracting",
+    )
+    .expect("finalize tombstones");
+
+    assert_eq!(
+        count, 1,
+        "only the processing tombstone should be rewritten"
+    );
+
+    let rewritten: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(processing_dir.join("StudyMind-task.json"))
+            .expect("read rewritten"),
+    )
+    .expect("parse rewritten");
+    assert_eq!(rewritten["status"], "failed");
+    assert_eq!(rewritten["error"]["code"], "WORKER_PROCESS_FAILED");
+    assert_eq!(rewritten["error"]["stage"], "video_extracting");
+    assert_eq!(rewritten["local_source"]["display_name"], "recording.wav");
+
+    let untouched: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(completed_dir.join("StudyMind-task.json"))
+            .expect("read untouched"),
+    )
+    .expect("parse untouched");
+    assert_eq!(untouched["status"], "completed");
+    assert!(untouched["error"].is_null());
+}
+
+#[test]
+fn finalize_processing_tombstones_handles_missing_tasks_dir() {
+    let output_root = temp_dir("finalize-empty");
+    let count = super::finalize_processing_tombstones(
+        &output_root,
+        "failed",
+        "WORKER_PROCESS_FAILED",
+        "msg",
+        "video_extracting",
+    )
+    .expect("finalize on empty");
+    assert_eq!(count, 0);
+}

@@ -13,6 +13,7 @@ from pathlib import Path
 from studymind_worker.atomic_files import atomic_write_text
 from studymind_worker.desktop_contract import AUDIO_EXTENSIONS, VIDEO_EXTENSIONS
 from studymind_worker.models import (
+    JobStage,
     LocalMediaKind,
     PreferenceSnapshot,
     ProcessLocalMediaRequest,
@@ -180,6 +181,32 @@ class TaskStoreFacade:
         )
         ensure_task_dirs(context.paths)
         return context
+
+    def persist_initial_manifest(self, context: TaskContext) -> None:
+        # Safety net for native worker crashes (segfaults / access violations)
+        # that bypass the Python exception handler in run_local_media_pipeline.
+        # The ASR model load happens after this point and can terminate the
+        # process without raising a catchable exception, which previously left
+        # an orphaned task directory with no manifest and made the residual
+        # data impossible to delete from the history sidebar. Writing a
+        # tombstone manifest here guarantees the task is always visible in
+        # history so the user can remove it. finalize() overwrites this on a
+        # successful or Python-exception failure.
+        #
+        # Status is PROCESSING (not FAILED): while the worker is still running
+        # the task is genuinely in-flight, and if it crashes the tombstone
+        # remains as an "interrupted" marker. Either way the history sidebar
+        # can show and delete it. PROCESSING never travels over the worker
+        # progress protocol (see desktopWorkerProtocol.WORKER_PROGRESS_STAGES).
+        recover_task_artifacts(context.paths.task_dir)
+        write_task_manifest(
+            context,
+            ProcessResult(
+                status=JobStage.PROCESSING,
+                task_id=context.task_id,
+                task_dir=context.paths.task_dir.as_posix(),
+            ),
+        )
 
     def open(self, task_id: str) -> OpenedTask:
         manifest = load_task_manifest(self.output_root, task_id)

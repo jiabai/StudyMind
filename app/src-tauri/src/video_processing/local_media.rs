@@ -101,6 +101,29 @@ fn process_local_media_blocking(
     if should_clear_selection_after_result(&result) {
         let _ = selection_state.clear(&prepared.selection_token);
     }
+    // Worker 进程失败（崩溃/取消/超时）时，磁盘上的 processing tombstone
+    // 不会被 Python 侧 finalize 覆盖（原生崩溃不抛 Python 异常）。在此回写
+    // 为 failed 终态，使任务在历史侧边栏显示为失败、可删除。串行化保证同时
+    // 最多一个 processing tombstone，回写安全；失败仅记日志，不阻断主流程。
+    if should_finalize_processing_tombstone(&result) {
+        if let Some(error) = result.error.as_ref() {
+            if let Ok(output_root) = task_manifest::configured_output_root(&paths) {
+                if let Err(err) = task_manifest::finalize_processing_tombstones(
+                    &output_root,
+                    "failed",
+                    &error.code,
+                    &error.message,
+                    error.stage.as_str(),
+                ) {
+                    let _ = append_desktop_log(
+                        &paths,
+                        "task.process_local_media.tombstone",
+                        &format!("finalize_failed outcome={}", err),
+                    );
+                }
+            }
+        }
+    }
     // 新建课题时若用户指定了标题，在 worker 落盘 manifest 后由 Rust 端后置写入 title。
     // 复用 rename_task_title_from_root 逻辑，失败仅记日志，不阻断主流程。
     if let (Some(task_id), Some(title)) = (result.task_id.as_deref(), prepared.title.as_deref()) {
@@ -180,6 +203,28 @@ fn should_clear_selection_after_result(result: &TaskTerminalResult) -> bool {
             .is_some_and(|error| RESELECTION_ERROR_CODES.contains(&error.code.as_str()))
 }
 
+/// 是否应把磁盘上的 processing tombstone 回写为终态。
+///
+/// 仅当 worker 进程确实终结（崩溃/取消/超时/协议违例）且未返回任何任务
+/// 身份时才回写。`WORKER_ALREADY_RUNNING` 明确排除：此时另一个任务仍在
+/// 运行，其 tombstone 属于活任务，误改写会把它标成失败；同样排除
+/// `WORKER_REQUEST_TRANSPORT_FAILED`（请求未送达，worker 从未启动，没有
+/// 属于本次运行的 tombstone）。
+fn should_finalize_processing_tombstone(result: &TaskTerminalResult) -> bool {
+    result.status.as_str() == "failed"
+        && result.task_id.is_none()
+        && result.error.as_ref().is_some_and(|error| {
+            matches!(
+                error.code.as_str(),
+                "WORKER_PROCESS_FAILED"
+                    | "WORKER_CANCELLED"
+                    | "WORKER_IDLE_TIMEOUT"
+                    | "WORKER_EXECUTION_TIMEOUT"
+                    | "WORKER_PROTOCOL_VIOLATION"
+            )
+        })
+}
+
 fn local_media_failure_result(code: &'static str) -> TaskTerminalResult {
     let (message, stage) = match code {
         "LOCAL_MEDIA_SELECTION_INVALID" => (
@@ -229,7 +274,10 @@ fn local_media_failure_result(code: &'static str) -> TaskTerminalResult {
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve_local_media_worker_request, should_clear_selection_after_result};
+    use super::{
+        resolve_local_media_worker_request, should_clear_selection_after_result,
+        should_finalize_processing_tombstone,
+    };
     use crate::local_media::LocalMediaSelectionState;
     use crate::worker_runtime::TaskTerminalResult;
     use serde_json::json;
@@ -366,5 +414,40 @@ mod tests {
                 "{code} must retain the selection for retry"
             );
         }
+    }
+
+    #[test]
+    fn tombstone_finalization_only_fires_for_terminal_worker_failures() {
+        // worker 进程已终结且未返回任务身份 → 应回写
+        for code in [
+            "WORKER_PROCESS_FAILED",
+            "WORKER_CANCELLED",
+            "WORKER_IDLE_TIMEOUT",
+            "WORKER_EXECUTION_TIMEOUT",
+            "WORKER_PROTOCOL_VIOLATION",
+        ] {
+            assert!(
+                should_finalize_processing_tombstone(&result("failed", Some(code))),
+                "{code} must trigger tombstone finalization"
+            );
+        }
+
+        // WORKER_ALREADY_RUNNING：另一任务仍在运行，其 tombstone 属于活任务，绝不回写
+        assert!(!should_finalize_processing_tombstone(&result(
+            "failed",
+            Some("WORKER_ALREADY_RUNNING")
+        )));
+        // WORKER_REQUEST_TRANSPORT_FAILED：worker 从未启动，没有属于本次运行的 tombstone
+        assert!(!should_finalize_processing_tombstone(&result(
+            "failed",
+            Some("WORKER_REQUEST_TRANSPORT_FAILED")
+        )));
+
+        // 成功完成（task_id 非 null）不回写；failed 无 error 的结果在协议层
+        // 就被 validate_task_result 拒绝（failed 必须携带 error），无需覆盖
+        assert!(!should_finalize_processing_tombstone(&result(
+            "completed",
+            None
+        )));
     }
 }

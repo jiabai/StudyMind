@@ -20,6 +20,13 @@ class JobStage(StrEnum):
     COMPLETED = "completed"
     PARTIAL_COMPLETED = "partial_completed"
     FAILED = "failed"
+    # Tombstone-only status written by persist_initial_manifest before the
+    # pipeline runs. Never emitted over the worker progress protocol and
+    # never produced by finalize(); it only marks an in-flight task whose
+    # worker may still be running or may have crashed before settling. The
+    # desktop history layer treats it as "processing / interrupted" so the
+    # task stays visible and deletable instead of becoming an orphan dir.
+    PROCESSING = "processing"
 
 
 @dataclass(frozen=True)

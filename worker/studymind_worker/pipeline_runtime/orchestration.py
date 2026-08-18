@@ -51,6 +51,7 @@ def prepare_local_pipeline_context(
     cache_dir = resolve_cache_dir(project_root, environ)
     task_store = TaskStoreFacade(output_root=output_dir, cache_root=cache_dir)
     task_context = task_store.create_local(request)
+    task_store.persist_initial_manifest(task_context)
     return LocalPipelineContext(
         task_context=task_context,
         task_store=task_store,
