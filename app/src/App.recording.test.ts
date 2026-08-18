@@ -47,14 +47,22 @@ describe("App recording entry integration", () => {
   });
 
   test("guards app-level topic navigation, deletion, and sign-out callbacks", () => {
-    expect(appSource).toMatch(/handleHistoryItemSelected[\s\S]*?if \(recordingActive\)/);
-    expect(appSource).toMatch(/handleHistoryItemDeleted[\s\S]*?if \(recordingActive\)/);
-    expect(appSource).toMatch(/handleNewTopic[\s\S]*?if \(recordingActive\)/);
-    expect(appSource).toMatch(/handleSignOut[\s\S]*?if \(recordingActive\)/);
+    expect(appSource).toContain("recordingActiveRef.current = recordingActive");
+    expect(appSource).toMatch(/if \(recordingActiveRef\.current\)/);
+    expect(appSource).toMatch(/handleHistoryItemSelected[\s\S]*?if \(recordingActiveRef\.current\)/);
+    expect(appSource).toMatch(/handleHistoryItemDeleted[\s\S]*?if \(recordingActiveRef\.current\)/);
+    expect(appSource).toMatch(/handleNewTopic[\s\S]*?if \(recordingActiveRef\.current\)/);
+    expect(appSource).toMatch(/handleSignOut[\s\S]*?if \(recordingActiveRef\.current\)/);
     expect(appSource).toContain("selectionDisabled={!canRestoreHistory}");
     expect(appSource).toContain("deletionDisabled={!canDeleteHistory}");
     expect(appSource).toContain("newTopicDisabled={toolbarNewTaskButtonState.disabled}");
     expect(appSource).toContain("signOutDisabled={recordingActive}");
+  });
+
+  test("does not hide the recording entry while account state changes during recording", () => {
+    expect(appSource).toMatch(/const loginGuideVisible =[^;]*!recordingActive/);
+    expect(waitingInputSource()).toContain("startDisabled={accountLoading}");
+    expect(appSource).toMatch(/<AccountSheet[\s\S]*?recordingActive=\{recordingActive\}/);
   });
 
   test("propagates recording sign-out lock through the sidebar menu", () => {

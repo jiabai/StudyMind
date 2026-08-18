@@ -185,6 +185,8 @@ function App() {
   const recordingActive = ["starting", "recording", "stopping"].includes(
     recordingController.session.status,
   );
+  const recordingActiveRef = useRef(false);
+  recordingActiveRef.current = recordingActive;
 
   useEffect(() => {
     const prev = prevStageRef.current;
@@ -260,7 +262,7 @@ function App() {
     startLoginFlow,
   } = useAccountController({
     onSignedOut: () => {
-      if (recordingActive) {
+      if (recordingActiveRef.current) {
         return;
       }
       if (isProcessingStage(workflow.stage)) {
@@ -272,6 +274,7 @@ function App() {
   });
   const loginGuideVisible =
     workflow.stage === "waiting_input" &&
+    !recordingActive &&
     !account.authenticated &&
     !account.serverError &&
     !accountStatusPending;
@@ -365,30 +368,30 @@ function App() {
   resetInsightGenerationUiRef.current = resetInsightGenerationUi;
   const handleHistoryItemSelected = useCallback(
     (item: HistoryItem) => {
-      if (recordingActive) {
+      if (recordingActiveRef.current) {
         return;
       }
       restoreHistoryItem(item);
     },
-    [recordingActive, restoreHistoryItem],
+    [restoreHistoryItem],
   );
   const handleHistoryItemDeleted = useCallback(
     (taskId: string) => {
-      if (recordingActive) {
+      if (recordingActiveRef.current) {
         return;
       }
       completeHistoryTaskDeletion(taskId);
     },
-    [completeHistoryTaskDeletion, recordingActive],
+    [completeHistoryTaskDeletion],
   );
   const handlePrepareHistoryItemDeletion = useCallback(
     (taskId: string) => {
-      if (recordingActive) {
+      if (recordingActiveRef.current) {
         return;
       }
       prepareTranscriptForTaskDeletion(taskId);
     },
-    [prepareTranscriptForTaskDeletion, recordingActive],
+    [prepareTranscriptForTaskDeletion],
   );
   const historyController = useHistoryController({
     onHistoryItemSelected: handleHistoryItemSelected,
@@ -397,17 +400,17 @@ function App() {
   });
   const canDeleteHistory = canRestoreHistory && !transcriptSaving && !recordingActive;
   const handleNewTopic = useCallback(() => {
-    if (recordingActive) {
+    if (recordingActiveRef.current) {
       return;
     }
     startNewTaskFromToolbar();
-  }, [recordingActive, startNewTaskFromToolbar]);
+  }, [startNewTaskFromToolbar]);
   const handleSignOut = useCallback(() => {
-    if (recordingActive) {
+    if (recordingActiveRef.current) {
       return;
     }
     void signOutAccount();
-  }, [recordingActive, signOutAccount]);
+  }, [signOutAccount]);
   const {
     handleToolbarMouseDown,
     closeWindow,
@@ -687,7 +690,10 @@ function App() {
                     void submitTask(submission, account, openAccountPanel);
                   }}
                 />
-                <RecordingCard controller={recordingController} />
+                <RecordingCard
+                  controller={recordingController}
+                  startDisabled={accountLoading}
+                />
               </div>
             )
           ) : (
@@ -738,6 +744,7 @@ function App() {
         accountStatusText={accountStatusText}
         accountNotice={accountNotice}
         accountLoading={accountLoading}
+        recordingActive={recordingActive}
         activationCodeDraft={activationCodeDraft}
         activationRedeeming={activationRedeeming}
         onClose={closeAccountPanel}

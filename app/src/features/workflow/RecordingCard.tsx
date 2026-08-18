@@ -16,9 +16,11 @@ import type {
   RecordingControllerErrorCode,
 } from "./useRecordingController";
 import type { RecordingMode } from "../../recordingClient";
+import { useModalFocus } from "../modal/useModalFocus";
 
 export type RecordingCardProps = {
   controller: RecordingController;
+  startDisabled?: boolean;
 };
 
 const SOURCE_MODES: readonly RecordingMode[] = ["mic", "system", "mixed"];
@@ -142,7 +144,7 @@ function CapabilityNotice({ controller }: RecordingCardProps) {
   return <p className="recording-capability-notice" role="status">{t("input.recording.capability.ready")}</p>;
 }
 
-export function RecordingCard({ controller }: RecordingCardProps) {
+export function RecordingCard({ controller, startDisabled = false }: RecordingCardProps) {
   const { t } = useTranslation("workflow");
   const startButtonRef = useRef<HTMLButtonElement>(null);
   const stopButtonRef = useRef<HTMLButtonElement>(null);
@@ -151,6 +153,7 @@ export function RecordingCard({ controller }: RecordingCardProps) {
   const previousStatusRef = useRef(controller.session.status);
   const previousDiscardConfirmationRef = useRef(false);
   const discardReturnFocusRef = useRef<HTMLElement | null>(null);
+  const discardModalRef = useModalFocus<HTMLDivElement>(controller.discardConfirmationOpen);
   const sessionBusy =
     controller.session.status === "starting" ||
     controller.session.status === "stopping";
@@ -169,6 +172,7 @@ export function RecordingCard({ controller }: RecordingCardProps) {
         controller.capability.status === "unavailable"),
   );
   const canStart =
+    !startDisabled &&
     controller.capability.status === "ready" &&
     controller.isModeAvailable(controller.mode) &&
     !sessionBusy &&
@@ -350,6 +354,7 @@ export function RecordingCard({ controller }: RecordingCardProps) {
 
       {controller.discardConfirmationOpen ? (
         <div
+          ref={discardModalRef}
           className="recording-discard-dialog"
           role="dialog"
           aria-modal="true"
@@ -364,7 +369,12 @@ export function RecordingCard({ controller }: RecordingCardProps) {
             <p id="recording-discard-body">{t("input.recording.discardDialog.body")}</p>
           </div>
           <div className="recording-discard-dialog-actions">
-            <button ref={discardCancelRef} type="button" onClick={controller.closeDiscard}>
+            <button
+              ref={discardCancelRef}
+              type="button"
+              data-modal-initial-focus="true"
+              onClick={controller.closeDiscard}
+            >
               {t("input.recording.discardDialog.cancel")}
             </button>
             <button

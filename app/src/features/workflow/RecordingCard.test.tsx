@@ -125,4 +125,12 @@ describe("RecordingCard", () => {
     expect(source).toMatch(/session\.status[\s\S]*?stopButtonRef\.current\?\.focus/);
     expect(source).toMatch(/startButtonRef\.current\?\.focus/);
   });
+
+  test("traps focus inside the discard confirmation with the shared modal hook", () => {
+    const source = readFileSync(new URL("./RecordingCard.tsx", import.meta.url), "utf8");
+
+    expect(source).toContain("useModalFocus");
+    expect(source).toContain("discardModalRef");
+    expect(source).toMatch(/ref=\{discardModalRef\}/);
+  });
 });
