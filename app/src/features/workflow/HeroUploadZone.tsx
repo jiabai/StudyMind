@@ -46,6 +46,14 @@ function classifyExt(ext: string): "audio" | "video" | null {
   return null;
 }
 
+export function isUploadRequestCurrent(
+  requestGeneration: number,
+  currentGeneration: number,
+  disabled: boolean,
+): boolean {
+  return !disabled && requestGeneration === currentGeneration;
+}
+
 type TranslateFn = TFunction<"workflow", undefined>;
 
 function relativeTimeLabel(timestamp: number, t: TranslateFn): string {
@@ -76,6 +84,22 @@ export function HeroUploadZone({
   const [topicTitle, setTopicTitle] = useState<string>("");
   const titleInputRef = useRef<HTMLInputElement>(null);
   const { recentMedia, recordRecent, removeRecent, clearRecent } = useRecentMedia();
+  const uploadGenerationRef = useRef(0);
+  const disabledRef = useRef(disabled);
+
+  useEffect(() => {
+    if (disabledRef.current === disabled) {
+      return;
+    }
+    disabledRef.current = disabled;
+    uploadGenerationRef.current += 1;
+    setState((prev) => {
+      if (prev !== "loading" && prev !== "drag-over") {
+        return prev;
+      }
+      return selection ? "has-selection" : "idle";
+    });
+  }, [disabled]);
 
   const selection = source.kind === "local_media" ? source.selection : null;
 
@@ -138,13 +162,32 @@ export function HeroUploadZone({
       return;
     }
 
+    const requestGeneration = uploadGenerationRef.current;
     setState("loading");
     try {
       const result = await selectLocalMediaByPath(filePath);
+      if (
+        !isUploadRequestCurrent(
+          requestGeneration,
+          uploadGenerationRef.current,
+          disabledRef.current,
+        )
+      ) {
+        return;
+      }
       onLocalMediaSelected(result);
       recordRecent(filePath, result);
       setState("has-selection");
     } catch {
+      if (
+        !isUploadRequestCurrent(
+          requestGeneration,
+          uploadGenerationRef.current,
+          disabledRef.current,
+        )
+      ) {
+        return;
+      }
       setErrorMessage(t("input.hero.errorValidationFailed"));
       setState("error");
     }
@@ -156,8 +199,18 @@ export function HeroUploadZone({
     setPicking(true);
     setErrorMessage("");
     setState("loading");
+    const requestGeneration = uploadGenerationRef.current;
     try {
       const result = await selectLocalMedia();
+      if (
+        !isUploadRequestCurrent(
+          requestGeneration,
+          uploadGenerationRef.current,
+          disabledRef.current,
+        )
+      ) {
+        return;
+      }
       if (result) {
         onLocalMediaSelected(result);
         setState("has-selection");
@@ -166,6 +219,15 @@ export function HeroUploadZone({
         setState(replace && selection ? "has-selection" : "idle");
       }
     } catch {
+      if (
+        !isUploadRequestCurrent(
+          requestGeneration,
+          uploadGenerationRef.current,
+          disabledRef.current,
+        )
+      ) {
+        return;
+      }
       setErrorMessage(t("input.hero.errorPickerFailed"));
       setState("error");
     } finally {
@@ -179,12 +241,31 @@ export function HeroUploadZone({
       setPicking(true);
       setErrorMessage("");
       setState("loading");
+      const requestGeneration = uploadGenerationRef.current;
       try {
         const result = await selectLocalMediaByPath(entry.path);
+        if (
+          !isUploadRequestCurrent(
+            requestGeneration,
+            uploadGenerationRef.current,
+            disabledRef.current,
+          )
+        ) {
+          return;
+        }
         onLocalMediaSelected(result);
         recordRecent(entry.path, result);
         setState("has-selection");
       } catch {
+        if (
+          !isUploadRequestCurrent(
+            requestGeneration,
+            uploadGenerationRef.current,
+            disabledRef.current,
+          )
+        ) {
+          return;
+        }
         // 文件已不存在/不可读：自动从最近使用中剔除死条目
         removeRecent(entry.path);
         setErrorMessage(t("input.hero.recentErrorGone"));

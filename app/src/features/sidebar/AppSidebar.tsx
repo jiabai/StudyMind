@@ -24,6 +24,7 @@ import { SidebarUserMenu } from "./SidebarUserMenu";
 type AppSidebarProps = {
   controller: HistoryController;
   workflow: WorkflowState;
+  recordingActive: boolean;
   selectionDisabled: boolean;
   deletionDisabled: boolean;
   newTopicDisabled: boolean;
@@ -31,6 +32,7 @@ type AppSidebarProps = {
   onOpenSettings: () => void;
   onOpenAccount: () => void;
   onSignOut: () => void;
+  signOutDisabled: boolean;
   account: AccountStatus;
   accountChipLabel: string;
   className?: string;
@@ -39,6 +41,7 @@ type AppSidebarProps = {
 export function AppSidebar({
   controller,
   workflow,
+  recordingActive,
   selectionDisabled,
   deletionDisabled,
   newTopicDisabled,
@@ -46,6 +49,7 @@ export function AppSidebar({
   onOpenSettings,
   onOpenAccount,
   onSignOut,
+  signOutDisabled,
   account,
   accountChipLabel,
   className,
@@ -100,8 +104,11 @@ export function AppSidebar({
   );
 
   const handleRenameRequest = useCallback((item: HistoryListItem) => {
+    if (recordingActive) {
+      return;
+    }
     setRenameCandidateId(item.taskId);
-  }, []);
+  }, [recordingActive]);
 
   const handleRenameCancel = useCallback(() => {
     setRenameCandidateId(null);
@@ -109,12 +116,52 @@ export function AppSidebar({
 
   const handleRenameCommit = useCallback(
     async (item: HistoryListItem, title: string | null) => {
+      if (recordingActive) {
+        return;
+      }
       await renameTaskTitle(item.taskId, title);
       await loadHistory();
       setRenameCandidateId(null);
     },
-    [loadHistory],
+    [loadHistory, recordingActive],
   );
+
+  const handleNewTopic = useCallback(() => {
+    if (recordingActive) {
+      return;
+    }
+    onNewTopic();
+  }, [onNewTopic, recordingActive]);
+  const handleHistoryItemSelected = useCallback(
+    (item: HistoryListItem) => {
+      if (recordingActive) {
+        return;
+      }
+      void openHistoryItem(item);
+    },
+    [openHistoryItem, recordingActive],
+  );
+  const handleHistoryItemDeletionRequested = useCallback(
+    (item: HistoryListItem) => {
+      if (recordingActive) {
+        return;
+      }
+      requestHistoryItemDeletion(item);
+    },
+    [recordingActive, requestHistoryItemDeletion],
+  );
+  const handleHistoryItemDeletionConfirmed = useCallback(() => {
+    if (recordingActive) {
+      return;
+    }
+    void confirmHistoryItemDeletion();
+  }, [confirmHistoryItemDeletion, recordingActive]);
+  const handleSignOut = useCallback(() => {
+    if (recordingActive) {
+      return;
+    }
+    onSignOut();
+  }, [onSignOut, recordingActive]);
 
   if (collapsed) {
     return (
@@ -132,8 +179,8 @@ export function AppSidebar({
           <button
             className="sidebar-rail-icon"
             type="button"
-            onClick={onNewTopic}
-            disabled={newTopicDisabled}
+            onClick={handleNewTopic}
+            disabled={newTopicDisabled || recordingActive}
             aria-label={tSidebar("newTopic")}
             title={tSidebar("newTopic")}
           >
@@ -195,8 +242,8 @@ export function AppSidebar({
       <button
         className="sidebar-new-topic"
         type="button"
-        onClick={onNewTopic}
-        disabled={newTopicDisabled}
+        onClick={handleNewTopic}
+        disabled={newTopicDisabled || recordingActive}
       >
         <Plus size={16} />
         <span>{tSidebar("newTopic")}</span>
@@ -254,11 +301,11 @@ export function AppSidebar({
                 key={item.id}
                 item={item}
                 selected={activeTaskId === item.taskId}
-                selectionDisabled={selectionDisabled}
-                deletionDisabled={deletionDisabled}
+                selectionDisabled={selectionDisabled || recordingActive}
+                deletionDisabled={deletionDisabled || recordingActive}
                 renaming={renameCandidateId === item.taskId}
-                onSelect={openHistoryItem}
-                onDeleteRequest={requestHistoryItemDeletion}
+                onSelect={handleHistoryItemSelected}
+                onDeleteRequest={handleHistoryItemDeletionRequested}
                 onRenameRequest={handleRenameRequest}
                 onRenameCommit={handleRenameCommit}
                 onRenameCancel={handleRenameCancel}
@@ -273,14 +320,15 @@ export function AppSidebar({
           account={account}
           onOpenAccount={onOpenAccount}
           onOpenSettings={onOpenSettings}
-          onSignOut={onSignOut}
+          onSignOut={handleSignOut}
+          signOutDisabled={signOutDisabled}
         />
       </div>
 
       <InlineDeleteConfirm
         open={Boolean(historyDeleteCandidate)}
         deleting={historyDeleting}
-        onConfirm={() => void confirmHistoryItemDeletion()}
+        onConfirm={handleHistoryItemDeletionConfirmed}
         onCancel={cancelHistoryItemDeletion}
       />
     </aside>

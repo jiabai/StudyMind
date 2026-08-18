@@ -1,11 +1,12 @@
 import type { ComponentProps } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { readFileSync } from "node:fs";
 import { beforeAll, describe, expect, test, vi } from "vitest";
 
 import { initializeI18n } from "../../i18n/i18n";
 import { LocaleProvider } from "../../i18n/LocaleProvider";
 import type { LocalMediaSelectionView } from "../../localMediaContract";
-import { HeroUploadZone } from "./HeroUploadZone";
+import { HeroUploadZone, isUploadRequestCurrent } from "./HeroUploadZone";
 
 function renderHero(
   overrides: Partial<ComponentProps<typeof HeroUploadZone>> = {},
@@ -84,5 +85,17 @@ describe("HeroUploadZone", () => {
     expect(markup).toContain('class="hero-upload-replace"');
     expect(markup).toContain('class="primary-button hero-upload-submit"');
     expect(markup.match(/disabled=""/g)?.length).toBeGreaterThanOrEqual(4);
+  });
+
+  test("invalidates an async upload result when recording disables the zone", () => {
+    expect(isUploadRequestCurrent(4, 4, false)).toBe(true);
+    expect(isUploadRequestCurrent(4, 5, false)).toBe(false);
+    expect(isUploadRequestCurrent(4, 4, true)).toBe(false);
+  });
+
+  test("checks upload freshness before committing drop, picker, and recent results", () => {
+    const source = readFileSync(new URL("./HeroUploadZone.tsx", import.meta.url), "utf8");
+
+    expect(source.match(/isUploadRequestCurrent\(/g)?.length).toBeGreaterThanOrEqual(4);
   });
 });

@@ -9,6 +9,7 @@ type SidebarUserMenuProps = {
   onOpenAccount: () => void;
   onOpenSettings: () => void;
   onSignOut: () => void;
+  signOutDisabled: boolean;
 };
 
 export function deriveUserName(account: AccountStatus, guestLabel: string): string {
@@ -33,6 +34,7 @@ export function SidebarUserMenuItems({
   onOpenAccount,
   onOpenSettings,
   onSignOut,
+  signOutDisabled,
 }: {
   signedIn: boolean;
   userName: string;
@@ -40,6 +42,7 @@ export function SidebarUserMenuItems({
   onOpenAccount: () => void;
   onOpenSettings: () => void;
   onSignOut: () => void;
+  signOutDisabled: boolean;
 }) {
   const { t } = useTranslation("sidebar");
 
@@ -78,7 +81,7 @@ export function SidebarUserMenuItems({
         type="button"
         className="sidebar-user-menu-item danger"
         onClick={onSignOut}
-        disabled={!signedIn}
+        disabled={!signedIn || signOutDisabled}
       >
         <LogOut size={15} />
         <span>{t("userMenu.signOut")}</span>
@@ -92,6 +95,7 @@ export function SidebarUserMenu({
   onOpenAccount,
   onOpenSettings,
   onSignOut,
+  signOutDisabled,
 }: SidebarUserMenuProps) {
   const { t } = useTranslation("sidebar");
   const [open, setOpen] = useState(false);
@@ -163,6 +167,7 @@ export function SidebarUserMenu({
               setOpen(false);
               onSignOut();
             }}
+            signOutDisabled={signOutDisabled}
           />
         </div>
       ) : null}

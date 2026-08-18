@@ -8,6 +8,7 @@ import {
   Trash2,
   Volume2,
 } from "lucide-react";
+import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 
 import type {
@@ -143,6 +144,13 @@ function CapabilityNotice({ controller }: RecordingCardProps) {
 
 export function RecordingCard({ controller }: RecordingCardProps) {
   const { t } = useTranslation("workflow");
+  const startButtonRef = useRef<HTMLButtonElement>(null);
+  const stopButtonRef = useRef<HTMLButtonElement>(null);
+  const discardButtonRef = useRef<HTMLButtonElement>(null);
+  const discardCancelRef = useRef<HTMLButtonElement>(null);
+  const previousStatusRef = useRef(controller.session.status);
+  const previousDiscardConfirmationRef = useRef(false);
+  const discardReturnFocusRef = useRef<HTMLElement | null>(null);
   const sessionBusy =
     controller.session.status === "starting" ||
     controller.session.status === "stopping";
@@ -165,6 +173,56 @@ export function RecordingCard({ controller }: RecordingCardProps) {
     controller.isModeAvailable(controller.mode) &&
     !sessionBusy &&
     !recording;
+
+  useEffect(() => {
+    const previousStatus = previousStatusRef.current;
+    const nextStatus = controller.session.status;
+    const wasDiscardConfirmationOpen = previousDiscardConfirmationRef.current;
+    const isDiscardConfirmationOpen = controller.discardConfirmationOpen;
+    previousStatusRef.current = nextStatus;
+    previousDiscardConfirmationRef.current = isDiscardConfirmationOpen;
+
+    if (isDiscardConfirmationOpen && !wasDiscardConfirmationOpen) {
+      requestAnimationFrame(() => discardCancelRef.current?.focus());
+      return;
+    }
+
+    if (!isDiscardConfirmationOpen && wasDiscardConfirmationOpen) {
+      requestAnimationFrame(() => {
+        const returnTarget = discardReturnFocusRef.current;
+        if (returnTarget?.isConnected) {
+          returnTarget.focus();
+        } else {
+          startButtonRef.current?.focus() ?? stopButtonRef.current?.focus();
+        }
+        discardReturnFocusRef.current = null;
+      });
+      return;
+    }
+
+    if (previousStatus === nextStatus) {
+      return;
+    }
+
+    if (nextStatus === "recording") {
+      requestAnimationFrame(() => stopButtonRef.current?.focus());
+      return;
+    }
+
+    if (
+      (nextStatus === "idle" || nextStatus === "error") &&
+      (previousStatus === "starting" ||
+        previousStatus === "recording" ||
+        previousStatus === "stopping")
+    ) {
+      requestAnimationFrame(() => startButtonRef.current?.focus());
+    }
+  }, [controller.discardConfirmationOpen, controller.session.status]);
+
+  const handleRequestDiscard = () => {
+    discardReturnFocusRef.current = discardButtonRef.current;
+    controller.requestDiscard();
+  };
 
   return (
     <section className="recording-card" aria-labelledby="recording-card-title">
@@ -226,6 +284,7 @@ export function RecordingCard({ controller }: RecordingCardProps) {
           {recording ? (
             <>
               <button
+                ref={stopButtonRef}
                 className="primary-button recording-stop-button"
                 type="button"
                 onClick={() => void controller.stop()}
@@ -244,9 +303,10 @@ export function RecordingCard({ controller }: RecordingCardProps) {
                 </span>
               </button>
               <button
+                ref={discardButtonRef}
                 className="recording-discard-button"
                 type="button"
-                onClick={controller.requestDiscard}
+                onClick={handleRequestDiscard}
                 disabled={controller.session.status === "stopping"}
               >
                 <Trash2 size={16} aria-hidden="true" />
@@ -255,6 +315,7 @@ export function RecordingCard({ controller }: RecordingCardProps) {
             </>
           ) : (
             <button
+              ref={startButtonRef}
               className="primary-button recording-start-button"
               type="button"
               onClick={() => void controller.start()}
@@ -303,7 +364,7 @@ export function RecordingCard({ controller }: RecordingCardProps) {
             <p id="recording-discard-body">{t("input.recording.discardDialog.body")}</p>
           </div>
           <div className="recording-discard-dialog-actions">
-            <button type="button" onClick={controller.closeDiscard}>
+            <button ref={discardCancelRef} type="button" onClick={controller.closeDiscard}>
               {t("input.recording.discardDialog.cancel")}
             </button>
             <button

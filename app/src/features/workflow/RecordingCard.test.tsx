@@ -1,5 +1,6 @@
 import type { ComponentProps } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { readFileSync } from "node:fs";
 import { beforeAll, describe, expect, test, vi } from "vitest";
 
 import { initializeI18n } from "../../i18n/i18n";
@@ -110,5 +111,18 @@ describe("RecordingCard", () => {
     expect(markup).toContain("recording-retry-button");
     expect(markup).toContain("Retry handoff");
     expect(markup).toContain("01:05");
+  });
+
+  test("restores focus across recording and discard state transitions", () => {
+    const source = readFileSync(new URL("./RecordingCard.tsx", import.meta.url), "utf8");
+
+    expect(source).toContain("useEffect");
+    expect(source).toContain("startButtonRef");
+    expect(source).toContain("stopButtonRef");
+    expect(source).toContain("discardButtonRef");
+    expect(source).toContain("discardCancelRef");
+    expect(source).toMatch(/discardConfirmationOpen[\s\S]*?discardCancelRef\.current\?\.focus/);
+    expect(source).toMatch(/session\.status[\s\S]*?stopButtonRef\.current\?\.focus/);
+    expect(source).toMatch(/startButtonRef\.current\?\.focus/);
   });
 });

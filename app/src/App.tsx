@@ -260,6 +260,9 @@ function App() {
     startLoginFlow,
   } = useAccountController({
     onSignedOut: () => {
+      if (recordingActive) {
+        return;
+      }
       if (isProcessingStage(workflow.stage)) {
         void cancelCurrentProcessing();
         return;
@@ -362,22 +365,49 @@ function App() {
   resetInsightGenerationUiRef.current = resetInsightGenerationUi;
   const handleHistoryItemSelected = useCallback(
     (item: HistoryItem) => {
+      if (recordingActive) {
+        return;
+      }
       restoreHistoryItem(item);
     },
-    [restoreHistoryItem],
+    [recordingActive, restoreHistoryItem],
   );
   const handleHistoryItemDeleted = useCallback(
     (taskId: string) => {
+      if (recordingActive) {
+        return;
+      }
       completeHistoryTaskDeletion(taskId);
     },
-    [completeHistoryTaskDeletion],
+    [completeHistoryTaskDeletion, recordingActive],
+  );
+  const handlePrepareHistoryItemDeletion = useCallback(
+    (taskId: string) => {
+      if (recordingActive) {
+        return;
+      }
+      prepareTranscriptForTaskDeletion(taskId);
+    },
+    [prepareTranscriptForTaskDeletion, recordingActive],
   );
   const historyController = useHistoryController({
     onHistoryItemSelected: handleHistoryItemSelected,
     onHistoryItemDeleted: handleHistoryItemDeleted,
-    onPrepareHistoryItemDeletion: prepareTranscriptForTaskDeletion,
+    onPrepareHistoryItemDeletion: handlePrepareHistoryItemDeletion,
   });
-  const canDeleteHistory = canRestoreHistory && !transcriptSaving;
+  const canDeleteHistory = canRestoreHistory && !transcriptSaving && !recordingActive;
+  const handleNewTopic = useCallback(() => {
+    if (recordingActive) {
+      return;
+    }
+    startNewTaskFromToolbar();
+  }, [recordingActive, startNewTaskFromToolbar]);
+  const handleSignOut = useCallback(() => {
+    if (recordingActive) {
+      return;
+    }
+    void signOutAccount();
+  }, [recordingActive, signOutAccount]);
   const {
     handleToolbarMouseDown,
     closeWindow,
@@ -571,13 +601,15 @@ function App() {
             className={loginTransition ? "sidebar-enter" : undefined}
             controller={historyController}
             workflow={workflow}
+            recordingActive={recordingActive}
             selectionDisabled={!canRestoreHistory}
             deletionDisabled={!canDeleteHistory}
             newTopicDisabled={toolbarNewTaskButtonState.disabled}
-            onNewTopic={startNewTaskFromToolbar}
+            onNewTopic={handleNewTopic}
             onOpenSettings={openSettings}
             onOpenAccount={() => openAccountPanel()}
-            onSignOut={() => void signOutAccount()}
+            onSignOut={handleSignOut}
+            signOutDisabled={recordingActive}
             account={account}
             accountChipLabel={accountChipLabel}
           />
@@ -711,7 +743,7 @@ function App() {
         onClose={closeAccountPanel}
         onActivationCodeChange={setActivationCodeDraft}
         onRedeemActivationCode={redeemActivationCodeFromInput}
-        onSignOut={signOutAccount}
+        onSignOut={handleSignOut}
         onStartLogin={startLoginFlow}
       />
 

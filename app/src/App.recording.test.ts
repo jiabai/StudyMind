@@ -2,6 +2,14 @@ import { describe, expect, test } from "vitest";
 import { readFileSync } from "node:fs";
 
 const appSource = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
+const appSidebarSource = readFileSync(
+  new URL("./features/sidebar/AppSidebar.tsx", import.meta.url),
+  "utf8",
+);
+const userMenuSource = readFileSync(
+  new URL("./features/sidebar/SidebarUserMenu.tsx", import.meta.url),
+  "utf8",
+);
 
 function waitingInputSource(): string {
   const start = appSource.indexOf('{workflow.stage === "waiting_input" ? (');
@@ -36,5 +44,24 @@ describe("App recording entry integration", () => {
 
     expect(source).not.toMatch(/(?:rawError|sourcePath|selectionToken|accessToken|sessionToken)/);
     expect(source).not.toMatch(/(?:error|path|token)={/i);
+  });
+
+  test("guards app-level topic navigation, deletion, and sign-out callbacks", () => {
+    expect(appSource).toMatch(/handleHistoryItemSelected[\s\S]*?if \(recordingActive\)/);
+    expect(appSource).toMatch(/handleHistoryItemDeleted[\s\S]*?if \(recordingActive\)/);
+    expect(appSource).toMatch(/handleNewTopic[\s\S]*?if \(recordingActive\)/);
+    expect(appSource).toMatch(/handleSignOut[\s\S]*?if \(recordingActive\)/);
+    expect(appSource).toContain("selectionDisabled={!canRestoreHistory}");
+    expect(appSource).toContain("deletionDisabled={!canDeleteHistory}");
+    expect(appSource).toContain("newTopicDisabled={toolbarNewTaskButtonState.disabled}");
+    expect(appSource).toContain("signOutDisabled={recordingActive}");
+  });
+
+  test("propagates recording sign-out lock through the sidebar menu", () => {
+    expect(appSource).toContain("recordingActive={recordingActive}");
+    expect(appSidebarSource).toContain("recordingActive: boolean");
+    expect(appSidebarSource).toContain("signOutDisabled={signOutDisabled}");
+    expect(userMenuSource).toContain("signOutDisabled: boolean");
+    expect(userMenuSource).toContain("disabled={!signedIn || signOutDisabled}");
   });
 });
