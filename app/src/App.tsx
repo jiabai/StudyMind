@@ -46,6 +46,8 @@ import { useTranscriptNotesController } from "./features/transcript/useTranscrip
 import { useWindowChromeController } from "./features/window/useWindowChromeController";
 import { useModalFocus } from "./features/modal/useModalFocus";
 import { HeroUploadZone } from "./features/workflow/HeroUploadZone";
+import { RecordingCard } from "./features/workflow/RecordingCard";
+import { useRecordingController } from "./features/workflow/useRecordingController";
 import { useTaskProcessingController } from "./features/workflow/useTaskProcessingController";
 import { useLocale } from "./i18n/LocaleProvider";
 import { countTextUnits, formatWordCount } from "./i18n/formatters";
@@ -177,6 +179,12 @@ function App() {
     processBlockerMessage: accountProcessBlockerMessage,
     aiBlockerMessage: accountAiBlockerMessage,
   });
+  const recordingController = useRecordingController({
+    onLocalMediaSelected: setLocalMediaSelection,
+  });
+  const recordingActive = ["starting", "recording", "stopping"].includes(
+    recordingController.session.status,
+  );
 
   useEffect(() => {
     const prev = prevStageRef.current;
@@ -635,16 +643,20 @@ function App() {
                 }}
               />
             ) : (
-              <HeroUploadZone
-                source={workflow.composerSource}
-                canSubmit={canSubmit}
-                statusBody={activeStageBody}
-                onLocalMediaSelected={setLocalMediaSelection}
-                onRemoveLocalMedia={removeLocalMediaSelection}
-                onSubmit={(submission) => {
-                  void submitTask(submission, account, openAccountPanel);
-                }}
-              />
+              <div className="workflow-entry-grid">
+                <HeroUploadZone
+                  source={workflow.composerSource}
+                  canSubmit={canSubmit}
+                  statusBody={activeStageBody}
+                  disabled={recordingActive}
+                  onLocalMediaSelected={setLocalMediaSelection}
+                  onRemoveLocalMedia={removeLocalMediaSelection}
+                  onSubmit={(submission) => {
+                    void submitTask(submission, account, openAccountPanel);
+                  }}
+                />
+                <RecordingCard controller={recordingController} />
+              </div>
             )
           ) : (
             <>
