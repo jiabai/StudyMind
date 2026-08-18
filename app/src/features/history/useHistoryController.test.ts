@@ -97,14 +97,16 @@ function createHistoryDetail(taskId = "task-1"): HistoryItem {
 }
 
 async function createController(
-  onHistoryItemSelected = vi.fn(),
+  onHistoryItemSelected: (item: HistoryItem) => void = vi.fn(),
 ): Promise<{
   render: () => HistoryController;
   onHistoryItemSelected: typeof onHistoryItemSelected;
+  setOnHistoryItemSelected: (callback: (item: HistoryItem) => void) => void;
   onHistoryItemDeleted: ReturnType<typeof vi.fn>;
   onPrepareHistoryItemDeletion: ReturnType<typeof vi.fn>;
 }> {
   const harness = createHookHarness();
+  let currentOnHistoryItemSelected = onHistoryItemSelected;
   vi.doMock("react", () => ({
     useCallback: harness.useCallback,
     useEffect: harness.useEffect,
@@ -119,12 +121,15 @@ async function createController(
     render: () => {
       harness.resetRender();
       return useHistoryController({
-        onHistoryItemSelected,
+        onHistoryItemSelected: currentOnHistoryItemSelected,
         onHistoryItemDeleted,
         onPrepareHistoryItemDeletion,
       });
     },
     onHistoryItemSelected,
+    setOnHistoryItemSelected: (callback) => {
+      currentOnHistoryItemSelected = callback;
+    },
     onHistoryItemDeleted,
     onPrepareHistoryItemDeletion,
   };
@@ -270,6 +275,28 @@ describe("useHistoryController", () => {
 
     expect(onHistoryItemSelected).toHaveBeenCalledTimes(1);
     expect(onHistoryItemSelected).toHaveBeenCalledWith(createHistoryDetail("second"));
+  });
+
+  test("uses the latest selection callback when an older detail request resolves", async () => {
+    const item = createHistoryItem({ taskId: "pending", id: "pending" });
+    let resolveDetail!: (value: HistoryItem) => void;
+    getHistoryDetailMock.mockImplementationOnce(
+      () => new Promise((resolve) => { resolveDetail = resolve; }),
+    );
+    const firstCallback = vi.fn();
+    const secondCallback = vi.fn();
+    const { render, setOnHistoryItemSelected } = await createController(firstCallback);
+
+    const controller = render();
+    const pending = controller.openHistoryItem(item);
+    setOnHistoryItemSelected(secondCallback);
+    render();
+
+    resolveDetail(createHistoryDetail(item.taskId));
+    await pending;
+
+    expect(firstCallback).not.toHaveBeenCalled();
+    expect(secondCallback).toHaveBeenCalledWith(createHistoryDetail(item.taskId));
   });
 
   test("cancels deletion confirmation without invoking Tauri", async () => {

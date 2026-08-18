@@ -30,6 +30,12 @@ export function useHistoryController({
   const detailRequestIdRef = useRef(0);
   const deleteRequestPendingRef = useRef(false);
   const sidebarMountedRef = useRef(false);
+  const onHistoryItemSelectedRef = useRef(onHistoryItemSelected);
+  const onHistoryItemDeletedRef = useRef(onHistoryItemDeleted);
+  const onPrepareHistoryItemDeletionRef = useRef(onPrepareHistoryItemDeletion);
+  onHistoryItemSelectedRef.current = onHistoryItemSelected;
+  onHistoryItemDeletedRef.current = onHistoryItemDeleted;
+  onPrepareHistoryItemDeletionRef.current = onPrepareHistoryItemDeletion;
 
   const closeHistory = useCallback(() => {
     listRequestIdRef.current += 1;
@@ -90,7 +96,7 @@ export function useHistoryController({
         if (detailRequestIdRef.current !== requestId) {
           return;
         }
-        onHistoryItemSelected(detail);
+        onHistoryItemSelectedRef.current(detail);
         setHistoryOpen(false);
         setHistoryNotice(null);
       } catch {
@@ -103,7 +109,7 @@ export function useHistoryController({
         }
       }
     },
-    [onHistoryItemSelected],
+    [],
   );
 
   const requestHistoryItemDeletion = useCallback((item: HistoryListItem) => {
@@ -134,14 +140,14 @@ export function useHistoryController({
     detailRequestIdRef.current += 1;
     setHistoryDeleting(true);
     setHistoryNotice(uiMessage("history.notice.deleting"));
-    onPrepareHistoryItemDeletion(taskId);
+    onPrepareHistoryItemDeletionRef.current(taskId);
     try {
       await deleteHistoryTask(taskId);
       listRequestIdRef.current += 1;
       setHistoryItems((current) => current.filter((item) => item.taskId !== taskId));
       setHistoryDeleteCandidate(null);
       setHistoryNotice(uiMessage("history.notice.deleted"));
-      onHistoryItemDeleted(taskId);
+      onHistoryItemDeletedRef.current(taskId);
     } catch {
       if (listRequestIdRef.current !== listRequestId) {
         return;
@@ -165,8 +171,6 @@ export function useHistoryController({
     }
   }, [
     historyDeleteCandidate,
-    onHistoryItemDeleted,
-    onPrepareHistoryItemDeletion,
   ]);
 
   return {

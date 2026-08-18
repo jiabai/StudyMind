@@ -105,6 +105,8 @@ export function useAccountController({
   const activeOperationIdRef = useRef(0);
   const activeOperationPendingRef = useRef<number | null>(null);
   const lastCallbackUrlRef = useRef<string | null>(null);
+  const onSignedOutRef = useRef(onSignedOut);
+  onSignedOutRef.current = onSignedOut;
 
   const beginActiveOperation = useCallback(() => {
     const operationId = activeOperationIdRef.current + 1;
@@ -295,7 +297,7 @@ export function useAccountController({
     try {
       await logoutAccount();
       if (activeOperationPendingRef.current === operationId) {
-        onSignedOut();
+        onSignedOutRef.current();
         setAccount(createGuestAccountStatus());
         setActivationCodeDraft("");
         setAccountNotice(null);
@@ -310,7 +312,7 @@ export function useAccountController({
         setAccountLoading(false);
       }
     }
-  }, [beginActiveOperation, finishActiveOperation, onSignedOut]);
+  }, [beginActiveOperation, finishActiveOperation]);
 
   useEffect(() => {
     void refreshAccountStatus();

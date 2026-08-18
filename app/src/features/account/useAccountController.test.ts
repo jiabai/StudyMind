@@ -80,7 +80,7 @@ function createHookHarness(): HookHarness {
   };
 }
 
-async function createController() {
+async function createController(onSignedOut: () => void = vi.fn()) {
   const harness = createHookHarness();
   vi.doMock("react", () => ({
     useCallback: harness.useCallback,
@@ -92,14 +92,16 @@ async function createController() {
   const { initializeI18n } = await import("../../i18n/i18n");
   await initializeI18n(currentLocale);
   const { useAccountController } = await import("./useAccountController");
-  const onSignedOut = vi.fn();
+  let currentOnSignedOut = onSignedOut;
 
   return {
     render: () => {
       harness.resetRender();
-      return useAccountController({ onSignedOut });
+      return useAccountController({ onSignedOut: currentOnSignedOut });
     },
-    onSignedOut,
+    setOnSignedOut: (callback: () => void) => {
+      currentOnSignedOut = callback;
+    },
   };
 }
 
@@ -214,6 +216,25 @@ describe("useAccountController semantic notices", () => {
     controller = render();
     expect(controller.account.email).toBe("newest@example.test");
     expect(controller.accountLoading).toBe(false);
+  });
+
+  test("uses the latest signed-out callback when logout resolves after a rerender", async () => {
+    const pendingLogout = deferred<void>();
+    logoutAccountMock.mockImplementationOnce(() => pendingLogout.promise);
+    const firstCallback = vi.fn();
+    const secondCallback = vi.fn();
+    const { render, setOnSignedOut } = await createController(firstCallback);
+
+    let controller = render();
+    const pending = controller.signOutAccount();
+    setOnSignedOut(secondCallback);
+    render();
+
+    pendingLogout.resolve();
+    await pending;
+
+    expect(firstCallback).not.toHaveBeenCalled();
+    expect(secondCallback).toHaveBeenCalledOnce();
   });
 
   test("does not let a passive refresh overwrite a later activation", async () => {

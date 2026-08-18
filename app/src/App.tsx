@@ -46,6 +46,8 @@ import { useTranscriptNotesController } from "./features/transcript/useTranscrip
 import { useWindowChromeController } from "./features/window/useWindowChromeController";
 import { useModalFocus } from "./features/modal/useModalFocus";
 import { HeroUploadZone } from "./features/workflow/HeroUploadZone";
+import { RecordingCard } from "./features/workflow/RecordingCard";
+import { useRecordingController } from "./features/workflow/useRecordingController";
 import { useTaskProcessingController } from "./features/workflow/useTaskProcessingController";
 import { useLocale } from "./i18n/LocaleProvider";
 import { countTextUnits, formatWordCount } from "./i18n/formatters";
@@ -177,6 +179,14 @@ function App() {
     processBlockerMessage: accountProcessBlockerMessage,
     aiBlockerMessage: accountAiBlockerMessage,
   });
+  const recordingController = useRecordingController({
+    onLocalMediaSelected: setLocalMediaSelection,
+  });
+  const recordingActive = ["starting", "recording", "stopping"].includes(
+    recordingController.session.status,
+  );
+  const recordingActiveRef = useRef(false);
+  recordingActiveRef.current = recordingActive;
 
   useEffect(() => {
     const prev = prevStageRef.current;
@@ -252,6 +262,9 @@ function App() {
     startLoginFlow,
   } = useAccountController({
     onSignedOut: () => {
+      if (recordingActiveRef.current) {
+        return;
+      }
       if (isProcessingStage(workflow.stage)) {
         void cancelCurrentProcessing();
         return;
@@ -261,6 +274,7 @@ function App() {
   });
   const loginGuideVisible =
     workflow.stage === "waiting_input" &&
+    !recordingActive &&
     !account.authenticated &&
     !account.serverError &&
     !accountStatusPending;
@@ -354,22 +368,49 @@ function App() {
   resetInsightGenerationUiRef.current = resetInsightGenerationUi;
   const handleHistoryItemSelected = useCallback(
     (item: HistoryItem) => {
+      if (recordingActiveRef.current) {
+        return;
+      }
       restoreHistoryItem(item);
     },
     [restoreHistoryItem],
   );
   const handleHistoryItemDeleted = useCallback(
     (taskId: string) => {
+      if (recordingActiveRef.current) {
+        return;
+      }
       completeHistoryTaskDeletion(taskId);
     },
     [completeHistoryTaskDeletion],
   );
+  const handlePrepareHistoryItemDeletion = useCallback(
+    (taskId: string) => {
+      if (recordingActiveRef.current) {
+        return;
+      }
+      prepareTranscriptForTaskDeletion(taskId);
+    },
+    [prepareTranscriptForTaskDeletion],
+  );
   const historyController = useHistoryController({
     onHistoryItemSelected: handleHistoryItemSelected,
     onHistoryItemDeleted: handleHistoryItemDeleted,
-    onPrepareHistoryItemDeletion: prepareTranscriptForTaskDeletion,
+    onPrepareHistoryItemDeletion: handlePrepareHistoryItemDeletion,
   });
-  const canDeleteHistory = canRestoreHistory && !transcriptSaving;
+  const canDeleteHistory = canRestoreHistory && !transcriptSaving && !recordingActive;
+  const handleNewTopic = useCallback(() => {
+    if (recordingActiveRef.current) {
+      return;
+    }
+    startNewTaskFromToolbar();
+  }, [startNewTaskFromToolbar]);
+  const handleSignOut = useCallback(() => {
+    if (recordingActiveRef.current) {
+      return;
+    }
+    void signOutAccount();
+  }, [signOutAccount]);
   const {
     handleToolbarMouseDown,
     closeWindow,
@@ -563,13 +604,15 @@ function App() {
             className={loginTransition ? "sidebar-enter" : undefined}
             controller={historyController}
             workflow={workflow}
+            recordingActive={recordingActive}
             selectionDisabled={!canRestoreHistory}
             deletionDisabled={!canDeleteHistory}
             newTopicDisabled={toolbarNewTaskButtonState.disabled}
-            onNewTopic={startNewTaskFromToolbar}
+            onNewTopic={handleNewTopic}
             onOpenSettings={openSettings}
             onOpenAccount={() => openAccountPanel()}
-            onSignOut={() => void signOutAccount()}
+            onSignOut={handleSignOut}
+            signOutDisabled={recordingActive}
             account={account}
             accountChipLabel={accountChipLabel}
           />
@@ -635,16 +678,23 @@ function App() {
                 }}
               />
             ) : (
-              <HeroUploadZone
-                source={workflow.composerSource}
-                canSubmit={canSubmit}
-                statusBody={activeStageBody}
-                onLocalMediaSelected={setLocalMediaSelection}
-                onRemoveLocalMedia={removeLocalMediaSelection}
-                onSubmit={(submission) => {
-                  void submitTask(submission, account, openAccountPanel);
-                }}
-              />
+              <div className="workflow-entry-grid">
+                <HeroUploadZone
+                  source={workflow.composerSource}
+                  canSubmit={canSubmit}
+                  statusBody={activeStageBody}
+                  disabled={recordingActive}
+                  onLocalMediaSelected={setLocalMediaSelection}
+                  onRemoveLocalMedia={removeLocalMediaSelection}
+                  onSubmit={(submission) => {
+                    void submitTask(submission, account, openAccountPanel);
+                  }}
+                />
+                <RecordingCard
+                  controller={recordingController}
+                  startDisabled={accountLoading}
+                />
+              </div>
             )
           ) : (
             <>
@@ -694,12 +744,13 @@ function App() {
         accountStatusText={accountStatusText}
         accountNotice={accountNotice}
         accountLoading={accountLoading}
+        recordingActive={recordingActive}
         activationCodeDraft={activationCodeDraft}
         activationRedeeming={activationRedeeming}
         onClose={closeAccountPanel}
         onActivationCodeChange={setActivationCodeDraft}
         onRedeemActivationCode={redeemActivationCodeFromInput}
-        onSignOut={signOutAccount}
+        onSignOut={handleSignOut}
         onStartLogin={startLoginFlow}
       />
 

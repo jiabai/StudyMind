@@ -36,6 +36,7 @@ function createProps(
     accountLoading: false,
     activationCodeDraft: "",
     activationRedeeming: false,
+    recordingActive: false,
     onClose: () => undefined,
     onActivationCodeChange: () => undefined,
     onRedeemActivationCode: () => undefined,
@@ -111,6 +112,16 @@ describe("AccountSheet localization", () => {
     expect(english).toContain("Sign-in failed");
     expect(english).toContain('role="status"');
     expect(english).toContain('aria-live="polite"');
+  });
+
+  test("visually disables sign out while recording is active", async () => {
+    await initializeI18n("en-US");
+    const markup = renderAccountSheet(
+      createProps({ recordingActive: true }),
+      "en-US",
+    );
+
+    expect(markup).toMatch(/class="secondary-button"[^>]*disabled/);
   });
 
   test("formats quota reset dates with the active locale", async () => {

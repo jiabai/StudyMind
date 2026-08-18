@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import {
   ASR_MODEL_DOWNLOAD_PROGRESS_EVENT,
   cancelAsrModelDownload,
@@ -8,6 +8,7 @@ import {
   getAsrModelStatus,
   getUiPreferences,
   getLlmConfig,
+  saveRecordingAudioSourceMode,
   saveUiPreferences,
   saveLlmConfig,
   type SettingsCommandRunner,
@@ -15,6 +16,14 @@ import {
 import { IpcProtocolError } from "./tauriIpcProtocol";
 
 describe("settings client", () => {
+  const resetBrowserUiPreferences = async () => {
+    await saveUiPreferences("en-US");
+    await saveRecordingAudioSourceMode("mic");
+  };
+
+  beforeEach(resetBrowserUiPreferences);
+  afterEach(resetBrowserUiPreferences);
+
   test("loads selected ASR model status from Tauri", async () => {
     const calls: Array<{ command: string; args: unknown }> = [];
     const runner: SettingsCommandRunner = async (command, args) => {
@@ -255,12 +264,18 @@ describe("settings client", () => {
     const calls: Array<{ command: string; args: unknown }> = [];
     const runner: SettingsCommandRunner = async (command, args) => {
       calls.push({ command, args });
-      return { schemaVersion: 1, language: "zh-TW", recovered: false };
+      return {
+        schemaVersion: 2,
+        language: "zh-TW",
+        recording: { audioSourceMode: "mixed" },
+        recovered: false,
+      };
     };
 
     await expect(getUiPreferences(runner)).resolves.toEqual({
-      schemaVersion: 1,
+      schemaVersion: 2,
       language: "zh-TW",
+      recording: { audioSourceMode: "mixed" },
       recovered: false,
     });
     expect(calls).toEqual([{ command: "get_ui_preferences", args: {} }]);
@@ -270,12 +285,18 @@ describe("settings client", () => {
     const calls: Array<{ command: string; args: unknown }> = [];
     const runner: SettingsCommandRunner = async (command, args) => {
       calls.push({ command, args });
-      return { schemaVersion: 1, language: "system", recovered: false };
+      return {
+        schemaVersion: 2,
+        language: "system",
+        recording: { audioSourceMode: "mic" },
+        recovered: false,
+      };
     };
 
     await expect(saveUiPreferences("system", runner)).resolves.toEqual({
-      schemaVersion: 1,
+      schemaVersion: 2,
       language: "system",
+      recording: { audioSourceMode: "mic" },
       recovered: false,
     });
     expect(calls).toEqual([
@@ -286,13 +307,63 @@ describe("settings client", () => {
     ]);
   });
 
+  test("saves only the recording audio source mode through the exact command envelope", async () => {
+    const calls: Array<{ command: string; args: unknown }> = [];
+    const runner: SettingsCommandRunner = async (command, args) => {
+      calls.push({ command, args });
+      return {
+        schemaVersion: 2,
+        language: "zh-CN",
+        recording: { audioSourceMode: "system" },
+        recovered: false,
+      };
+    };
+
+    await expect(saveRecordingAudioSourceMode("system", runner)).resolves.toEqual({
+      schemaVersion: 2,
+      language: "zh-CN",
+      recording: { audioSourceMode: "system" },
+      recovered: false,
+    });
+    expect(calls).toEqual([
+      {
+        command: "save_ui_preferences",
+        args: {
+          preferences: { recording: { audioSourceMode: "system" } },
+        },
+      },
+    ]);
+  });
+
+  test.each([null, [], {}, 7])(
+    "browser mock rejects invalid language values: %j",
+    async (language) => {
+      await expect(saveUiPreferences(language as never)).rejects.toThrow(
+        "INVALID_UI_PREFERENCES_REQUEST",
+      );
+    },
+  );
+
+  test.each([null, [], {}, 7])(
+    "browser mock rejects invalid recording mode values: %j",
+    async (mode) => {
+      await expect(saveRecordingAudioSourceMode(mode as never)).rejects.toThrow(
+        "INVALID_UI_PREFERENCES_REQUEST",
+      );
+    },
+  );
+
   test.each([
     null,
     {},
+    { schemaVersion: 1, language: "system", recording: { audioSourceMode: "mic" }, recovered: false },
+    { schemaVersion: 2, language: "fr-FR", recording: { audioSourceMode: "mic" }, recovered: false },
     { schemaVersion: 2, language: "system", recovered: false },
-    { schemaVersion: 1, language: "fr-FR", recovered: false },
-    { schemaVersion: 1, language: "system", recovered: "false" },
-    { schemaVersion: 1, language: "system", recovered: false, extra: true },
+    { schemaVersion: 2, language: "system", recording: "mic", recovered: false },
+    { schemaVersion: 2, language: "system", recording: { audioSourceMode: "bluetooth" }, recovered: false },
+    { schemaVersion: 2, language: "system", recording: { audioSourceMode: "mic", extra: true }, recovered: false },
+    { schemaVersion: 2, language: "system", recording: { audioSourceMode: "mic" }, recovered: "false" },
+    { schemaVersion: 2, language: "system", recording: { audioSourceMode: "mic" }, recovered: false, extra: true },
   ])("rejects malformed UI preference responses without echoing payloads", async (payload) => {
     const runner: SettingsCommandRunner = async () => payload;
     await expect(getUiPreferences(runner)).rejects.toThrow(
@@ -302,17 +373,18 @@ describe("settings client", () => {
 
   test("does not evaluate accessor-backed UI preferences", async () => {
     let getterCalls = 0;
-    const response = Object.defineProperty(
-      { schemaVersion: 1, language: "system" },
-      "recovered",
-      {
+    const response = {
+      schemaVersion: 2,
+      language: "system",
+      recording: Object.defineProperty({}, "audioSourceMode", {
         enumerable: true,
         get() {
           getterCalls += 1;
-          return false;
+          return "mic";
         },
-      },
-    );
+      }),
+      recovered: false,
+    };
 
     await expect(getUiPreferences(async () => response)).rejects.toThrow(
       "INVALID_UI_PREFERENCES_RESPONSE",
@@ -320,10 +392,27 @@ describe("settings client", () => {
     expect(getterCalls).toBe(0);
   });
 
+  test("browser mock preserves the other UI preference during partial saves", async () => {
+    await expect(saveRecordingAudioSourceMode("system")).resolves.toMatchObject({
+      schemaVersion: 2,
+      language: "en-US",
+      recording: { audioSourceMode: "system" },
+      recovered: false,
+    });
+    await expect(saveUiPreferences("zh-TW")).resolves.toMatchObject({
+      schemaVersion: 2,
+      language: "zh-TW",
+      recording: { audioSourceMode: "system" },
+      recovered: false,
+    });
+
+  });
+
   test("uses an immediate in-memory UI-preferences mock outside Tauri", async () => {
     await expect(getUiPreferences()).resolves.toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
       language: "en-US",
+      recording: { audioSourceMode: "mic" },
       recovered: false,
     });
   });

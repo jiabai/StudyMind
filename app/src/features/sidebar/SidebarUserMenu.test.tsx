@@ -15,6 +15,7 @@ function renderUserMenu(
     onOpenAccount: vi.fn(),
     onOpenSettings: vi.fn(),
     onSignOut: vi.fn(),
+    signOutDisabled: false,
     ...overrides,
   };
 
@@ -68,6 +69,7 @@ describe("SidebarUserMenuItems", () => {
       onOpenAccount: vi.fn(),
       onOpenSettings: vi.fn(),
       onSignOut: vi.fn(),
+      signOutDisabled: false,
       ...overrides,
     };
 

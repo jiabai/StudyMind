@@ -15,6 +15,7 @@ type AccountSheetProps = {
   accountStatusText: string;
   accountNotice: AccountNotice;
   accountLoading: boolean;
+  recordingActive: boolean;
   activationCodeDraft: string;
   activationRedeeming: boolean;
   onClose: () => void;
@@ -30,6 +31,7 @@ export function AccountSheet({
   accountStatusText,
   accountNotice,
   accountLoading,
+  recordingActive,
   activationCodeDraft,
   activationRedeeming,
   onClose,
@@ -149,7 +151,12 @@ export function AccountSheet({
         </div>
         <div className="settings-actions sheet-footer">
           {account.authenticated ? (
-            <button type="button" className="secondary-button" onClick={onSignOut} disabled={accountLoading}>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={onSignOut}
+              disabled={accountLoading || recordingActive}
+            >
               <span>{t("actions.signOut")}</span>
             </button>
           ) : (
