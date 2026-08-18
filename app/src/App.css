@@ -3303,7 +3303,7 @@ h3 {
 }
 
 .recording-card-header {
-  align-items: flex-start;
+  align-items: center;
   display: flex;
   gap: 12px;
 }
@@ -3322,7 +3322,9 @@ h3 {
 
 .recording-card h2 {
   color: var(--text);
-  font-size: 1.2rem;
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
   line-height: 1.25;
   margin: 0;
 }
@@ -4461,6 +4463,11 @@ h3 {
 .sidebar-topic-status.failed {
   background: rgba(168, 90, 82, 0.12);
   color: #9c554d;
+}
+
+.sidebar-topic-status.processing {
+  background: rgba(86, 120, 168, 0.12);
+  color: #5678a8;
 }
 
 .sidebar-topic-delete {

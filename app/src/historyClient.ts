@@ -112,6 +112,7 @@ const HISTORY_STATUSES = [
   "completed",
   "partial_completed",
   "failed",
+  "processing",
 ] as const;
 const TRANSCRIPT_SOURCES = ["asr", "subtitle"] as const;
 const SAFE_ERROR_CODE = /^[A-Z][A-Z0-9_]{0,63}$/;
@@ -481,7 +482,17 @@ function isCoherentHistoryError(
   status: WorkerResult["status"],
   error: { code: string } | null,
 ): boolean {
-  return status === "completed" ? error === null : error !== null;
+  if (status === "completed") {
+    return error === null;
+  }
+  // `processing` is a tombstone status: the task may still be in-flight (no
+  // error) or may have been interrupted by a native crash before finalize()
+  // could rewrite the manifest. Either way the error is optional, so we do
+  // not flag the response as incoherent regardless of its presence.
+  if (status === "processing") {
+    return true;
+  }
+  return error !== null;
 }
 
 function isNullableString(value: unknown): value is string | null {

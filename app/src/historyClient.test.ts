@@ -139,6 +139,55 @@ describe("history client", () => {
     ]);
   });
 
+  test("accepts processing tombstone items with or without an error", async () => {
+    // `processing` is a tombstone status written before the pipeline settles.
+    // It may carry no error (still in-flight) or an error (interrupted by a
+    // native crash). Both must parse without raising HISTORY_IPC_RESPONSE_INVALID.
+    const runner = async () => [
+      {
+        task_id: "task-processing",
+        id: "task-processing",
+        created_at: "2026-08-18T23:40:00Z",
+        source: {
+          kind: "local_file",
+          displayName: "recording.wav",
+          mediaKind: "audio",
+        },
+        status: "processing",
+        task_dir: "D:\\StudyMind\\outputs\\tasks\\task-processing",
+        output_dir: "D:\\StudyMind\\outputs",
+        artifacts: {},
+        error: null,
+        text_preview: "",
+        insights_count: 0,
+      },
+      {
+        task_id: "task-interrupted",
+        id: "task-interrupted",
+        created_at: "2026-08-18T23:41:00Z",
+        source: {
+          kind: "local_file",
+          displayName: "recording2.wav",
+          mediaKind: "audio",
+        },
+        status: "processing",
+        task_dir: "D:\\StudyMind\\outputs\\tasks\\task-interrupted",
+        output_dir: "D:\\StudyMind\\outputs",
+        artifacts: {},
+        error: { code: "WORKER_PROCESS_INTERRUPTED" },
+        text_preview: "",
+        insights_count: 0,
+      },
+    ];
+
+    const history = await getHistory(runner);
+    expect(history).toHaveLength(2);
+    expect(history[0].status).toBe("processing");
+    expect(history[0].error).toBeNull();
+    expect(history[1].status).toBe("processing");
+    expect(history[1].error).toEqual({ code: "WORKER_PROCESS_INTERRUPTED" });
+  });
+
   test("loads one history detail only after a task is selected", async () => {
     const calls: Array<{ command: string; args: unknown }> = [];
     const runner = async (command: string, args: unknown) => {

@@ -315,8 +315,22 @@ export function useTaskProcessingController({
       setWorkflow((current) =>
         restoreProcessingAfterCancellationFailure(current),
       );
+      return;
     }
-  }, []);
+    // Cancellation accepted: reconcile the workflow state immediately instead
+    // of waiting for the worker's terminal promise. The runner may delay its
+    // WORKER_CANCELLED result while the OS reaps the child process, and any
+    // progress events still buffered in the Tauri event bus can re-flip the
+    // stage back to "video_transcribing"/"video_extracting" via
+    // mergeProgressEvent, leaving the workspace stuck on the dim "cancelling"
+    // spinner. Bumping the operation id invalidates the in-flight progress
+    // and terminal callbacks, and confirmProcessingCancellation is idempotent
+    // with the WORKER_CANCELLED branch in submitTask/retryInsightGeneration.
+    cancellationOperationIdRef.current = null;
+    operationIdRef.current += 1;
+    onResetTaskUi();
+    setWorkflow((current) => confirmProcessingCancellation(current));
+  }, [onResetTaskUi]);
 
   const retryInsightGeneration = useCallback(
     async (

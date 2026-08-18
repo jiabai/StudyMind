@@ -505,6 +505,46 @@ describe("useTaskProcessingController closed local-media source", () => {
     expect(controller.workflow.taskSource).toBeNull();
   });
 
+  test("confirms local cancellation immediately without waiting for the worker terminal", async () => {
+    // Simulates the runner being reaped before its terminal promise settles
+    // (or never settling at all). The controller must reconcile to
+    // waiting_input on its own; otherwise the workspace stays stuck on the
+    // dim "cancelling" spinner until the OS finally surfaces a result, and
+    // any in-flight progress event re-flipping the stage makes the wait
+    // visible to the user as a blank main panel.
+    processLocalMediaMock.mockImplementation(
+      () => new Promise<WorkerResult>(() => undefined),
+    );
+    cancelProcessMock.mockResolvedValue({ status: "cancelling" });
+    const { render, onResetTaskUi } = await createController();
+    let controller = render();
+    controller.setLocalMediaSelection(LOCAL_SELECTION);
+    controller = render();
+    const processing = controller.submitTask(
+      { kind: "local_media", selectionToken: LOCAL_SELECTION.selectionToken },
+      createBrowserPreviewAccountStatus(),
+      vi.fn(),
+    );
+    controller = render();
+    expect(controller.workflow.stage).toBe("video_extracting");
+
+    await controller.cancelCurrentProcessing();
+    controller = render();
+
+    expect(controller.workflow.stage).toBe("waiting_input");
+    expect(controller.workflow.composerSource).toEqual({
+      kind: "local_media",
+      selection: LOCAL_SELECTION,
+    });
+    expect(controller.workflow.taskSource).toBeNull();
+    expect(onResetTaskUi).toHaveBeenCalled();
+    expect(processLocalMediaMock).toHaveBeenCalledTimes(1);
+    expect(cancelProcessMock).toHaveBeenCalledTimes(1);
+    // Drain the deliberately unresolving submitTask promise so the harness
+    // does not retain a hanging await after the test exits.
+    void processing;
+  });
+
   test("clears a removed local selection with its exact token and returns to no selection", async () => {
     const { render } = await createController();
     let controller = render();

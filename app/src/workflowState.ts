@@ -156,7 +156,7 @@ function hasExactKeys(
 }
 
 export type WorkerResult = {
-  status: "completed" | "partial_completed" | "failed";
+  status: "completed" | "partial_completed" | "failed" | "processing";
   task_id: string | null;
   task_dir: string | null;
   artifacts: TaskArtifacts;
@@ -380,12 +380,33 @@ export function summarizeWorkerResult(
   result: WorkerResult,
   failedAiTarget: InsightRetryTarget | null = null,
 ): WorkflowState {
+  // `processing` is a tombstone-only status: the worker either is still
+  // running (in which case the live workflow state, not history, drives the
+  // UI) or was interrupted before finalize() could settle. When replayed
+  // from history (e.g. after a crash left a tombstone on disk), it must not
+  // masquerade as an in-flight stage — `WorkflowStage` has no `processing`
+  // value and `isProcessingStage` would not match, leaving the workspace in
+  // a half-rendered limbo. Map it to `failed` so the user sees an
+  // "interrupted" task they can delete or re-run, with a synthesized error
+  // when the tombstone carried none.
+  const isTombstoneProcessing = result.status === "processing";
+  const stage: WorkflowStage = isTombstoneProcessing
+    ? "failed"
+    : (result.status as Exclude<WorkerResult["status"], "processing">);
+  const error: WorkerErrorResult | null = isTombstoneProcessing
+    ? (result.error ?? {
+        code: "WORKER_PROCESS_INTERRUPTED",
+        message:
+          "Task did not finish. The worker process terminated before it could write a result.",
+        stage: "failed" as const,
+      })
+    : result.error;
   return {
     ...createInitialWorkflow(),
-    stage: result.status,
+    stage,
     statusMessage: null,
     progressMessage: null,
-    progressPercent: result.status === "failed" ? 35 : 100,
+    progressPercent: isTombstoneProcessing || result.status === "failed" ? 35 : 100,
     text: result.text,
     summary: result.summary,
     insights: result.insights,
@@ -395,12 +416,12 @@ export function summarizeWorkerResult(
     transcript: result.transcript ?? null,
     dissection: result.dissection,
     dissectionStale: result.dissection_source_status === "stale",
-    error: result.error,
+    error,
     aiErrorTarget:
-      result.error?.stage === "insights_generating" ? failedAiTarget : null,
+      error?.stage === "insights_generating" ? failedAiTarget : null,
     aiTargetErrors:
-      result.error?.stage === "insights_generating" && failedAiTarget
-        ? { [failedAiTarget]: result.error }
+      error?.stage === "insights_generating" && failedAiTarget
+        ? { [failedAiTarget]: error }
         : {},
   };
 }
