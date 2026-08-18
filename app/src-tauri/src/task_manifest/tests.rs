@@ -928,7 +928,6 @@ fn finalize_processing_tombstones_rewrites_only_processing_manifests() {
 
     let count = super::finalize_processing_tombstones(
         &output_root,
-        "failed",
         "WORKER_PROCESS_FAILED",
         "Local media worker failed before returning a structured result.",
         "video_extracting",
@@ -945,7 +944,7 @@ fn finalize_processing_tombstones_rewrites_only_processing_manifests() {
             .expect("read rewritten"),
     )
     .expect("parse rewritten");
-    assert_eq!(rewritten["status"], "failed");
+    assert_eq!(rewritten["status"], "interrupted");
     assert_eq!(rewritten["error"]["code"], "WORKER_PROCESS_FAILED");
     assert_eq!(rewritten["error"]["stage"], "video_extracting");
     assert_eq!(rewritten["local_source"]["display_name"], "recording.wav");
@@ -964,7 +963,6 @@ fn finalize_processing_tombstones_handles_missing_tasks_dir() {
     let output_root = temp_dir("finalize-empty");
     let count = super::finalize_processing_tombstones(
         &output_root,
-        "failed",
         "WORKER_PROCESS_FAILED",
         "msg",
         "video_extracting",

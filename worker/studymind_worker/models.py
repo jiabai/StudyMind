@@ -24,9 +24,15 @@ class JobStage(StrEnum):
     # pipeline runs. Never emitted over the worker progress protocol and
     # never produced by finalize(); it only marks an in-flight task whose
     # worker may still be running or may have crashed before settling. The
-    # desktop history layer treats it as "processing / interrupted" so the
-    # task stays visible and deletable instead of becoming an orphan dir.
+    # desktop history layer treats it as "processing" so the task stays
+    # visible and deletable instead of becoming an orphan dir.
     PROCESSING = "processing"
+    # Terminal status written by the desktop (Rust finalize_processing_tombstones)
+    # when a processing tombstone belongs to a worker run that ended without a
+    # structured result (native crash, cancel, or timeout). Python never writes
+    # it — a native crash bypasses the Python exception handler — but the enum
+    # mirrors every value the manifest may hold.
+    INTERRUPTED = "interrupted"
 
 
 @dataclass(frozen=True)

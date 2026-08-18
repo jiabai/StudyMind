@@ -11,6 +11,7 @@ export const historyResources = {
       partial_completed: "部分完成",
       failed: "失败",
       processing: "处理中",
+      interrupted: "中断",
     },
     item: {
       insights_one: "{{formattedCount}} 个学习问题",
@@ -60,6 +61,7 @@ export const historyResources = {
       partial_completed: "部分完成",
       failed: "失敗",
       processing: "處理中",
+      interrupted: "中斷",
     },
     item: {
       insights_one: "{{formattedCount}} 個學習問題",
@@ -109,6 +111,7 @@ export const historyResources = {
       partial_completed: "Partially completed",
       failed: "Failed",
       processing: "Processing",
+      interrupted: "Interrupted",
     },
     item: {
       insights_one: "{{formattedCount}} study question",

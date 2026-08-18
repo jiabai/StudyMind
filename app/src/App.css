@@ -4470,6 +4470,11 @@ h3 {
   color: #5678a8;
 }
 
+.sidebar-topic-status.interrupted {
+  background: rgba(178, 126, 56, 0.14);
+  color: #a8752e;
+}
+
 .sidebar-topic-delete {
   align-items: center;
   align-self: center;

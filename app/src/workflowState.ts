@@ -156,7 +156,7 @@ function hasExactKeys(
 }
 
 export type WorkerResult = {
-  status: "completed" | "partial_completed" | "failed" | "processing";
+  status: "completed" | "partial_completed" | "failed" | "processing" | "interrupted";
   task_id: string | null;
   task_dir: string | null;
   artifacts: TaskArtifacts;
@@ -380,19 +380,24 @@ export function summarizeWorkerResult(
   result: WorkerResult,
   failedAiTarget: InsightRetryTarget | null = null,
 ): WorkflowState {
-  // `processing` is a tombstone-only status: the worker either is still
-  // running (in which case the live workflow state, not history, drives the
-  // UI) or was interrupted before finalize() could settle. When replayed
-  // from history (e.g. after a crash left a tombstone on disk), it must not
-  // masquerade as an in-flight stage — `WorkflowStage` has no `processing`
-  // value and `isProcessingStage` would not match, leaving the workspace in
-  // a half-rendered limbo. Map it to `failed` so the user sees an
-  // "interrupted" task they can delete or re-run, with a synthesized error
-  // when the tombstone carried none.
+  // `processing` and `interrupted` are tombstone-only statuses: the worker
+  // either is still running (in which case the live workflow state, not
+  // history, drives the UI) or was interrupted before finalize() could
+  // settle. When replayed from history (e.g. after a crash left a tombstone
+  // on disk), they must not masquerade as in-flight stages — `WorkflowStage`
+  // has no such value and `isProcessingStage` would not match, leaving the
+  // workspace in a half-rendered limbo. Map them to `failed` so the user
+  // sees an interrupted task they can delete or re-run, with a synthesized
+  // error when the tombstone carried none.
   const isTombstoneProcessing = result.status === "processing";
-  const stage: WorkflowStage = isTombstoneProcessing
-    ? "failed"
-    : (result.status as Exclude<WorkerResult["status"], "processing">);
+  const isInterrupted = result.status === "interrupted";
+  const stage: WorkflowStage =
+    isTombstoneProcessing || isInterrupted
+      ? "failed"
+      : (result.status as Exclude<
+          WorkerResult["status"],
+          "processing" | "interrupted"
+        >);
   const error: WorkerErrorResult | null = isTombstoneProcessing
     ? (result.error ?? {
         code: "WORKER_PROCESS_INTERRUPTED",
@@ -406,7 +411,10 @@ export function summarizeWorkerResult(
     stage,
     statusMessage: null,
     progressMessage: null,
-    progressPercent: isTombstoneProcessing || result.status === "failed" ? 35 : 100,
+    progressPercent:
+      isTombstoneProcessing || isInterrupted || result.status === "failed"
+        ? 35
+        : 100,
     text: result.text,
     summary: result.summary,
     insights: result.insights,

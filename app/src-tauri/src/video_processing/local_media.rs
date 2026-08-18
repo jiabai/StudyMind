@@ -103,14 +103,14 @@ fn process_local_media_blocking(
     }
     // Worker 进程失败（崩溃/取消/超时）时，磁盘上的 processing tombstone
     // 不会被 Python 侧 finalize 覆盖（原生崩溃不抛 Python 异常）。在此回写
-    // 为 failed 终态，使任务在历史侧边栏显示为失败、可删除。串行化保证同时
-    // 最多一个 processing tombstone，回写安全；失败仅记日志，不阻断主流程。
+    // 为 interrupted 终态，使任务在历史侧边栏显示为"中断"、可删除。串行化
+    // 保证同时最多一个 processing tombstone，回写安全；失败仅记日志，不
+    // 阻断主流程。
     if should_finalize_processing_tombstone(&result) {
         if let Some(error) = result.error.as_ref() {
             if let Ok(output_root) = task_manifest::configured_output_root(&paths) {
                 if let Err(err) = task_manifest::finalize_processing_tombstones(
                     &output_root,
-                    "failed",
                     &error.code,
                     &error.message,
                     error.stage.as_str(),

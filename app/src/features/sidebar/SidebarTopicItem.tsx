@@ -12,16 +12,22 @@ const statusClassMap: Record<HistoryListItem["status"], string> = {
   partial_completed: "partial_completed",
   failed: "failed",
   processing: "processing",
+  interrupted: "interrupted",
 };
 
 const statusLabelKey: Record<
   HistoryListItem["status"],
-  "status.completed" | "status.partial_completed" | "status.failed" | "status.processing"
+  | "status.completed"
+  | "status.partial_completed"
+  | "status.failed"
+  | "status.processing"
+  | "status.interrupted"
 > = {
   completed: "status.completed",
   partial_completed: "status.partial_completed",
   failed: "status.failed",
   processing: "status.processing",
+  interrupted: "status.interrupted",
 };
 
 const TITLE_MAX_LEN = 80;

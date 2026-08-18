@@ -276,6 +276,31 @@ describe("workflow state model", () => {
     expect(getVisibleWorkflowError(createInitialWorkflow())).toBeNull();
   });
 
+  test("interrupted history replay maps to a failed stage with its error preserved", () => {
+    // The desktop rewrites a processing tombstone to `interrupted` with a
+    // terminal error when the worker run ended without a structured result.
+    // Replaying it must settle the workflow at `failed` (not a half-rendered
+    // in-flight state) and keep the terminal error visible, so the main
+    // panel agrees with the sidebar's "中断" label.
+    const state = summarizeWorkerResult(workerResult({
+      status: "interrupted",
+      error: {
+        code: "WORKER_PROCESS_FAILED",
+        message: "Local media worker failed before returning a structured result. exit code: 1",
+        stage: "video_extracting",
+      },
+    }));
+
+    expect(state.stage).toBe("failed");
+    expect(state.progressPercent).toBe(35);
+    expect(isProcessingStage(state.stage)).toBe(false);
+    expect(getVisibleWorkflowError(state)).toEqual({
+      code: "WORKER_PROCESS_FAILED",
+      message: "Local media worker failed before returning a structured result. exit code: 1",
+      stage: "video_extracting",
+    });
+  });
+
   test("cancel controls are only shown for active processing stages", () => {
     expect(isProcessingStage("video_extracting")).toBe(true);
     expect(isProcessingStage("video_transcribing")).toBe(true);

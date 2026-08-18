@@ -113,6 +113,7 @@ const HISTORY_STATUSES = [
   "partial_completed",
   "failed",
   "processing",
+  "interrupted",
 ] as const;
 const TRANSCRIPT_SOURCES = ["asr", "subtitle"] as const;
 const SAFE_ERROR_CODE = /^[A-Z][A-Z0-9_]{0,63}$/;

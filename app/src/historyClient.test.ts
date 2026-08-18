@@ -188,6 +188,37 @@ describe("history client", () => {
     expect(history[1].error).toEqual({ code: "WORKER_PROCESS_INTERRUPTED" });
   });
 
+  test("accepts interrupted tombstone items as a terminal status", async () => {
+    // `interrupted` is the terminal status the desktop rewrites a processing
+    // tombstone to when the worker run ended without a structured result
+    // (native crash, cancel, timeout). It is a terminal status and must
+    // always carry an error; the whitelist must accept it.
+    const runner = async () => [
+      {
+        task_id: "task-interrupted-final",
+        id: "task-interrupted-final",
+        created_at: "2026-08-18T23:42:00Z",
+        source: {
+          kind: "local_file",
+          displayName: "recording3.wav",
+          mediaKind: "audio",
+        },
+        status: "interrupted",
+        task_dir: "D:\\StudyMind\\outputs\\tasks\\task-interrupted-final",
+        output_dir: "D:\\StudyMind\\outputs",
+        artifacts: {},
+        error: { code: "WORKER_PROCESS_FAILED" },
+        text_preview: "",
+        insights_count: 0,
+      },
+    ];
+
+    const history = await getHistory(runner);
+    expect(history).toHaveLength(1);
+    expect(history[0].status).toBe("interrupted");
+    expect(history[0].error).toEqual({ code: "WORKER_PROCESS_FAILED" });
+  });
+
   test("loads one history detail only after a task is selected", async () => {
     const calls: Array<{ command: string; args: unknown }> = [];
     const runner = async (command: string, args: unknown) => {
