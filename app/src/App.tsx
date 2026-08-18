@@ -679,6 +679,10 @@ function App() {
               />
             ) : (
               <div className="workflow-entry-grid">
+                <RecordingCard
+                  controller={recordingController}
+                  startDisabled={accountLoading}
+                />
                 <HeroUploadZone
                   source={workflow.composerSource}
                   canSubmit={canSubmit}
@@ -689,10 +693,6 @@ function App() {
                   onSubmit={(submission) => {
                     void submitTask(submission, account, openAccountPanel);
                   }}
-                />
-                <RecordingCard
-                  controller={recordingController}
-                  startDisabled={accountLoading}
                 />
               </div>
             )

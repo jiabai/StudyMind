@@ -10,6 +10,7 @@ import {
   type RecordingMode,
   type RecordingResult,
   type RecordingStateView,
+  type StartRecordingWarning,
 } from "../../recordingClient";
 import {
   getUiPreferences as defaultReadPreferences,
@@ -51,6 +52,7 @@ export type RecordingCapabilityView = {
 export type RecordingSessionView = {
   status: RecordingSessionStatus;
   errorCode?: RecordingControllerErrorCode;
+  warningCode?: RecordingControllerErrorCode;
 };
 
 export type RecordingHandoffView = {
@@ -66,7 +68,9 @@ export type RecordingTimer = {
 export type RecordingClientDependencies = {
   getRecordingCapabilities: () => Promise<RecordingCapabilities>;
   getRecordingState?: () => Promise<RecordingStateView | null>;
-  startRecording: (mode: RecordingMode) => Promise<{ sessionId: string }>;
+  startRecording: (
+    mode: RecordingMode,
+  ) => Promise<{ sessionId: string; warnings: StartRecordingWarning[] }>;
   stopRecording: (sessionId: string) => Promise<RecordingResult>;
   cancelRecording: (sessionId: string) => Promise<void>;
 };
@@ -462,7 +466,13 @@ export function useRecordingController({
       setStartedAt(startedAtValue);
       startedAtRef.current = startedAtValue;
       setElapsedMs(0);
-      updateSession({ status: "recording" });
+      updateSession({
+        status: "recording",
+        warningCode: started.warnings[0],
+      });
+      if (started.warnings[0]) {
+        reportError(started.warnings[0]);
+      }
       saveAudioSourceModeBestEffort(actualMode);
     } catch (error) {
       if (mountedRef.current) {

@@ -99,10 +99,12 @@ export async function getRecordingCapabilities(
   );
 }
 
+export type StartRecordingWarning = RecordingErrorCode;
+
 export async function startRecording(
   mode: RecordingMode,
   runner: RecordingCommandRunner = defaultRecordingRunner,
-): Promise<{ sessionId: string }> {
+): Promise<{ sessionId: string; warnings: StartRecordingWarning[] }> {
   if (!isRecordingMode(mode)) {
     throwInvalidResponse();
   }
@@ -196,12 +198,31 @@ function parseSourceCapability(value: unknown): RecordingSourceCapability {
   };
 }
 
-function parseStartRecordingResponse(value: unknown): { sessionId: string } {
-  const response = readRecordingObject(value, ["sessionId"], []);
+function parseStartRecordingResponse(value: unknown): {
+  sessionId: string;
+  warnings: StartRecordingWarning[];
+} {
+  const response = readRecordingObject(value, ["sessionId"], ["warnings"]);
   if (!isBoundedString(response.sessionId, MAX_STRING_LENGTH)) {
     throwInvalidResponse();
   }
-  return { sessionId: response.sessionId };
+  let warnings: StartRecordingWarning[] = [];
+  if (Object.prototype.hasOwnProperty.call(response, "warnings")) {
+    const candidate = response.warnings;
+    if (
+      !Array.isArray(candidate) ||
+      candidate.some(
+        (code) =>
+          typeof code !== "string" ||
+          !isBoundedString(code, MAX_REASON_CODE_LENGTH) ||
+          !isRecordingErrorCode(code),
+      )
+    ) {
+      throwInvalidResponse();
+    }
+    warnings = candidate as StartRecordingWarning[];
+  }
+  return { sessionId: response.sessionId, warnings };
 }
 
 function parseRecordingResult(value: unknown): RecordingResult {

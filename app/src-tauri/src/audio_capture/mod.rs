@@ -15,6 +15,7 @@ pub(crate) const RECORDING_ALREADY_ACTIVE: RecordingErrorCode = RecordingErrorCo
 pub(crate) const RECORDING_PLATFORM_UNSUPPORTED: RecordingErrorCode =
     RecordingErrorCode::PlatformUnsupported;
 pub(crate) const RECORDING_MIC_INIT_FAILED: RecordingErrorCode = RecordingErrorCode::MicInitFailed;
+pub(crate) const RECORDING_MIC_ACCESS_DENIED: RecordingErrorCode = RecordingErrorCode::MicAccessDenied;
 pub(crate) const RECORDING_SYSTEM_LOOPBACK_INIT_FAILED: RecordingErrorCode =
     RecordingErrorCode::SystemLoopbackInitFailed;
 pub(crate) const RECORDING_SYSTEM_AUDIO_UNAVAILABLE: RecordingErrorCode =
@@ -153,6 +154,8 @@ pub(crate) struct RecordingCapabilities {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct StartRecordingResponse {
     pub(crate) session_id: String,
+    #[serde(default)]
+    pub(crate) warnings: Vec<RecordingErrorCode>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -196,6 +199,50 @@ pub(crate) struct FinalizedRecording {
 
 pub(crate) trait RecordingClock: Send + Sync {
     fn now_ms(&self) -> u64;
+}
+
+const LOW_DISK_WARNING_BYTES: u64 = 500 * 1024 * 1024;
+
+pub(crate) trait RecordingDiskSpace: Send + Sync {
+    fn free_bytes(&self) -> Option<u64>;
+}
+
+struct NoDiskSpaceProbe;
+
+impl RecordingDiskSpace for NoDiskSpaceProbe {
+    fn free_bytes(&self) -> Option<u64> {
+        None
+    }
+}
+
+#[cfg(windows)]
+struct WindowsDiskSpaceProbe {
+    path: std::path::PathBuf,
+}
+
+#[cfg(windows)]
+impl RecordingDiskSpace for WindowsDiskSpaceProbe {
+    fn free_bytes(&self) -> Option<u64> {
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+
+        let mut wide = self.path.as_os_str().encode_wide().collect::<Vec<_>>();
+        wide.push(0);
+        let mut available: u64 = 0;
+        let ok = unsafe {
+            GetDiskFreeSpaceExW(
+                wide.as_ptr(),
+                &mut available,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            )
+        };
+        if ok != 0 {
+            Some(available)
+        } else {
+            None
+        }
+    }
 }
 
 pub(crate) trait RecordingFileStore: Send + Sync {
@@ -247,6 +294,7 @@ pub(crate) struct RecordingController {
     finalizer: Arc<dyn RecordingFinalizer>,
     file_store: Arc<dyn RecordingFileStore>,
     clock: Arc<dyn RecordingClock>,
+    disk_space: Arc<dyn RecordingDiskSpace>,
     state: Mutex<ControllerState>,
 }
 
@@ -261,9 +309,10 @@ impl RecordingController {
                     paths.resource_dir.clone(),
                     recordings_dir.clone(),
                 )),
-                Arc::new(LocalRecordingFileStore::new(recordings_dir)),
+                Arc::new(LocalRecordingFileStore::new(recordings_dir.clone())),
                 Arc::new(SystemRecordingClock::new()),
-            );
+            )
+            .with_disk_space(Arc::new(WindowsDiskSpaceProbe { path: recordings_dir }));
         }
 
         #[cfg(not(windows))]
@@ -284,8 +333,14 @@ impl RecordingController {
             finalizer,
             file_store,
             clock,
+            disk_space: Arc::new(NoDiskSpaceProbe),
             state: Mutex::new(ControllerState::Idle),
         }
+    }
+
+    pub(crate) fn with_disk_space(mut self, disk_space: Arc<dyn RecordingDiskSpace>) -> Self {
+        self.disk_space = disk_space;
+        self
     }
 
     pub(crate) fn capabilities(&self) -> Result<RecordingCapabilities, RecordingError> {
@@ -348,7 +403,17 @@ impl RecordingController {
             capture,
         });
 
-        Ok(StartRecordingResponse { session_id })
+        let mut warnings = Vec::new();
+        if let Some(free_bytes) = self.disk_space.free_bytes() {
+            if free_bytes < LOW_DISK_WARNING_BYTES {
+                warnings.push(RecordingErrorCode::DiskSpaceLow);
+            }
+        }
+
+        Ok(StartRecordingResponse {
+            session_id,
+            warnings,
+        })
     }
 
     pub(crate) fn state(&self) -> Result<Option<RecordingStateView>, RecordingError> {
@@ -882,6 +947,61 @@ mod tests {
         assert_eq!(state.session_id, started.session_id);
         assert_eq!(state.mode, RecordingMode::Mic);
         assert_eq!(state.elapsed_ms, 0);
+    }
+
+    struct FakeDiskSpace {
+        free_bytes: Option<u64>,
+    }
+
+    impl RecordingDiskSpace for FakeDiskSpace {
+        fn free_bytes(&self) -> Option<u64> {
+            self.free_bytes
+        }
+    }
+
+    #[test]
+    fn low_disk_space_warns_without_blocking_start() {
+        let controller = controller().with_disk_space(Arc::new(FakeDiskSpace {
+            free_bytes: Some(100 * 1024 * 1024),
+        }));
+
+        let started = controller
+            .start(RecordingMode::Mic)
+            .expect("start must succeed with a low-disk warning");
+
+        assert_eq!(started.warnings, vec![RecordingErrorCode::DiskSpaceLow]);
+        assert!(controller
+            .state()
+            .expect("read state")
+            .expect("active state after warned start")
+            .session_id
+            .len() > 0);
+    }
+
+    #[test]
+    fn sufficient_disk_space_starts_without_warnings() {
+        let controller = controller().with_disk_space(Arc::new(FakeDiskSpace {
+            free_bytes: Some(10 * 1024 * 1024 * 1024),
+        }));
+
+        let started = controller
+            .start(RecordingMode::Mic)
+            .expect("start recording");
+
+        assert!(started.warnings.is_empty());
+    }
+
+    #[test]
+    fn unknown_disk_space_starts_without_warnings() {
+        let controller = controller().with_disk_space(Arc::new(FakeDiskSpace {
+            free_bytes: None,
+        }));
+
+        let started = controller
+            .start(RecordingMode::Mic)
+            .expect("start recording");
+
+        assert!(started.warnings.is_empty());
     }
 
     #[test]

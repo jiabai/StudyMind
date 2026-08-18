@@ -93,6 +93,7 @@ describe("recording client", () => {
     });
     await expect(startRecording("mic")).resolves.toEqual({
       sessionId: "session-123",
+      warnings: [],
     });
     await expect(stopRecording("session-123")).resolves.toEqual(VALID_STOP);
     await expect(cancelRecording("session-123")).resolves.toBeUndefined();
@@ -125,6 +126,7 @@ describe("recording client", () => {
 
     await expect(startRecording("mixed", runner)).resolves.toEqual({
       sessionId: "session-123",
+      warnings: [],
     });
     expect(calls).toEqual([
       { command: "start_recording", args: { mode: "mixed" } },
@@ -151,6 +153,7 @@ describe("recording client", () => {
     });
     await expect(startRecording("mic", runner)).resolves.toEqual({
       sessionId: "session-123",
+      warnings: [],
     });
     await expect(stopRecording("session-123", runner)).resolves.toEqual({
       path: "C:\\Users\\demo\\Recordings\\lecture.wav",
@@ -465,7 +468,7 @@ describe("recording client", () => {
 
     await expect(
       startRecording("mic", async () => ({ sessionId: maxLength })),
-    ).resolves.toEqual({ sessionId: maxLength });
+    ).resolves.toEqual({ sessionId: maxLength, warnings: [] });
     await expect(
       stopRecording("session-123", async () => ({
         path: maxLength,

@@ -5,11 +5,12 @@ use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use windows::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0, WAIT_TIMEOUT};
+use windows::Win32::Foundation::{CloseHandle, E_FAIL, RPC_E_CHANGED_MODE, WAIT_OBJECT_0, WAIT_TIMEOUT};
 use windows::Win32::Media::Audio::{
-    eCapture, eConsole, eRender, IAudioCaptureClient, IAudioClient, IMMDeviceEnumerator,
-    MMDeviceEnumerator, AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_SHAREMODE_SHARED,
-    AUDCLNT_STREAMFLAGS_EVENTCALLBACK, AUDCLNT_STREAMFLAGS_LOOPBACK,
+    eCapture, eCommunications, eConsole, eRender, DEVICE_STATE_ACTIVE, EDataFlow, IMMDevice,
+    IAudioCaptureClient, IAudioClient, IMMDeviceEnumerator, MMDeviceEnumerator,
+    AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
+    AUDCLNT_STREAMFLAGS_LOOPBACK,
 };
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, CLSCTX_ALL,
@@ -21,8 +22,8 @@ use super::wav_writer::{WavCaptureSummary, WaveFormat, WaveWriter};
 use super::{
     ActiveCapture, CaptureWorkspace, CapturedRecording, RecordingBackend, RecordingCapabilities,
     RecordingError, RecordingMode, RecordingPlatform, RecordingSourceCapability,
-    RECORDING_MIC_INIT_FAILED, RECORDING_STREAM_ERROR, RECORDING_SYSTEM_AUDIO_UNAVAILABLE,
-    RECORDING_SYSTEM_LOOPBACK_INIT_FAILED,
+    RECORDING_MIC_ACCESS_DENIED, RECORDING_MIC_INIT_FAILED, RECORDING_STREAM_ERROR,
+    RECORDING_SYSTEM_AUDIO_UNAVAILABLE, RECORDING_SYSTEM_LOOPBACK_INIT_FAILED,
 };
 
 #[derive(Default)]
@@ -62,6 +63,22 @@ impl SourceKind {
             Self::SystemAudio => RecordingError::new(RECORDING_SYSTEM_AUDIO_UNAVAILABLE),
         }
     }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Microphone => "microphone",
+            Self::SystemAudio => "system-audio",
+        }
+    }
+}
+
+fn map_init_error(kind: SourceKind, error: &windows::core::Error) -> RecordingError {
+    if matches!(kind, SourceKind::Microphone)
+        && error.code() == windows::Win32::Foundation::E_ACCESSDENIED
+    {
+        return RecordingError::new(RECORDING_MIC_ACCESS_DENIED);
+    }
+    kind.init_error()
 }
 
 impl RecordingBackend for WasapiRecordingBackend {
@@ -213,16 +230,94 @@ fn summarize_capture(
     })
 }
 
+/// Resolve a usable audio endpoint for the given data flow.
+///
+/// Windows may expose a device only under the `eCommunications` role (common with
+/// headsets / meeting software) or with no default set at all. Apps like EV录屏 enumerate
+/// devices and pick one; StudyMind previously required the `eConsole` default
+/// (`GetDefaultAudioEndpoint(.., eConsole)`), which returns nothing in those setups and
+/// reported the whole source as unavailable. Fallback order:
+/// eConsole default -> eCommunications default -> first active enumerated endpoint.
+fn resolve_default_endpoint(
+    enumerator: &IMMDeviceEnumerator,
+    data_flow: EDataFlow,
+) -> Result<IMMDevice, windows::core::Error> {
+    if let Ok(device) = unsafe { enumerator.GetDefaultAudioEndpoint(data_flow, eConsole) } {
+        return Ok(device);
+    }
+    if let Ok(device) = unsafe { enumerator.GetDefaultAudioEndpoint(data_flow, eCommunications) } {
+        eprintln!(
+            "[studymind][audio] resolved endpoint via eCommunications default (eConsole default absent)"
+        );
+        return Ok(device);
+    }
+    match unsafe { enumerator.EnumAudioEndpoints(data_flow, DEVICE_STATE_ACTIVE) } {
+        Ok(collection) => {
+            let count = unsafe { collection.GetCount() }.unwrap_or(0);
+            if count > 0 {
+                if let Ok(device) = unsafe { collection.Item(0) } {
+                    eprintln!(
+                        "[studymind][audio] resolved endpoint via enumeration ({} active device(s))",
+                        count
+                    );
+                    return Ok(device);
+                }
+            } else {
+                eprintln!("[studymind][audio] no active audio endpoints for data_flow");
+            }
+        }
+        Err(error) => {
+            eprintln!(
+                "[studymind][audio] EnumAudioEndpoints failed: {:#010X}",
+                error.code().0
+            );
+        }
+    }
+    Err(windows::core::Error::new(
+        E_FAIL,
+        "no usable audio endpoint resolved",
+    ))
+}
+
 fn probe_source(kind: SourceKind) -> Result<(), RecordingError> {
-    let _com = ComApartment::initialize().map_err(|_| kind.capability_error())?;
+    let _com = ComApartment::initialize().map_err(|_| {
+        eprintln!("[studymind][audio] {}: COM subsystem unavailable", kind.label());
+        kind.capability_error()
+    })?;
     let enumerator: IMMDeviceEnumerator =
-        unsafe { CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL) }
-            .map_err(|_| kind.capability_error())?;
-    let device = unsafe { enumerator.GetDefaultAudioEndpoint(kind.data_flow(), eConsole) }
-        .map_err(|_| kind.capability_error())?;
+        unsafe { CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL) }.map_err(|error| {
+            eprintln!(
+                "[studymind][audio] {}: CoCreateInstance(MMDeviceEnumerator) failed: {:#010X}",
+                kind.label(),
+                error.code().0
+            );
+            kind.capability_error()
+        })?;
+    let device = resolve_default_endpoint(&enumerator, kind.data_flow()).map_err(|error| {
+        eprintln!(
+            "[studymind][audio] {}: no usable endpoint resolved: {:#010X}",
+            kind.label(),
+            error.code().0
+        );
+        kind.capability_error()
+    })?;
     let client: IAudioClient =
-        unsafe { device.Activate(CLSCTX_ALL, None) }.map_err(|_| kind.capability_error())?;
-    let format = unsafe { client.GetMixFormat() }.map_err(|_| kind.capability_error())?;
+        unsafe { device.Activate(CLSCTX_ALL, None) }.map_err(|error| {
+            eprintln!(
+                "[studymind][audio] {}: Activate failed: {:#010X}",
+                kind.label(),
+                error.code().0
+            );
+            kind.capability_error()
+        })?;
+    let format = unsafe { client.GetMixFormat() }.map_err(|error| {
+        eprintln!(
+            "[studymind][audio] {}: GetMixFormat failed: {:#010X}",
+            kind.label(),
+            error.code().0
+        );
+        kind.capability_error()
+    })?;
     let result = unsafe { WaveFormat::from_wasapi(format) }.map(|_| ());
     unsafe { CoTaskMemFree(Some(format.cast())) };
     result.map_err(|_| kind.capability_error())
@@ -290,10 +385,16 @@ fn setup_capture_client(
     let enumerator: IMMDeviceEnumerator =
         unsafe { CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL) }
             .map_err(|_| kind.init_error())?;
-    let device = unsafe { enumerator.GetDefaultAudioEndpoint(kind.data_flow(), eConsole) }
-        .map_err(|_| kind.init_error())?;
+    let device = resolve_default_endpoint(&enumerator, kind.data_flow()).map_err(|error| {
+        eprintln!(
+            "[studymind][audio] {}: start recording, no usable endpoint resolved: {:#010X}",
+            kind.label(),
+            error.code().0
+        );
+        kind.init_error()
+    })?;
     let client: IAudioClient =
-        unsafe { device.Activate(CLSCTX_ALL, None) }.map_err(|_| kind.init_error())?;
+        unsafe { device.Activate(CLSCTX_ALL, None) }.map_err(|error| map_init_error(kind, &error))?;
     let format_ptr = unsafe { client.GetMixFormat() }.map_err(|_| kind.init_error())?;
     let format = unsafe { WaveFormat::from_wasapi(format_ptr) }.map_err(|_| kind.init_error());
     if format.is_err() {
@@ -325,9 +426,9 @@ fn setup_capture_client(
         )
     };
     unsafe { CoTaskMemFree(Some(format_ptr.cast())) };
-    if initialize.is_err() {
+    if let Err(error) = initialize {
         let _ = unsafe { CloseHandle(event) };
-        return Err(kind.init_error());
+        return Err(map_init_error(kind, &error));
     }
     if unsafe { client.SetEventHandle(event) }.is_err() {
         let _ = unsafe { CloseHandle(event) };
@@ -398,22 +499,39 @@ fn capture_packets(
     Ok(())
 }
 
-struct ComApartment;
+struct ComApartment {
+    owned: bool,
+}
 
 impl ComApartment {
     fn initialize() -> Result<Self, ()> {
-        let result = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
-        if result.is_err() {
-            Err(())
+        let hr = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
+        if hr.is_ok() {
+            Ok(Self { owned: true })
+        // Thread already initialized in another apartment model (e.g. STA). WASAPI
+        // endpoint access is apartment-agnostic, so proceed without re-initializing.
+        // We must NOT call CoUninitialize on drop in this case, or we would tear down
+        // COM for the thread that actually owns it.
+        } else if hr == RPC_E_CHANGED_MODE {
+            eprintln!(
+                "[studymind][audio] ComApartment: thread already in another apartment (RPC_E_CHANGED_MODE); proceeding"
+            );
+            Ok(Self { owned: false })
         } else {
-            Ok(Self)
+            eprintln!(
+                "[studymind][audio] ComApartment::initialize failed: {:#010X}",
+                hr.0
+            );
+            Err(())
         }
     }
 }
 
 impl Drop for ComApartment {
     fn drop(&mut self) {
-        unsafe { CoUninitialize() };
+        if self.owned {
+            unsafe { CoUninitialize() };
+        }
     }
 }
 
@@ -437,5 +555,26 @@ mod tests {
                 assert!(source.reason_code.is_some());
             }
         }
+    }
+
+    #[test]
+    fn com_apartment_initialize_tolerates_existing_apartment() {
+        // Reproduces the field bug: when the calling thread is already initialized in
+        // STA, CoInitializeEx(.., COINIT_MULTITHREADED) returns RPC_E_CHANGED_MODE. The
+        // old ComApartment treated any error as fatal, so both mic and system-audio
+        // probes failed even though a working device existed (cf. EV录屏 working).
+        let owned_by_us =
+            unsafe { CoInitializeEx(None, windows::Win32::System::Com::COINIT_APARTMENTTHREADED) }
+                .is_ok();
+        let result = ComApartment::initialize();
+        if owned_by_us {
+            unsafe {
+                CoUninitialize();
+            }
+        }
+        assert!(
+            result.is_ok(),
+            "ComApartment must tolerate an already-initialized apartment (RPC_E_CHANGED_MODE)"
+        );
     }
 }

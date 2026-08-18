@@ -320,7 +320,6 @@ export function HeroUploadZone({
     <div className={cardClasses} aria-disabled={disabled || undefined}>
       <div className="hero-upload-header">
         <h1>{t("input.hero.title")}</h1>
-        <p>{t("input.hero.subtitle")}</p>
       </div>
 
       <div

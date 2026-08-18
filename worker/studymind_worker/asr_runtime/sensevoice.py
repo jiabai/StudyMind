@@ -91,7 +91,19 @@ class SenseVoiceTranscriber:
     ) -> Any:
         from funasr import AutoModel
 
-        return AutoModel(model=model, trust_remote_code=trust_remote_code, **model_kwargs)
+        from studymind_worker.resource_throttle import (
+            DEFAULT_ASR_DEVICE,
+            cap_torch_threads,
+        )
+
+        cap_torch_threads()
+        device = model_kwargs.pop("device", DEFAULT_ASR_DEVICE)
+        return AutoModel(
+            model=model,
+            trust_remote_code=trust_remote_code,
+            device=device,
+            **model_kwargs,
+        )
 
 
 def _sensevoice_language(language: str) -> str:

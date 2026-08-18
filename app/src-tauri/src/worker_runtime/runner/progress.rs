@@ -107,18 +107,26 @@ pub(super) struct StderrSummary {
     pub(super) diagnostic: String,
 }
 
-const MAX_DIAGNOSTIC_CHARS: usize = 16 * 1024;
+const MAX_DIAGNOSTIC_BYTES: usize = 16 * 1024;
 
 fn append_diagnostic_line(buffer: &mut String, line: &str) {
-    if buffer.len() >= MAX_DIAGNOSTIC_CHARS {
+    if buffer.len() >= MAX_DIAGNOSTIC_BYTES {
         return;
     }
     if !buffer.is_empty() {
         buffer.push('\n');
     }
     buffer.push_str(line);
-    if buffer.len() > MAX_DIAGNOSTIC_CHARS {
-        buffer.truncate(MAX_DIAGNOSTIC_CHARS);
+    // `String::truncate` panics unless the cut point is a char boundary. The budget
+    // is measured in bytes, so after pushing a multi-byte (e.g. CJK) line the buffer
+    // length can land mid-character. Walk back to the nearest char boundary instead
+    // of assuming byte `MAX_DIAGNOSTIC_BYTES` is a safe cut.
+    if buffer.len() > MAX_DIAGNOSTIC_BYTES {
+        let mut cut = MAX_DIAGNOSTIC_BYTES;
+        while cut > 0 && !buffer.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        buffer.truncate(cut);
     }
 }
 
@@ -213,5 +221,45 @@ pub(super) fn inspect_progress_line(protocol: ProgressProtocol, line: &str) -> P
                 .map(invalid_progress_log_detail)
                 .unwrap_or_else(|| "message_code=invalid".to_string()),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn multibyte_line_truncates_at_char_boundary_without_panic() {
+        let mut buffer = String::new();
+        // 5461 CJK chars = 16383 bytes, just under the budget.
+        append_diagnostic_line(&mut buffer, &"中".repeat(5461));
+        assert_eq!(buffer.len(), 16383);
+        // One more multi-byte char pushes the byte length to 16386, crossing the budget
+        // mid-character (the trailing char spans bytes 16383..16386).
+        append_diagnostic_line(&mut buffer, "中");
+        // Old code called `buffer.truncate(16384)` here and panicked on the
+        // is_char_boundary assertion. New code walks back to a char boundary.
+        assert!(buffer.len() <= MAX_DIAGNOSTIC_BYTES);
+        assert!(buffer.is_char_boundary(buffer.len()));
+    }
+
+    #[test]
+    fn append_diagnostic_line_stops_at_ascii_budget() {
+        let mut buffer = String::new();
+        append_diagnostic_line(&mut buffer, &"a".repeat(MAX_DIAGNOSTIC_BYTES));
+        assert_eq!(buffer.len(), MAX_DIAGNOSTIC_BYTES);
+        // Early-return path: further appends are ignored, no panic.
+        append_diagnostic_line(&mut buffer, "more");
+        assert_eq!(buffer.len(), MAX_DIAGNOSTIC_BYTES);
+    }
+
+    #[test]
+    fn appended_multibyte_buffer_stays_char_valid_under_repeated_pushes() {
+        let mut buffer = String::new();
+        for _ in 0..2000 {
+            append_diagnostic_line(&mut buffer, "诊断信息：下载进度更新");
+        }
+        assert!(buffer.len() <= MAX_DIAGNOSTIC_BYTES);
+        assert!(buffer.is_char_boundary(buffer.len()));
     }
 }

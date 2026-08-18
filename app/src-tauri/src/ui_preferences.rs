@@ -101,6 +101,7 @@ where
 }
 
 impl SaveUiPreferencesInput {
+    #[cfg(test)]
     pub(crate) fn recording(mode: RecordingAudioSourceMode) -> Self {
         Self {
             language: None,

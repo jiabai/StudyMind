@@ -82,12 +82,12 @@ impl FfmpegRecordingFinalizer {
         Ok(())
     }
 
-    fn output_name(session_id: &str) -> String {
+    fn output_name() -> String {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|duration| duration.as_millis())
             .unwrap_or(0);
-        format!("recording_{timestamp}_{session_id}.wav")
+        format!("recording_{timestamp}.wav")
     }
 
     fn build_args(mode: RecordingMode, sources: &[PathBuf], output: &Path) -> Vec<OsString> {
@@ -158,7 +158,7 @@ impl RecordingFinalizer for FfmpegRecordingFinalizer {
             return Err(RecordingError::new(RECORDING_FINALIZE_FAILED));
         }
 
-        let display_name = Self::output_name(&workspace.session_id);
+        let display_name = Self::output_name();
         let final_path = self.recordings_dir.join(&display_name);
         std::fs::rename(&output, &final_path)
             .map_err(|_| RecordingError::new(RECORDING_FINALIZE_FAILED))?;

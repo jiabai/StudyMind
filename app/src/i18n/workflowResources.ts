@@ -25,7 +25,7 @@ export const workflowResources = {
       placeholder: "选择音频或视频文件",
       confirm: "确认",
       hero: {
-        title: "开始你的课堂笔记",
+        title: "上传音视频文件",
         subtitle: "上传音视频文件，AI 将自动生成带时间戳的文字稿和知识点摘要",
         dropHint: "拖放文件到此处，或点击选择",
         subHint: "支持 MP3 / WAV / MP4 / MOV · 本地处理 · 隐私安全",
@@ -106,6 +106,7 @@ export const workflowResources = {
           finalize: "录音整理失败，请重试。",
           stream: "录音流发生错误，请重试。",
           alreadyActive: "已有录音正在进行。",
+          openPrivacySettings: "打开 Windows 麦克风设置",
         },
       },
       attachment: {
@@ -162,7 +163,7 @@ export const workflowResources = {
       placeholder: "選擇音訊或影片檔案",
       confirm: "確認",
       hero: {
-        title: "開始你的筆記之旅",
+        title: "上傳音視訊檔案",
         subtitle: "上傳音訊或影片檔案，AI 將自動產生帶時間戳的逐字稿與知識點摘要",
         dropHint: "拖放檔案到此處，或點擊選擇",
         subHint: "支援 MP3 / WAV / MP4 / MOV · 本機處理 · 隱私安全",
@@ -243,6 +244,7 @@ export const workflowResources = {
           finalize: "錄音整理失敗，請再試一次。",
           stream: "錄音串流發生錯誤，請再試一次。",
           alreadyActive: "已有錄音正在進行。",
+          openPrivacySettings: "開啟 Windows 麥克風設定",
         },
       },
       attachment: {
@@ -299,7 +301,7 @@ export const workflowResources = {
       placeholder: "Choose an audio or video file",
       confirm: "Confirm",
       hero: {
-        title: "Start your class notes",
+        title: "Upload media files",
         subtitle: "Upload audio/video files and AI will generate timestamped transcripts and knowledge summaries",
         dropHint: "Drop files here or click to select",
         subHint: "Supports MP3 / WAV / MP4 / MOV · Local processing · Privacy first",
@@ -380,6 +382,7 @@ export const workflowResources = {
           finalize: "The recording could not be prepared. Try again.",
           stream: "The recording stream encountered an error. Try again.",
           alreadyActive: "A recording is already in progress.",
+          openPrivacySettings: "Open Windows microphone settings",
         },
       },
       attachment: {

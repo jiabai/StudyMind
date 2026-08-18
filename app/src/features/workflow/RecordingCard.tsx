@@ -4,10 +4,12 @@ import {
   LoaderCircle,
   Mic,
   RefreshCw,
+  Settings,
   Square,
   Trash2,
   Volume2,
 } from "lucide-react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -235,9 +237,7 @@ export function RecordingCard({ controller, startDisabled = false }: RecordingCa
           <Mic size={24} strokeWidth={1.8} />
         </div>
         <div>
-          <p className="section-label">{t("input.sectionLabel")}</p>
           <h2 id="recording-card-title">{t("input.recording.title")}</h2>
-          <p className="recording-card-subtitle">{t("input.recording.subtitle")}</p>
         </div>
       </div>
 
@@ -281,6 +281,28 @@ export function RecordingCard({ controller, startDisabled = false }: RecordingCa
           <p className="recording-error" role="alert">
             <CircleAlert size={16} aria-hidden="true" />
             <span>{t(errorCopyKey(errorCode))}</span>
+          </p>
+        ) : null}
+
+        {showError && errorCode === "RECORDING_MIC_ACCESS_DENIED" ? (
+          <button
+            className="recording-retry-button"
+            type="button"
+            onClick={() => {
+              void openUrl("ms-settings:privacy-microphone");
+            }}
+          >
+            <Settings size={15} aria-hidden="true" />
+            <span>{t("input.recording.error.openPrivacySettings")}</span>
+          </button>
+        ) : null}
+
+        {recording && controller.session.warningCode ? (
+          <p
+            className="recording-capability-notice recording-capability-notice-warning"
+            role="status"
+          >
+            {t(errorCopyKey(controller.session.warningCode))}
           </p>
         ) : null}
 

@@ -187,11 +187,17 @@ class SenseVoiceOnnxTranscriber:
     def _load_default_asr(self, **kwargs: Any) -> Any:
         from funasr_onnx import SenseVoiceSmall
 
+        from studymind_worker.resource_throttle import cap_onnx_threads
+
+        cap_onnx_threads()
         return SenseVoiceSmall(**kwargs)
 
     def _load_default_vad(self, **kwargs: Any) -> Any:
         from funasr_onnx import Fsmn_vad_online
 
+        from studymind_worker.resource_throttle import cap_onnx_threads
+
+        cap_onnx_threads()
         return Fsmn_vad_online(**kwargs)
 
     def _transcribe_vad_segments(

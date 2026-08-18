@@ -5,6 +5,7 @@ import type {
   RecordingClientErrorCode,
   RecordingMode,
   RecordingResult,
+  StartRecordingWarning,
 } from "../../recordingClient";
 import type { LocalMediaSelectionView } from "../../localMediaContract";
 import type { UiPreferencesView } from "../../settingsClient";
@@ -79,7 +80,10 @@ type RecordingController = {
 type ControllerDependencies = {
   recordingClient: {
     getRecordingCapabilities: () => Promise<RecordingCapabilities>;
-    startRecording: (mode: RecordingMode) => Promise<{ sessionId: string }>;
+    startRecording: (mode: RecordingMode) => Promise<{
+      sessionId: string;
+      warnings: StartRecordingWarning[];
+    }>;
     stopRecording: (sessionId: string) => Promise<RecordingResult>;
     cancelRecording: (sessionId: string) => Promise<void>;
   };
@@ -289,8 +293,12 @@ async function createController(
         .fn<() => Promise<RecordingCapabilities>>()
         .mockResolvedValue(CAPABILITIES),
       startRecording: vi
-        .fn<(mode: RecordingMode) => Promise<{ sessionId: string }>>()
-        .mockResolvedValue({ sessionId: "session-1" }),
+        .fn<
+          (
+            mode: RecordingMode,
+          ) => Promise<{ sessionId: string; warnings: StartRecordingWarning[] }>
+        >()
+        .mockResolvedValue({ sessionId: "session-1", warnings: [] }),
       stopRecording: vi
         .fn<(sessionId: string) => Promise<RecordingResult>>()
         .mockResolvedValue(RESULT),
@@ -450,7 +458,7 @@ describe("useRecordingController", () => {
     const { render } = await createController({
       recordingClient: {
         getRecordingCapabilities: vi.fn().mockResolvedValue(MIC_ONLY_CAPABILITIES),
-        startRecording: vi.fn().mockResolvedValue({ sessionId: "session-1" }),
+        startRecording: vi.fn().mockResolvedValue({ sessionId: "session-1", warnings: [] }),
         stopRecording: vi.fn().mockResolvedValue(RESULT),
         cancelRecording: vi.fn(),
       },
@@ -486,8 +494,13 @@ describe("useRecordingController", () => {
 
   test("uses system audio consistently when it is the only available Windows source", async () => {
     const startRecording = vi
-      .fn<(mode: RecordingMode) => Promise<{ sessionId: string }>>()
-      .mockResolvedValue({ sessionId: "system-only-session" });
+      .fn<
+        (mode: RecordingMode) => Promise<{
+          sessionId: string;
+          warnings: StartRecordingWarning[];
+        }>
+      >()
+      .mockResolvedValue({ sessionId: "system-only-session", warnings: [] });
     const { deps, render } = await createController({
       recordingClient: {
         getRecordingCapabilities: vi.fn().mockResolvedValue(SYSTEM_ONLY_CAPABILITIES),
@@ -534,7 +547,7 @@ describe("useRecordingController", () => {
       .fn()
       .mockResolvedValueOnce(CAPABILITIES)
       .mockResolvedValueOnce(MIC_ONLY_CAPABILITIES);
-    const startRecording = vi.fn().mockResolvedValue({ sessionId: "session-2" });
+    const startRecording = vi.fn().mockResolvedValue({ sessionId: "session-2", warnings: [] });
     const saveAudioSourceMode = vi.fn().mockResolvedValue(PREFERENCES);
     const { deps, render } = await createController({
       recordingClient: {
@@ -692,7 +705,7 @@ describe("useRecordingController", () => {
     const { deps, render, windowHarness } = await createController({
       recordingClient: {
         getRecordingCapabilities: getCapabilities,
-        startRecording: vi.fn().mockResolvedValue({ sessionId: "session-fallback" }),
+        startRecording: vi.fn().mockResolvedValue({ sessionId: "session-fallback", warnings: [] }),
         stopRecording: vi.fn().mockResolvedValue(RESULT),
         cancelRecording: vi.fn(),
       },
@@ -725,7 +738,7 @@ describe("useRecordingController", () => {
     const { render, windowHarness } = await createController({
       recordingClient: {
         getRecordingCapabilities: vi.fn().mockResolvedValue(CAPABILITIES),
-        startRecording: vi.fn().mockResolvedValue({ sessionId: "session-stale-start" }),
+        startRecording: vi.fn().mockResolvedValue({ sessionId: "session-stale-start", warnings: [] }),
         stopRecording: vi.fn().mockResolvedValue(RESULT),
         cancelRecording: vi.fn(),
       },
@@ -823,8 +836,13 @@ describe("useRecordingController", () => {
       .mockReturnValueOnce(startProbe.promise)
       .mockReturnValueOnce(foregroundProbe.promise);
     const startRecording = vi
-      .fn<(mode: RecordingMode) => Promise<{ sessionId: string }>>()
-      .mockResolvedValue({ sessionId: "session-concurrent-start" });
+      .fn<
+        (mode: RecordingMode) => Promise<{
+          sessionId: string;
+          warnings: StartRecordingWarning[];
+        }>
+      >()
+      .mockResolvedValue({ sessionId: "session-concurrent-start", warnings: [] });
     const { deps, render, windowHarness } = await createController({
       recordingClient: {
         getRecordingCapabilities: getCapabilities,
@@ -944,8 +962,13 @@ describe("useRecordingController", () => {
 
   test("uses dependency implementations from the latest render", async () => {
     const nextStartRecording = vi
-      .fn<(mode: RecordingMode) => Promise<{ sessionId: string }>>()
-      .mockResolvedValue({ sessionId: "latest-session" });
+      .fn<
+        (mode: RecordingMode) => Promise<{
+          sessionId: string;
+          warnings: StartRecordingWarning[];
+        }>
+      >()
+      .mockResolvedValue({ sessionId: "latest-session", warnings: [] });
     const nextGetCapabilities = vi
       .fn<() => Promise<RecordingCapabilities>>()
       .mockResolvedValue(CAPABILITIES);
@@ -1020,7 +1043,7 @@ describe("useRecordingController", () => {
     await settle();
     expect(startRecording).toHaveBeenCalledTimes(1);
 
-    pendingStart.resolve({ sessionId: "session-duplicate-proof" });
+    pendingStart.resolve({ sessionId: "session-duplicate-proof", warnings: [] });
     await Promise.all([firstStart, secondStart]);
     expect(deps.saveAudioSourceMode).toHaveBeenCalledTimes(1);
   });
@@ -1209,7 +1232,7 @@ describe("useRecordingController", () => {
     const { deps, render } = await startRecordingSession({
       recordingClient: {
         getRecordingCapabilities: vi.fn().mockResolvedValue(CAPABILITIES),
-        startRecording: vi.fn().mockResolvedValue({ sessionId: "session-retry" }),
+        startRecording: vi.fn().mockResolvedValue({ sessionId: "session-retry", warnings: [] }),
         stopRecording,
         cancelRecording: vi.fn(),
       },
@@ -1259,7 +1282,7 @@ describe("useRecordingController", () => {
     const { deps, render, windowHarness } = await startRecordingSession({
       recordingClient: {
         getRecordingCapabilities: vi.fn().mockResolvedValue(CAPABILITIES),
-        startRecording: vi.fn().mockResolvedValue({ sessionId: "pending-cancel" }),
+        startRecording: vi.fn().mockResolvedValue({ sessionId: "pending-cancel", warnings: [] }),
         stopRecording: vi.fn().mockResolvedValue(RESULT),
         cancelRecording,
       },
@@ -1299,7 +1322,7 @@ describe("useRecordingController", () => {
     const { deps, render } = await startRecordingSession({
       recordingClient: {
         getRecordingCapabilities: vi.fn().mockResolvedValue(CAPABILITIES),
-        startRecording: vi.fn().mockResolvedValue({ sessionId: "session-cancel-retry" }),
+        startRecording: vi.fn().mockResolvedValue({ sessionId: "session-cancel-retry", warnings: [] }),
         stopRecording: vi.fn().mockResolvedValue(RESULT),
         cancelRecording,
       },
