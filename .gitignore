@@ -95,7 +95,6 @@ __pycache__/
 .tmp/
 
 .workbuddy/
-.superpowers/
 .worktrees/
 
 # Local cargo config

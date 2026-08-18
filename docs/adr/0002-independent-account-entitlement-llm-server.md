@@ -81,6 +81,5 @@ FrameQ 仅作为行为参考。StudyMind 实现必须内置在本仓库中，并
 
 ## References
 
-- `docs/superpowers/specs/2026-08-08-independent-account-llm-server-design.md`
 - `docs/adr/0001-local-only-media-sources.md`
 - `D:\Github\FrameQ\server`（只读参考，不是运行时依赖）
