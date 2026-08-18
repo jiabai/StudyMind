@@ -26,6 +26,7 @@ type HeroUploadZoneProps = {
   source: TaskComposerSource;
   canSubmit: boolean;
   statusBody: string;
+  disabled?: boolean;
   onLocalMediaSelected: (selection: LocalMediaSelectionView) => void;
   onRemoveLocalMedia: () => Promise<boolean>;
   onSubmit: (submission: TaskSubmission) => void;
@@ -59,13 +60,16 @@ function relativeTimeLabel(timestamp: number, t: TranslateFn): string {
 export function HeroUploadZone({
   source,
   canSubmit,
+  disabled = false,
   onLocalMediaSelected,
   onRemoveLocalMedia,
   onSubmit,
 }: HeroUploadZoneProps) {
   const { t } = useTranslation("workflow");
   const { resolvedLocale } = useLocale();
-  const [state, setState] = useState<HeroState>("idle");
+  const [state, setState] = useState<HeroState>(() =>
+    source.kind === "local_media" ? "has-selection" : "idle",
+  );
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [picking, setPicking] = useState(false);
   const [removing, setRemoving] = useState(false);
@@ -94,11 +98,12 @@ export function HeroUploadZone({
   const handleDragOver = useCallback((e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
+    if (disabled) return;
     // has-selection 也允许拖入：松开即可替换当前文件
     if (state === "idle" || state === "error" || state === "has-selection") {
       setState("drag-over");
     }
-  }, [state]);
+  }, [disabled, state]);
 
   const handleDragLeave = useCallback((e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -111,6 +116,7 @@ export function HeroUploadZone({
   const handleDrop = useCallback(async (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
+    if (disabled) return;
 
     const files = e.dataTransfer.files;
     if (files.length === 0) return;
@@ -142,10 +148,10 @@ export function HeroUploadZone({
       setErrorMessage(t("input.hero.errorValidationFailed"));
       setState("error");
     }
-  }, [t, onLocalMediaSelected, recordRecent]);
+  }, [disabled, t, onLocalMediaSelected, recordRecent]);
 
   const handleClick = useCallback(async (replace = false) => {
-    if (picking) return;
+    if (disabled || picking) return;
     if (selection && !replace) return;
     setPicking(true);
     setErrorMessage("");
@@ -165,11 +171,11 @@ export function HeroUploadZone({
     } finally {
       setPicking(false);
     }
-  }, [t, selection, picking, onLocalMediaSelected]);
+  }, [disabled, t, selection, picking, onLocalMediaSelected]);
 
   const handleRecentClick = useCallback(
     async (entry: RecentMediaEntry) => {
-      if (picking) return;
+      if (disabled || picking) return;
       setPicking(true);
       setErrorMessage("");
       setState("loading");
@@ -187,11 +193,12 @@ export function HeroUploadZone({
         setPicking(false);
       }
     },
-    [t, picking, onLocalMediaSelected, recordRecent, removeRecent],
+    [disabled, t, picking, onLocalMediaSelected, recordRecent, removeRecent],
   );
 
   const handleRemove = useCallback(async (e: MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
+    if (disabled) return;
     setRemoving(true);
     const removed = await onRemoveLocalMedia();
     setRemoving(false);
@@ -201,18 +208,18 @@ export function HeroUploadZone({
     }
     setErrorMessage("");
     setState("idle");
-  }, [t, onRemoveLocalMedia]);
+  }, [disabled, t, onRemoveLocalMedia]);
 
   const handleSubmit = useCallback((e: MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
-    if (!selection) return;
+    if (disabled || !selection) return;
     const trimmedTitle = topicTitle.trim();
     onSubmit({
       kind: "local_media",
       selectionToken: selection.selectionToken,
       ...(trimmedTitle ? { title: trimmedTitle } : {}),
     });
-  }, [selection, onSubmit, topicTitle]);
+  }, [disabled, selection, onSubmit, topicTitle]);
 
   const zoneClasses = [
     "hero-upload-zone",
@@ -222,10 +229,14 @@ export function HeroUploadZone({
     state === "loading" ? "loading" : "",
   ].filter(Boolean).join(" ");
 
+  const cardClasses = ["hero-upload-card", disabled ? "disabled" : ""]
+    .filter(Boolean)
+    .join(" ");
+
   const showSelection = selection && (state === "has-selection" || state === "loading");
 
   return (
-    <div className="hero-upload-zone-wrapper">
+    <div className={cardClasses} aria-disabled={disabled || undefined}>
       <div className="hero-upload-header">
         <h1>{t("input.hero.title")}</h1>
         <p>{t("input.hero.subtitle")}</p>
@@ -236,13 +247,18 @@ export function HeroUploadZone({
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        onClick={!selection && !picking ? () => void handleClick() : undefined}
+        onClick={!disabled && !selection && !picking ? () => void handleClick() : undefined}
         role="button"
-        tabIndex={0}
+        tabIndex={disabled ? -1 : 0}
         aria-label={selection ? t("input.hero.ariaSelected") : t("input.hero.ariaIdle")}
         aria-busy={state === "loading"}
         onKeyDown={(e) => {
-          if ((e.key === "Enter" || e.key === " ") && !selection && !picking) {
+          if (
+            !disabled &&
+            (e.key === "Enter" || e.key === " ") &&
+            !selection &&
+            !picking
+          ) {
             e.preventDefault();
             void handleClick();
           }
@@ -300,7 +316,7 @@ export function HeroUploadZone({
                 onClick={handleRemove}
                 aria-label={t("input.attachment.removeAria", { name: selection.displayName })}
                 title={t("input.attachment.removeAria", { name: selection.displayName })}
-                disabled={removing}
+                disabled={disabled || removing}
               >
                 {removing ? <LoaderCircle className="spin" size={15} /> : <X size={16} />}
               </button>
@@ -316,6 +332,7 @@ export function HeroUploadZone({
                 maxLength={80}
                 placeholder={t("input.hero.titlePlaceholder")}
                 aria-label={t("input.hero.titleAriaLabel")}
+                disabled={disabled}
                 onChange={(e) => setTopicTitle(e.target.value)}
                 onKeyDown={(e) => e.stopPropagation()}
               />
@@ -326,7 +343,7 @@ export function HeroUploadZone({
                 className="hero-upload-replace"
                 type="button"
                 onClick={() => void handleClick(true)}
-                disabled={picking}
+                disabled={disabled || picking}
               >
                 <RefreshCw size={14} />
                 {t("input.hero.replace")}
@@ -335,7 +352,7 @@ export function HeroUploadZone({
                 className="primary-button hero-upload-submit"
                 type="button"
                 onClick={handleSubmit}
-                disabled={!canSubmit || removing}
+                disabled={disabled || !canSubmit || removing}
               >
                 {t("input.hero.submit")}
               </button>
@@ -354,9 +371,11 @@ export function HeroUploadZone({
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
+                if (disabled) return;
                 setErrorMessage("");
                 setState("idle");
               }}
+              disabled={disabled}
             >
               {t("input.hero.retry")}
             </button>
@@ -384,6 +403,7 @@ export function HeroUploadZone({
                   className="hero-recent-open"
                   type="button"
                   onClick={() => void handleRecentClick(entry)}
+                  disabled={disabled || picking}
                   aria-label={t("input.hero.recentOpenAria", { name: entry.name })}
                 >
                   <span className={`hero-recent-icon ${entry.kind}`}>
@@ -412,6 +432,7 @@ export function HeroUploadZone({
                   className="hero-recent-remove"
                   type="button"
                   onClick={() => removeRecent(entry.path)}
+                  disabled={disabled}
                   aria-label={t("input.hero.recentRemoveAria", { name: entry.name })}
                   title={t("input.hero.recentRemoveAria", { name: entry.name })}
                 >

@@ -3254,14 +3254,282 @@ h3 {
 
 /* === Hero Upload Zone Prototype === */
 
-.hero-upload-zone-wrapper {
-  align-items: center;
+.hero-upload-card {
+  align-items: stretch;
+  animation: hero-slide-up 400ms cubic-bezier(0.4, 0, 0.2, 1) both;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(246, 243, 234, 0.82));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-panel);
   display: flex;
   flex-direction: column;
-  gap: 28px;
-  justify-content: center;
-  min-height: calc(100vh - var(--toolbar-height) - 48px);
+  gap: 20px;
+  min-height: 100%;
   padding: 24px;
+  width: 100%;
+}
+
+.hero-upload-card.disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.workflow-entry-grid {
+  align-items: stretch;
+  display: grid;
+  gap: 20px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: 100%;
+}
+
+.workflow-entry-grid > .hero-upload-card,
+.workflow-entry-grid > .recording-card {
+  min-width: 0;
+}
+
+.recording-card {
+  align-self: stretch;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(246, 243, 234, 0.82));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-panel);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-height: 100%;
+  min-width: 0;
+  padding: 24px;
+  position: relative;
+}
+
+.recording-card-header {
+  align-items: flex-start;
+  display: flex;
+  gap: 12px;
+}
+
+.recording-card-icon {
+  align-items: center;
+  background: #edf0e2;
+  border-radius: var(--radius-md);
+  color: var(--primary);
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 44px;
+  justify-content: center;
+  width: 44px;
+}
+
+.recording-card h2 {
+  color: var(--text);
+  font-size: 1.2rem;
+  line-height: 1.25;
+  margin: 0;
+}
+
+.recording-card-subtitle {
+  color: var(--text-muted);
+  font-size: 0.86rem;
+  line-height: 1.45;
+  margin: 6px 0 0;
+}
+
+.recording-card-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.recording-source-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.recording-source-label,
+.recording-elapsed-label {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.recording-source-control {
+  align-items: center;
+  display: flex;
+  position: relative;
+}
+
+.recording-source-control svg {
+  color: var(--primary);
+  pointer-events: none;
+  position: absolute;
+  right: 12px;
+}
+
+.recording-source-select {
+  appearance: none;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font: inherit;
+  min-height: 42px;
+  outline: none;
+  padding: 0 42px 0 12px;
+  width: 100%;
+}
+
+.recording-source-select:focus-visible {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--focus);
+}
+
+.recording-source-select:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.recording-capability-notice {
+  align-items: center;
+  color: var(--text-muted);
+  display: flex;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  margin: 0;
+  min-height: 22px;
+}
+
+.recording-capability-notice-warning,
+.recording-error {
+  color: var(--danger);
+}
+
+.recording-elapsed {
+  align-items: baseline;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  padding-top: 16px;
+}
+
+.recording-elapsed-value {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  font-size: 1.8rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+}
+
+.recording-error {
+  align-items: flex-start;
+  display: flex;
+  font-size: 0.84rem;
+  gap: 7px;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.recording-error svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.recording-card-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: auto;
+}
+
+.recording-start-button,
+.recording-stop-button {
+  flex: 1 1 190px;
+  min-height: 42px;
+}
+
+.recording-discard-button,
+.recording-retry-button,
+.recording-discard-dialog-actions button {
+  align-items: center;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  display: inline-flex;
+  font: inherit;
+  font-size: 0.84rem;
+  gap: 6px;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 13px;
+}
+
+.recording-discard-button:hover:not(:disabled),
+.recording-retry-button:hover:not(:disabled),
+.recording-discard-dialog-actions button:hover:not(:disabled) {
+  background: rgba(95, 88, 72, 0.06);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.recording-discard-button:disabled,
+.recording-retry-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.recording-retry-button {
+  align-self: flex-start;
+  min-height: 34px;
+}
+
+.recording-discard-dialog {
+  align-items: flex-start;
+  background: #fffaf6;
+  border: 1px solid rgba(168, 90, 82, 0.28);
+  border-radius: var(--radius-md);
+  display: grid;
+  gap: 12px;
+  grid-template-columns: auto minmax(0, 1fr);
+  padding: 16px;
+}
+
+.recording-discard-dialog-icon {
+  align-items: center;
+  background: #f5ebe6;
+  border-radius: 50%;
+  color: var(--danger);
+  display: inline-flex;
+  height: 36px;
+  justify-content: center;
+  width: 36px;
+}
+
+.recording-discard-dialog-copy h3 {
+  color: var(--text);
+  font-size: 0.96rem;
+  margin: 0;
+}
+
+.recording-discard-dialog-copy p {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+  margin: 4px 0 0;
+}
+
+.recording-discard-dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  grid-column: 1 / -1;
+  justify-content: flex-end;
+}
+
+.recording-discard-dialog-actions .danger-soft {
+  color: var(--danger);
 }
 
 .hero-upload-header {
@@ -3305,8 +3573,8 @@ h3 {
     background 200ms ease,
     box-shadow 200ms ease,
     transform 120ms ease;
+  flex: 1 1 auto;
   width: 100%;
-  max-width: 560px;
 }
 
 .hero-upload-zone:hover {
@@ -3610,7 +3878,6 @@ h3 {
 }
 
 .hero-recent {
-  max-width: 560px;
   width: 100%;
 }
 
@@ -3769,6 +4036,7 @@ h3 {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .hero-upload-card,
   .hero-upload-zone,
   .hero-upload-icon,
   .hero-upload-replace,
@@ -3787,6 +4055,12 @@ h3 {
 
   .workspace.hero-transitioning {
     transition: none;
+  }
+}
+
+@media (max-width: 840px) {
+  .workflow-entry-grid {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -3827,10 +4101,6 @@ h3 {
     opacity: 1;
     transform: translateY(0);
   }
-}
-
-.hero-upload-zone-wrapper {
-  animation: hero-slide-up 400ms cubic-bezier(0.4, 0, 0.2, 1) both;
 }
 
 .hero-upload-zone.loading {
