@@ -31,10 +31,11 @@ mod worker_runtime;
 mod local_media_contract_tests;
 
 pub(crate) use runtime::{
-    bundled_python_path, ensure_runtime_dirs, path_to_env_string, prepend_to_path,
-    resolve_runtime_paths, RuntimePaths, ALLOW_REAL_ASR_ENV, AUDIO_REVIEW_CACHE_DIR_NAME,
-    CACHE_DIR_ENV, CACHE_DIR_NAME, DESKTOP_LOG_DIR_NAME, MODELSCOPE_OFFLINE_ENV, MODEL_DIR_ENV,
-    OUTPUT_DIR_ENV, RESOURCE_DIR_ENV, USER_DATA_DIR_ENV,
+    bundled_python_path, cleanup_stale_recording_temp_dirs, ensure_runtime_dirs,
+    path_to_env_string, prepend_to_path, resolve_runtime_paths, RuntimePaths, ALLOW_REAL_ASR_ENV,
+    AUDIO_REVIEW_CACHE_DIR_NAME, CACHE_DIR_ENV, CACHE_DIR_NAME, DESKTOP_LOG_DIR_NAME,
+    MODELSCOPE_OFFLINE_ENV, MODEL_DIR_ENV, OUTPUT_DIR_ENV, RECORDINGS_DIR_NAME,
+    RECORDING_TEMP_DIR_NAME, RESOURCE_DIR_ENV, USER_DATA_DIR_ENV,
 };
 
 pub(crate) use diagnostics::{append_desktop_log, summarize_worker_result_for_log};
@@ -66,7 +67,6 @@ pub fn run() {
         .manage(Arc::new(ProcessSupervisors::default()))
         .manage(Arc::new(HistoryDeletionState::default()))
         .manage(Arc::new(local_media::LocalMediaSelectionState::default()))
-        .manage(audio_capture::RecordingController::default())
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 deep_link::activate_main_window_for_deep_link(&window, argv);
@@ -78,6 +78,12 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            let runtime_paths = resolve_runtime_paths(app.handle())?;
+            ensure_runtime_dirs(&runtime_paths)?;
+            cleanup_stale_recording_temp_dirs(&runtime_paths)?;
+            app.manage(audio_capture::RecordingController::from_runtime_paths(
+                &runtime_paths,
+            ));
             #[cfg(any(windows, target_os = "linux"))]
             if let Err(error) = app.deep_link().register_all() {
                 eprintln!("[studymind] failed to register deep links: {error}");

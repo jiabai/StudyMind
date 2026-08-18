@@ -6,12 +6,22 @@ use std::time::Instant;
 use tauri::State;
 use uuid::Uuid;
 
+mod mixer;
+#[cfg(windows)]
+mod wasapi;
+mod wav_writer;
+
 pub(crate) const RECORDING_ALREADY_ACTIVE: RecordingErrorCode = RecordingErrorCode::AlreadyActive;
 pub(crate) const RECORDING_PLATFORM_UNSUPPORTED: RecordingErrorCode =
     RecordingErrorCode::PlatformUnsupported;
 pub(crate) const RECORDING_MIC_INIT_FAILED: RecordingErrorCode = RecordingErrorCode::MicInitFailed;
+pub(crate) const RECORDING_SYSTEM_LOOPBACK_INIT_FAILED: RecordingErrorCode =
+    RecordingErrorCode::SystemLoopbackInitFailed;
 pub(crate) const RECORDING_SYSTEM_AUDIO_UNAVAILABLE: RecordingErrorCode =
     RecordingErrorCode::SystemAudioUnavailable;
+pub(crate) const RECORDING_STREAM_ERROR: RecordingErrorCode = RecordingErrorCode::StreamError;
+pub(crate) const RECORDING_MIX_FAILED: RecordingErrorCode = RecordingErrorCode::MixFailed;
+pub(crate) const RECORDING_WRITE_FAILED: RecordingErrorCode = RecordingErrorCode::WriteFailed;
 pub(crate) const RECORDING_EMPTY: RecordingErrorCode = RecordingErrorCode::Empty;
 pub(crate) const RECORDING_SESSION_INVALID: RecordingErrorCode = RecordingErrorCode::SessionInvalid;
 pub(crate) const RECORDING_FINALIZE_FAILED: RecordingErrorCode = RecordingErrorCode::FinalizeFailed;
@@ -164,11 +174,13 @@ pub(crate) struct RecordingResult {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct CaptureWorkspace {
+    pub(crate) session_id: String,
     pub(crate) temp_dir: PathBuf,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct CapturedRecording {
+    pub(crate) source_paths: Vec<PathBuf>,
     pub(crate) valid_frame_count: u64,
     pub(crate) silent: bool,
     pub(crate) duration_ms: u64,
@@ -208,6 +220,7 @@ pub(crate) trait RecordingBackend: Send + Sync {
 pub(crate) trait RecordingFinalizer: Send + Sync {
     fn finalize(
         &self,
+        workspace: &CaptureWorkspace,
         capture: CapturedRecording,
         mode: RecordingMode,
     ) -> Result<FinalizedRecording, RecordingError>;
@@ -238,6 +251,28 @@ pub(crate) struct RecordingController {
 }
 
 impl RecordingController {
+    pub(crate) fn from_runtime_paths(paths: &crate::RuntimePaths) -> Self {
+        #[cfg(windows)]
+        {
+            let recordings_dir = paths.user_data_dir.join(crate::RECORDINGS_DIR_NAME);
+            return Self::new(
+                Arc::new(wasapi::WasapiRecordingBackend::default()),
+                Arc::new(mixer::FfmpegRecordingFinalizer::new(
+                    paths.resource_dir.clone(),
+                    recordings_dir.clone(),
+                )),
+                Arc::new(LocalRecordingFileStore::new(recordings_dir)),
+                Arc::new(SystemRecordingClock::new()),
+            );
+        }
+
+        #[cfg(not(windows))]
+        {
+            let _ = paths;
+            Self::default()
+        }
+    }
+
     pub(crate) fn new(
         backend: Arc<dyn RecordingBackend>,
         finalizer: Arc<dyn RecordingFinalizer>,
@@ -354,7 +389,7 @@ impl RecordingController {
             return Err(error);
         }
 
-        let finalized = match self.finalizer.finalize(captured, mode) {
+        let finalized = match self.finalizer.finalize(&workspace, captured, mode) {
             Ok(finalized) => finalized,
             Err(error) => {
                 self.set_error(error.clone())?;
@@ -369,6 +404,24 @@ impl RecordingController {
 
         *self.lock_state()? = ControllerState::Idle;
         Ok(finalized.into())
+    }
+
+    pub(crate) fn close(&self) -> Result<(), RecordingError> {
+        let active_session_id = {
+            let state = self.lock_state()?;
+            match &*state {
+                ControllerState::Recording(active) => Some(active.session_id.clone()),
+                ControllerState::Starting | ControllerState::Finalizing => {
+                    return Err(RecordingError::new(RECORDING_STATE_UNAVAILABLE));
+                }
+                ControllerState::Idle | ControllerState::Error => None,
+            }
+        };
+
+        if let Some(session_id) = active_session_id {
+            self.stop(&session_id)?;
+        }
+        Ok(())
     }
 
     pub(crate) fn cancel(&self, session_id: &str) -> Result<(), RecordingError> {
@@ -524,6 +577,7 @@ struct UnavailableRecordingFinalizer;
 impl RecordingFinalizer for UnavailableRecordingFinalizer {
     fn finalize(
         &self,
+        _workspace: &CaptureWorkspace,
         _capture: CapturedRecording,
         _mode: RecordingMode,
     ) -> Result<FinalizedRecording, RecordingError> {
@@ -539,6 +593,52 @@ impl RecordingFileStore for UnavailableRecordingFileStore {
     }
 
     fn cleanup(&self, _workspace: &CaptureWorkspace) -> Result<(), RecordingError> {
+        Ok(())
+    }
+}
+
+struct LocalRecordingFileStore {
+    recordings_dir: PathBuf,
+}
+
+impl LocalRecordingFileStore {
+    fn new(recordings_dir: PathBuf) -> Self {
+        Self { recordings_dir }
+    }
+}
+
+impl RecordingFileStore for LocalRecordingFileStore {
+    fn prepare(&self, session_id: &str) -> Result<CaptureWorkspace, RecordingError> {
+        let temp_dir = self
+            .recordings_dir
+            .join(crate::RECORDING_TEMP_DIR_NAME)
+            .join(session_id);
+        std::fs::create_dir_all(&temp_dir)
+            .map_err(|_| RecordingError::new(RECORDING_WRITE_FAILED))?;
+        Ok(CaptureWorkspace {
+            session_id: session_id.to_string(),
+            temp_dir,
+        })
+    }
+
+    fn cleanup(&self, workspace: &CaptureWorkspace) -> Result<(), RecordingError> {
+        let temp_root = self.recordings_dir.join(crate::RECORDING_TEMP_DIR_NAME);
+        let canonical_root = temp_root
+            .canonicalize()
+            .map_err(|_| RecordingError::new(RECORDING_WRITE_FAILED))?;
+        let canonical_workspace = workspace
+            .temp_dir
+            .canonicalize()
+            .map_err(|_| RecordingError::new(RECORDING_WRITE_FAILED))?;
+        if canonical_workspace == canonical_root
+            || !canonical_workspace.starts_with(&canonical_root)
+        {
+            return Err(RecordingError::new(RECORDING_WRITE_FAILED));
+        }
+        if workspace.temp_dir.exists() {
+            std::fs::remove_dir_all(&workspace.temp_dir)
+                .map_err(|_| RecordingError::new(RECORDING_WRITE_FAILED))?;
+        }
         Ok(())
     }
 }
@@ -609,6 +709,7 @@ mod tests {
     impl RecordingFileStore for FakeFileStore {
         fn prepare(&self, session_id: &str) -> Result<CaptureWorkspace, RecordingError> {
             Ok(CaptureWorkspace {
+                session_id: session_id.to_string(),
                 temp_dir: PathBuf::from(format!("temp-{session_id}")),
             })
         }
@@ -690,6 +791,7 @@ mod tests {
     impl RecordingFinalizer for FakeFinalizer {
         fn finalize(
             &self,
+            _workspace: &CaptureWorkspace,
             capture: CapturedRecording,
             _mode: RecordingMode,
         ) -> Result<FinalizedRecording, RecordingError> {
@@ -707,6 +809,7 @@ mod tests {
     impl RecordingFinalizer for FailingFinalizer {
         fn finalize(
             &self,
+            _workspace: &CaptureWorkspace,
             _capture: CapturedRecording,
             _mode: RecordingMode,
         ) -> Result<FinalizedRecording, RecordingError> {
@@ -717,6 +820,7 @@ mod tests {
     fn controller() -> RecordingController {
         RecordingController::new(
             Arc::new(FakeBackend::available(CapturedRecording {
+                source_paths: Vec::new(),
                 valid_frame_count: 1,
                 silent: false,
                 duration_ms: 100,
@@ -744,6 +848,7 @@ mod tests {
     impl RecordingFileStore for TrackingFileStore {
         fn prepare(&self, session_id: &str) -> Result<CaptureWorkspace, RecordingError> {
             let workspace = CaptureWorkspace {
+                session_id: session_id.to_string(),
                 temp_dir: PathBuf::from(format!("temp-{session_id}")),
             };
             self.prepared
@@ -845,8 +950,22 @@ mod tests {
     }
 
     #[test]
+    fn close_rejects_starting_or_finalizing_sessions_without_closing_them() {
+        let controller = controller();
+        for busy_state in [ControllerState::Starting, ControllerState::Finalizing] {
+            *controller.state.lock().expect("state lock") = busy_state;
+
+            let error = controller
+                .close()
+                .expect_err("busy recording must keep the window open");
+            assert_eq!(error.code, RECORDING_STATE_UNAVAILABLE);
+        }
+    }
+
+    #[test]
     fn unavailable_mode_is_rejected_before_preparing_capture_workspace() {
         let mut backend = FakeBackend::available(CapturedRecording {
+            source_paths: Vec::new(),
             valid_frame_count: 1,
             silent: false,
             duration_ms: 100,
@@ -875,6 +994,7 @@ mod tests {
     #[test]
     fn failed_backend_start_cleans_the_prepared_workspace() {
         let mut backend = FakeBackend::available(CapturedRecording {
+            source_paths: Vec::new(),
             valid_frame_count: 1,
             silent: false,
             duration_ms: 100,
@@ -902,6 +1022,7 @@ mod tests {
     fn empty_capture_is_rejected_but_valid_silent_capture_is_finalized() {
         let empty_controller = RecordingController::new(
             Arc::new(FakeBackend::available(CapturedRecording {
+                source_paths: Vec::new(),
                 valid_frame_count: 0,
                 silent: false,
                 duration_ms: 0,
@@ -923,6 +1044,7 @@ mod tests {
 
         let silent_controller = RecordingController::new(
             Arc::new(FakeBackend::available(CapturedRecording {
+                source_paths: Vec::new(),
                 valid_frame_count: 1,
                 silent: true,
                 duration_ms: 100,
@@ -943,6 +1065,7 @@ mod tests {
         let cleaned = file_store.cleaned.clone();
         let controller = RecordingController::new(
             Arc::new(FakeBackend::available(CapturedRecording {
+                source_paths: Vec::new(),
                 valid_frame_count: 1,
                 silent: false,
                 duration_ms: 100,
@@ -973,6 +1096,7 @@ mod tests {
     #[test]
     fn stream_failure_preserves_the_workspace_and_returns_a_stable_error() {
         let mut backend = FakeBackend::available(CapturedRecording {
+            source_paths: Vec::new(),
             valid_frame_count: 1,
             silent: false,
             duration_ms: 100,
@@ -1005,6 +1129,7 @@ mod tests {
         let cleaned = file_store.cleaned.clone();
         let controller = RecordingController::new(
             Arc::new(FakeBackend::available(CapturedRecording {
+                source_paths: Vec::new(),
                 valid_frame_count: 1,
                 silent: false,
                 duration_ms: 100,
@@ -1036,5 +1161,43 @@ mod tests {
         assert!(serialized.contains("RECORDING_MIC_INIT_FAILED"));
         assert_eq!(error.message, "The microphone could not be initialized.");
         assert!(!serialized.contains("C:\\\\Users"));
+    }
+
+    #[test]
+    fn local_file_store_contains_and_cleans_only_session_temp_paths() {
+        let root = std::env::temp_dir().join(format!("StudyMind-recordings-{}", Uuid::new_v4()));
+        let recordings_dir = root.join("recordings");
+        std::fs::create_dir_all(recordings_dir.join(crate::RECORDING_TEMP_DIR_NAME))
+            .expect("create recording temp root");
+        let store = LocalRecordingFileStore::new(recordings_dir.clone());
+        let workspace = store.prepare("session-1").expect("prepare workspace");
+
+        assert!(workspace.temp_dir.starts_with(
+            recordings_dir
+                .join(crate::RECORDING_TEMP_DIR_NAME)
+                .join("session-1")
+        ));
+        std::fs::write(workspace.temp_dir.join("mic.wav"), b"capture")
+            .expect("write capture fixture");
+        store
+            .cleanup(&workspace)
+            .expect("cleanup session workspace");
+        assert!(!workspace.temp_dir.exists());
+
+        let outside = CaptureWorkspace {
+            session_id: "outside".to_string(),
+            temp_dir: root.join("outside"),
+        };
+        std::fs::create_dir_all(&outside.temp_dir).expect("create outside directory");
+        assert_eq!(
+            store
+                .cleanup(&outside)
+                .expect_err("outside path must be rejected")
+                .code,
+            RECORDING_WRITE_FAILED
+        );
+        assert!(outside.temp_dir.is_dir());
+
+        std::fs::remove_dir_all(root).expect("remove recording temp root");
     }
 }

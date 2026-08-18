@@ -13,6 +13,8 @@ pub(crate) const CACHE_DIR_NAME: &str = "cache";
 pub(crate) const AUDIO_REVIEW_CACHE_DIR_NAME: &str = ".StudyMind-audio-review";
 pub(crate) const LEGACY_TEMP_DIR_NAME: &str = "work";
 pub(crate) const DESKTOP_LOG_DIR_NAME: &str = "logs";
+pub(crate) const RECORDINGS_DIR_NAME: &str = "recordings";
+pub(crate) const RECORDING_TEMP_DIR_NAME: &str = ".tmp";
 
 #[derive(Debug, Clone)]
 pub(crate) struct RuntimePaths {
@@ -60,7 +62,53 @@ pub(crate) fn ensure_runtime_dirs(paths: &RuntimePaths) -> Result<(), String> {
     fs::create_dir_all(paths.user_data_dir.join(DESKTOP_LOG_DIR_NAME))
         .map_err(|error| error.to_string())?;
     remove_legacy_app_local_temp_dir(paths)?;
-    fs::create_dir_all(paths.user_data_dir.join("models")).map_err(|error| error.to_string())
+    fs::create_dir_all(paths.user_data_dir.join("models")).map_err(|error| error.to_string())?;
+    let recordings_dir = paths.user_data_dir.join(RECORDINGS_DIR_NAME);
+    fs::create_dir_all(recordings_dir.join(RECORDING_TEMP_DIR_NAME))
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+pub(crate) fn cleanup_stale_recording_temp_dirs(paths: &RuntimePaths) -> Result<(), String> {
+    let recording_temp_dir = paths
+        .user_data_dir
+        .join(RECORDINGS_DIR_NAME)
+        .join(RECORDING_TEMP_DIR_NAME);
+    let canonical_user_data = paths
+        .user_data_dir
+        .canonicalize()
+        .map_err(|error| error.to_string())?;
+    let canonical_temp_dir = recording_temp_dir
+        .canonicalize()
+        .map_err(|error| error.to_string())?;
+    if !canonical_temp_dir.starts_with(&canonical_user_data)
+        || canonical_temp_dir == canonical_user_data
+    {
+        return Err("Refusing to clean recording temp directory outside app-local data".into());
+    }
+
+    for entry in fs::read_dir(recording_temp_dir).map_err(|error| error.to_string())? {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let path = entry.path();
+        let metadata = fs::symlink_metadata(&path).map_err(|error| error.to_string())?;
+        if metadata.file_type().is_symlink() {
+            return Err("Refusing to clean symlink in recording temp directory".into());
+        }
+        if !metadata.is_dir() {
+            continue;
+        }
+
+        let canonical_entry = path.canonicalize().map_err(|error| error.to_string())?;
+        if !canonical_entry.starts_with(&canonical_temp_dir)
+            || canonical_entry == canonical_temp_dir
+        {
+            return Err("Refusing to clean recording temp path outside protected directory".into());
+        }
+
+        fs::remove_dir_all(&path).map_err(|error| error.to_string())?;
+    }
+
+    Ok(())
 }
 
 fn remove_legacy_app_local_temp_dir(paths: &RuntimePaths) -> Result<(), String> {
@@ -111,8 +159,9 @@ pub(crate) fn path_to_env_string(path: impl AsRef<Path>) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        bundled_python_path, ensure_runtime_dirs, normalize_resource_dir, RuntimePaths,
-        LEGACY_TEMP_DIR_NAME,
+        bundled_python_path, cleanup_stale_recording_temp_dirs, ensure_runtime_dirs,
+        normalize_resource_dir, RuntimePaths, LEGACY_TEMP_DIR_NAME, RECORDINGS_DIR_NAME,
+        RECORDING_TEMP_DIR_NAME,
     };
     use std::fs;
     use std::path::PathBuf;
@@ -134,7 +183,39 @@ mod tests {
         assert!(paths.user_data_dir.join("outputs").is_dir());
         assert!(paths.user_data_dir.join("cache").is_dir());
         assert!(paths.user_data_dir.join("logs").is_dir());
+        assert!(paths
+            .user_data_dir
+            .join(RECORDINGS_DIR_NAME)
+            .join(RECORDING_TEMP_DIR_NAME)
+            .is_dir());
         assert!(!legacy_temp_dir.exists());
+    }
+
+    #[test]
+    fn startup_cleanup_removes_only_stale_recording_session_children() {
+        let root = temp_dir("startup_cleanup_removes_stale_recording_session_children");
+        let paths = RuntimePaths {
+            resource_dir: root.join("resources"),
+            user_data_dir: root.join("user-data"),
+        };
+        let stale_dir = paths
+            .user_data_dir
+            .join(RECORDINGS_DIR_NAME)
+            .join(RECORDING_TEMP_DIR_NAME)
+            .join("old-session");
+        fs::create_dir_all(&stale_dir).expect("create stale recording session");
+        fs::write(stale_dir.join("mic.wav"), b"temporary").expect("write stale capture");
+
+        ensure_runtime_dirs(&paths).expect("ensure runtime dirs");
+        assert!(stale_dir.is_dir());
+        cleanup_stale_recording_temp_dirs(&paths).expect("cleanup stale recording sessions");
+
+        assert!(!stale_dir.exists());
+        assert!(paths
+            .user_data_dir
+            .join(RECORDINGS_DIR_NAME)
+            .join(RECORDING_TEMP_DIR_NAME)
+            .is_dir());
     }
 
     #[test]

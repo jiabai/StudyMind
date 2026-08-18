@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
-use tauri::{PhysicalPosition, Window};
+use tauri::{PhysicalPosition, State, Window};
+
+use crate::audio_capture::RecordingController;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct WindowPositionView {
@@ -13,7 +15,11 @@ pub(crate) fn start_window_drag(window: Window) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub(crate) fn close_window(window: Window) -> Result<(), String> {
+pub(crate) fn close_window(
+    window: Window,
+    recording: State<'_, RecordingController>,
+) -> Result<(), String> {
+    recording.close().map_err(|error| error.to_string())?;
     window.close().map_err(|error| error.to_string())
 }
 
