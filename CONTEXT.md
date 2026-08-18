@@ -28,6 +28,25 @@ _Avoid_: source, input file
 媒体预处理产物：提取后的音频路径 + 可选的字幕候选。
 _Avoid_: extracted media, normalized media
 
+### 内置录音
+
+**RecordingSession**:
+一次从开始采集到停止、失败或放弃结束的录音会话；它不是 Task，也不是 LocalMediaSource。
+_Avoid_: recording task, recording file
+
+**RecordingMode**:
+录音会话的音源选择：`mic`（仅麦克风）、`system`（仅系统声音）或 `mixed`（麦克风与系统声音）。
+_Avoid_: audio source, capture type
+
+**EmptyRecording**:
+没有产生有效音频帧的 RecordingSession 结果；v1 拒绝它并回到空闲态。
+_Avoid_: zero recording, blank audio
+
+**SilentRecording**:
+包含有效音频帧但没有可感知声音的录音；v1 将其视为合法本地媒体，不因静音自动失败。
+_Avoid_: empty recording
+
+
 ### 转写
 
 **Transcript**:
