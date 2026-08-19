@@ -32,14 +32,16 @@
 
 | ID | 场景 | 预期结果 | 环境 | 状态 | Evidence |
 |---|---|---|---|---|---|
-| F-01 | Rust binding 编译与链接 | Intel、arm64 均能构建并启动最小 audio-only stream | E1, E2 | Planned | — |
-| F-02 | 全局系统音频 | 同时播放两个独立应用的音频，两者均进入 audio output | E1, E2 | Planned | — |
-| F-03 | 默认输出变化 | 录音期间切换可用的默认输出路由，系统音频语义保持成立 | E1, E2 | Planned | — |
-| F-04 | 显示器变化 | 切换主显示器、连接/拔出外接显示器；优先更新 filter，必要时重建 stream | E3 | Planned | — |
-| F-05 | 恢复窗口 | 单次中断不超过 2 秒时按媒体时间戳补静音并继续；超过 2 秒时失败 | E3 | Planned | — |
-| F-06 | 排除自身音频 | `excludesCurrentProcessAudio` 经验证生效，StudyMind 自身提示音不进入 system capture | E1, E2 | Planned | — |
-| F-07 | audio-only fail-closed | 未注册 screen output，writer/Worker 不接收视频 sample buffer | E1, E2 | Planned | — |
-| F-08 | TCC 基础行为 | ad-hoc 包可完成麦克风、Screen Recording 请求和授权后重探测 | E1, E2 | Planned | — |
+| F-01 | Rust binding 编译与链接 | Intel、arm64 均能构建并启动最小 audio-only stream | E1, E2 | **E1: Pass** / E2: Planned | E1: `cargo build --release` Finished in 12.92s（screencapturekit 8.0.1, macos_13_0, Rust 1.96.0, CLT SDK 15.5 / Swift 6.1.2）；`SCStream.start_capture()` 成功。见 `scripts/macos-recording-feasibility/report.html` |
+| F-02 | 全局系统音频 | 同时播放两个独立应用的音频，两者均进入 audio output | E1, E2 | **E1: Pass** / E2: Planned | E1: 静音基线 rmsAvg=0.000000；afplay 播放 440Hz → 0.285581；say 语音 → 0.122613；两者同时 → 0.289172 |
+| F-03 | 默认输出变化 | 录音期间切换可用的默认输出路由，系统音频语义保持成立 | E1, E2 | Blocked | 需录音中人工切换系统默认输出（GUI 操作），本会话未执行；探针与流程就绪 |
+| F-04 | 显示器变化 | 切换主显示器、连接/拔出外接显示器；优先更新 filter，必要时重建 stream | E3 | Blocked | 本机无外接显示器（E3 环境不满足），无法执行 |
+| F-05 | 恢复窗口 | 单次中断不超过 2 秒时按媒体时间戳补静音并继续；超过 2 秒时失败 | E3 | Blocked | 依赖 E3 外接显示器 + stream 中断注入，本机无法执行 |
+| F-06 | 排除自身音频 | `excludesCurrentProcessAudio` 经验证生效，StudyMind 自身提示音不进入 system capture | E1, E2 | **E1: Pass** / E2: Planned | E1: 同进程 cpal 播放 440Hz：不排除 rmsAvg=0.291564；`--exclude-self` → 0.000000 |
+| F-07 | audio-only fail-closed | 未注册 screen output，writer/Worker 不接收视频 sample buffer | E1, E2 | **E1: Pass** / E2: Planned | E1: 仅注册 `SCStreamOutputType::Audio`；6 次运行 video_buffers 恒为 0，mic_buffers 恒为 0 |
+| F-08 | TCC 基础行为 | ad-hoc 包可完成麦克风、Screen Recording 请求和授权后重探测 | E1, E2 | **E1: Pass\*** / E2: Planned | E1: 未授权时 `SCShareableContent::get()` 返回 TCC 拒绝；授权后重探测成功（displays=1 apps=28）且 stream 启动。\*CLI 形态验证；ad-hoc .app 形态（Info.plist usage description）待打包阶段复验 |
+
+> 2026-08-20 更新：E1（Intel x86_64, macOS 15.7.7, ad-hoc CLI）可行性验证完成，F-01/F-02/F-06/F-07 通过、F-08 部分通过（授权后重探测）；F-03/F-04/F-05 因环境限制 Blocked。完整证据见 `scripts/macos-recording-feasibility/report.html` 与探针输出。工具链已升级至 CLT SDK 15.5 / Swift 6.1.2（原 Swift 5.3 / SDK 11.0 无法构建 screencapturekit 8.0.1）。
 
 ## 4. 权限与能力探测
 

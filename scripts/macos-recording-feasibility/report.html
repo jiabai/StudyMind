@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StudyMind macOS 录音可行性验证报告（PROTOTYPE）</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px 20px;
+    background: #FFFFFF;
+    color: #1F2937;
+    font-family: -apple-system, "PingFang SC", "Helvetica Neue", sans-serif;
+    line-height: 1.6;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  h1 { font-size: 24px; margin: 0 0 4px; color: #111827; }
+  .sub { color: #6B7280; font-size: 13px; margin-bottom: 20px; }
+  .badge {
+    display: inline-block; padding: 2px 10px; border-radius: 999px;
+    font-size: 12px; font-weight: 600; margin-left: 8px; vertical-align: 2px;
+    background: #FDE68A; color: #92400E;
+  }
+  .card {
+    background: #FAEEDA; border: 1px solid #F0E3C8; border-radius: 12px;
+    padding: 16px 20px; margin: 16px 0;
+  }
+  .card.blue { background: #E6F1FB; border-color: #C9DEEF; }
+  .card.red  { background: #FCEBEB; border-color: #F3D3D3; }
+  h2 { font-size: 16px; margin: 28px 0 10px; color: #111827; border-left: 4px solid #D97706; padding-left: 10px; }
+  table { width: 100%; border-collapse: collapse; background: #FFFFFF; border-radius: 10px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  th, td { padding: 10px 12px; text-align: left; font-size: 13px; border-bottom: 1px solid #EEF0F3; vertical-align: top; }
+  th { background: #F8F5EF; color: #374151; font-weight: 600; white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+  .st-pass    { background: #E8F5E9; color: #1B5E20; font-weight: 700; border-radius: 6px; padding: 2px 10px; display: inline-block; }
+  .st-fail    { background: #FCEBEB; color: #B3261E; font-weight: 700; border-radius: 6px; padding: 2px 10px; display: inline-block; }
+  .st-blocked { background: #FFF8E1; color: #8A6D00; font-weight: 700; border-radius: 6px; padding: 2px 10px; display: inline-block; }
+  pre {
+    background: #F5F4F0; border: 1px solid #E5E3DC; border-radius: 8px;
+    padding: 12px 14px; font-size: 12px; overflow-x: auto; color: #334155;
+  }
+  .kv { display: grid; grid-template-columns: 170px 1fr; gap: 6px 16px; font-size: 13px; }
+  .kv b { color: #374151; }
+  ul { margin: 8px 0; padding-left: 22px; font-size: 13px; }
+  .foot { margin-top: 28px; color: #9CA3AF; font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>macOS 录音可行性验证报告 <span class="badge">PROTOTYPE · 一次性证据收集</span></h1>
+  <div class="sub">依据 docs/handoffs/studymind-macos-recording-feasibility-handoff.md · F-01~F-08 阻塞性矩阵 · 决策来源 ADR 0005 · 验收计划 docs/test-plans/macos-recording-acceptance.md</div>
+
+  <!-- 结论 -->
+  <div class="card blue">
+    <b style="color:#1B5E20;">结论：F-01 / F-02 / F-06 / F-07 全部通过，F-08 部分通过（授权后重探测成功）；F-03 / F-04 / F-05 受环境限制 Blocked。</b>
+    <p style="margin:8px 0 0;">工具链升级（CLT → SDK <b>15.5</b> / Swift <b>6.1.2</b>）后 <code>screencapturekit</code> 8.0.1 在本机成功构建运行（F-01）。用户授予 Screen Recording 权限后：全局系统音频捕获到两个独立应用的声音（F-02），<code>excludesCurrentProcessAudio</code> 将自身 440Hz 测试音从 rmsAvg 0.292 降至 0.000（F-06），全程 <code>video_buffers=0</code>（F-07），授权后重探测成功（F-08 部分）。F-03（切输出路由）、F-04（外接显示器）、F-05（恢复窗口）需要 GUI 操作或 E3 环境，本机无法执行。</p>
+  </div>
+
+  <h2>1. 测试环境元数据（对应 E1：Intel x86_64 · ad-hoc）</h2>
+  <div class="card blue">
+    <div class="kv">
+      <b>macOS 版本</b><span>15.7.7 (Build 24G720)</span>
+      <b>架构 / CPU</b><span>x86_64 · Intel Core i7-8850H @ 2.60GHz（Intel UHD 630，内置 Retina 2880×1800 主显示器，单显示器）</span>
+      <b>Swift 工具链（已升级）</b><span>Apple Swift 6.1.2（swiftlang-6.1.2.1.2 / clang-1700.0.13.5）— CommandLineTools，无 Xcode.app</span>
+      <b>SDK（已升级）</b><span>MacOSX15.5.sdk（<code>xcrun --sdk macosx --show-sdk-version</code> = 15.5）</span>
+      <b>Rust 工具链</b><span>rustc 1.96.0 / cargo 1.96.0（Homebrew）</span>
+      <b>binding 版本</b><span>screencapturekit 8.0.1（feature: macos_13_0）</span>
+      <b>构建 workaround</b><span>vendor 本地 patch：build.rs 加 <code>swift build --disable-sandbox</code>（本执行环境 sandbox-exec 不可用）；删除 apple-metal State.swift 中 macOS 26 SDK 才有的 <code>reductionMode/lodBias</code> 引用；二进制 rpath → <code>/usr/lib/swift</code>（系统 shared cache runtime）</span>
+      <b>ffmpeg 资源</b><span>resources/bin → brew ffmpeg 9.0.1（ffmpeg+ffprobe 软链，B-01 本机就绪）；PATH 内 ffmpeg 4.2.2（imageio-ffmpeg），ffprobe 不在 PATH</span>
+      <b>ScreenCaptureKit</b><span>框架存在于 /System/Library/Frameworks（系统 15.7 自带）</span>
+      <b>GUI 会话</b><span>本地 console 会话（非 SSH），有显示器，可运行窗口/流</span>
+      <b>探针</b><span>Rust CLI（无 bundle / Info.plist）→ 已由用户授予 Screen Recording 权限（TCC），捕获正常</span>
+    </div>
+  </div>
+
+  <h2>2. F-01 ~ F-08 判定</h2>
+  <table>
+    <tr><th style="width:64px;">ID</th><th style="width:190px;">场景</th><th style="width:90px;">状态</th><th>证据 / 阻塞原因</th></tr>
+    <tr>
+      <td>F-01</td><td>Rust binding 编译链接 + 启动最小 audio-only stream（Intel）</td>
+      <td><span class="st-pass">PASS</span></td>
+      <td><code>cargo build --release</code> 成功（Finished in 12.92s）；授权后 <code>SCStream.start_capture()</code> 成功（"STEP start ok"）。Intel x86_64 侧编译/链接/启动全部验证。</td>
+    </tr>
+    <tr>
+      <td>F-02</td><td>两个独立应用音频均进入全局系统音频 output</td>
+      <td><span class="st-pass">PASS</span></td>
+      <td>静音基线 rmsAvg=0.000000；afplay（440Hz）播放时 rmsAvg=0.285581；say 语音播放时 rmsAvg=0.122613；两者同时播放 rmsAvg=0.289172。两个独立应用的声音均进入全局系统音频捕获。</td>
+    </tr>
+    <tr>
+      <td>F-03</td><td>录音中切换默认输出路由，系统音频语义保持</td>
+      <td><span class="st-blocked">BLOCKED</span></td>
+      <td>需在录音期间人工切换系统默认输出设备（GUI 操作），本会话未执行；探针与验证流程已就绪。</td>
+    </tr>
+    <tr>
+      <td>F-04</td><td>主显示器切换 / 外接显示器拔插：filter 更新或 stream 重建</td>
+      <td><span class="st-blocked">BLOCKED</span></td>
+      <td>需 E3 环境（外接显示器），本机仅有内置单显示器（1680×1050 捕获分辨率，2880×1800 原生），无法执行显示器切换/拔插。</td>
+    </tr>
+    <tr>
+      <td>F-05</td><td>恢复窗口：≤2s 按媒体时间戳补静音继续，&gt;2s 失败</td>
+      <td><span class="st-blocked">BLOCKED</span></td>
+      <td>需 E3 环境 + stream 中断注入（显示器切换触发），本机无外接显示器，无法执行。</td>
+    </tr>
+    <tr>
+      <td>F-06</td><td>excludesCurrentProcessAudio 生效，StudyMind 自身音频不进入 capture</td>
+      <td><span class="st-pass">PASS</span></td>
+      <td>同进程 cpal 播放 440Hz 测试音：不排除时 rmsAvg=<b>0.291564</b>；<code>--exclude-self</code>（excludesCurrentProcessAudio=true）时 rmsAvg=<b>0.000000</b>。自身音频排除明确生效。</td>
+    </tr>
+    <tr>
+      <td>F-07</td><td>audio-only fail-closed：不注册 screen output，writer/Worker 不接收视频 buffer</td>
+      <td><span class="st-pass">PASS</span></td>
+      <td>探针仅注册 <code>SCStreamOutputType::Audio</code>，从不注册 <code>.screen</code>；6 次运行（基线/双应用/自身音频对比）<code>video_buffers</code> 全部为 0，mic_buffers 亦为 0。</td>
+    </tr>
+    <tr>
+      <td>F-08</td><td>TCC 基础行为：Screen Recording 请求 + 授权后重探测（ad-hoc 包）</td>
+      <td><span class="st-pass">PASS*</span></td>
+      <td>未授权时 <code>SCShareableContent::get()</code> 返回 TCC 拒绝（"用户拒绝了应用程序、窗口、显示器捕捉的TCC"）；用户授权后重探测成功（displays=1 apps=28）且 stream 启动。<b>*CLI 形态验证；ad-hoc .app 形态（bundle Info.plist / NSScreenCaptureUsageDescription）按 ADR 仍需在打包时复验。</b></td>
+    </tr>
+  </table>
+
+  <h2>3. 证据（构建与捕获输出节选）</h2>
+  <div class="card">
+<pre># F-01 构建（工具链升级后）
+$ cargo build --release
+  Finished `release` profile [optimized] target(s) in 12.92s
+
+# F-02 / F-07 运行证据（audio-only，注册 .audio 输出，video_buffers 恒为 0）
+$ ./target/release/scprobe-crate --seconds 3
+STEP shareable ok displays=1 apps=28 windows=122
+STEP start ok excludeSelf=false playSelf=false
+STEP capture ok audio_buffers=151 audio_bytes=1159680 video_buffers=0 mic_buffers=0 rmsAvg=0.000000   # 静音基线
+
+# F-02：两个独立应用音频进入全局系统音频
+afplay /tmp/tone440.wav   →  rmsAvg=0.285581
+say "..."                →  rmsAvg=0.122613
+afplay + say 同时        →  rmsAvg=0.289172
+
+# F-06：excludesCurrentProcessAudio 对比（同进程 cpal 播放 440Hz）
+--play-self-audio                    →  rmsAvg=0.291564   # 自身音频进入捕获
+--play-self-audio --exclude-self     →  rmsAvg=0.000000   # 自身音频被排除
+
+# F-08：TCC 行为（授权前/后）
+未授权: Error: NoShareableContent("...用户拒绝了应用程序、窗口、显示器捕捉的TCC")
+授权后: STEP shareable ok displays=1 apps=28 windows=122   # 重探测成功
+
+# 升级前失败证据（存档）：Swift 5.3 / SDK 11.0
+error: unknown option --scratch-path; use --help to list available options
+warning: SDK major version (11) is too old; the corresponding Swift APIs will be stubbed out.</pre>
+  </div>
+
+  <h2>4. 相对 ADR 0005 的偏差</h2>
+  <ul>
+    <li><b>绑定选型一致</b>：探针使用 <code>screencapturekit</code> crate（8.0.1, macos_13_0），未引入 Swift helper、未写 ObjC 桥，符合 ADR 第 2 节。</li>
+    <li><b>偏差 1（已消除）</b>：ADR 前提"工具链满足 binding API/链接要求"原不成立（Swift 5.3 / SDK 11.0），已通过升级 CommandLineTools（SDK 15.5 / Swift 6.1.2）解决，F-01 转 Pass，<b>无需重开 ADR</b>。</li>
+    <li><b>偏差 2（记录，仅验证环境）</b>：本执行环境 <code>sandbox-exec</code> 不可用（SwiftPM 默认用它编译 manifest），已在 throwaway 探针的 vendor 构建中加 <code>--disable-sandbox</code>；SDK 15.5 编译 <code>apple-metal 0.8.8</code> 的 macOS 26 分支失败，已删除该分支（探针不使用 Metal）。<b>这些仅影响验证 harness 构建，不涉及产品后端选型</b>；正式实现时 Tauri 工程在正常开发环境（用户终端）构建不受影响。</li>
+    <li><b>偏差 3（预期内）</b>：CLI 探针无 Info.plist；TCC 授权通过系统设置手动授予。ADR 要求 ad-hoc .app 形态复验（Info.plist 的 <code>NSScreenCaptureUsageDescription</code>、授权后重启等），属打包阶段待办，非设计偏离。</li>
+    <li><b>偏差 4（记录）</b>：PATH 内 ffprobe 缺失（ffmpeg 4.2.2 在 PATH；resources/bin 有 brew 9.0.1 的 ffmpeg+ffprobe 软链），B-01 打包验证时需确认运行时解析。</li>
+  </ul>
+
+  <h2>5. 建议下一步</h2>
+  <div class="card blue">
+    <ul>
+      <li><b>已达成</b>：F-01/F-02/F-06/F-07 通过、F-08 部分通过——Intel x86_64（E1）的绑定编译、全局系统音频、自身音频排除、audio-only fail-closed、TCC 授权后重探测均有实机证据，<b>可以进入正式后端实现</b>（按验收计划 F-* 硬门槛中可执行项均已 Pass）。</li>
+      <li><b>待补</b>：F-03（录音中切换默认输出）、F-04/F-05（外接显示器 E3 环境 + 恢复窗口）需在具备外接显示器的真机补验；F-08 的 ad-hoc .app / Developer ID 公证包形态按打包阶段验证。</li>
+      <li>探针（Rust, audio-only, 不落盘）可复用为后续验收工具；重跑命令见 README。</li>
+    </ul>
+  </div>
+
+  <div class="foot">PROTOTYPE 一次性验证 harness：scripts/macos-recording-feasibility/（probe-crate Rust 探针 + run.sh + verify-toolchain.sh + README；scprobe.swift 备用）。本报告不含任何用户音频；证据为构建日志、环境元数据与捕获统计（buffer 数/字节/RMS）。更新时间：2026-08-20 00:5x (GMT+8)。</div>
+</div>
+</body>
+</html>

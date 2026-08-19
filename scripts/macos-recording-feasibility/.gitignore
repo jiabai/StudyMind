@@ -1,0 +1,3 @@
+# PROTOTYPE build artifacts — never commit
+probe-crate/target/
+scprobe

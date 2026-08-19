@@ -1,0 +1,19 @@
+# PROTOTYPE — throwaway macOS feasibility probe (Rust, screencapturekit crate)
+# Answers F-01 (binding compiles/links), F-02 (global system audio),
+# F-06 (self-audio exclusion), F-07 (audio-only fail-closed) on THIS host.
+# Evidence collection only. NEVER writes user audio to disk.
+[package]
+name = "scprobe-crate"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+screencapturekit = { version = "8.0.1", features = ["macos_13_0"] }
+cpal = "0.15"
+
+# Local vendored swift-bridge crates with --disable-sandbox added to build.rs
+# (SPM sandbox-exec is unavailable in this execution environment).
+[patch.crates-io]
+screencapturekit = { path = "vendor/screencapturekit-8.0.1" }
+apple-cf = { path = "vendor/apple-cf-0.9.3" }
+apple-metal = { path = "vendor/apple-metal-0.8.8" }
