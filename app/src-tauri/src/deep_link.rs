@@ -30,23 +30,23 @@ pub(crate) fn activate_main_window_for_deep_link<W: DeepLinkActivationWindow>(
     window: &W,
     argv: Vec<String>,
 ) {
-    eprintln!("[studymind] deep-link callback firing with {} args", argv.len());
+    log::debug!("deep-link callback firing with {} args", argv.len());
     for (i, arg) in argv.iter().enumerate() {
-        eprintln!("[studymind]   arg[{}] = {:?}", i, arg);
+        log::debug!("  arg[{i}] = {}", crate::sanitize_diagnostic_text(arg));
     }
     if let Err(e) = window.unminimize_window() {
-        eprintln!("[studymind] unminimize failed: {}", e);
+        log::warn!("unminimize failed: {e}");
     }
     if let Err(e) = window.show_window() {
-        eprintln!("[studymind] show failed: {}", e);
+        log::warn!("show failed: {e}");
     }
     if let Err(e) = window.focus_window() {
-        eprintln!("[studymind] focus failed: {}", e);
+        log::warn!("focus failed: {e}");
     }
     if let Err(e) = window.emit_deep_link_args(argv) {
-        eprintln!("[studymind] emit deep-link-args failed: {}", e);
+        log::warn!("emit deep-link-args failed: {e}");
     } else {
-        eprintln!("[studymind] studymind-deep-link-args emitted");
+        log::debug!("studymind-deep-link-args emitted");
     }
 }
 

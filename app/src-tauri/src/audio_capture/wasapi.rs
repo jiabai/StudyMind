@@ -246,9 +246,7 @@ fn resolve_default_endpoint(
         return Ok(device);
     }
     if let Ok(device) = unsafe { enumerator.GetDefaultAudioEndpoint(data_flow, eCommunications) } {
-        eprintln!(
-            "[studymind][audio] resolved endpoint via eCommunications default (eConsole default absent)"
-        );
+        log::debug!("resolved endpoint via eCommunications default (eConsole default absent)");
         return Ok(device);
     }
     match unsafe { enumerator.EnumAudioEndpoints(data_flow, DEVICE_STATE_ACTIVE) } {
@@ -256,21 +254,15 @@ fn resolve_default_endpoint(
             let count = unsafe { collection.GetCount() }.unwrap_or(0);
             if count > 0 {
                 if let Ok(device) = unsafe { collection.Item(0) } {
-                    eprintln!(
-                        "[studymind][audio] resolved endpoint via enumeration ({} active device(s))",
-                        count
-                    );
+                    log::debug!("resolved endpoint via enumeration ({} active device(s))", count);
                     return Ok(device);
                 }
             } else {
-                eprintln!("[studymind][audio] no active audio endpoints for data_flow");
+                log::warn!("no active audio endpoints for data_flow");
             }
         }
         Err(error) => {
-            eprintln!(
-                "[studymind][audio] EnumAudioEndpoints failed: {:#010X}",
-                error.code().0
-            );
+            log::warn!("EnumAudioEndpoints failed: {:#010X}", error.code().0);
         }
     }
     Err(windows::core::Error::new(
@@ -281,21 +273,21 @@ fn resolve_default_endpoint(
 
 fn probe_source(kind: SourceKind) -> Result<(), RecordingError> {
     let _com = ComApartment::initialize().map_err(|_| {
-        eprintln!("[studymind][audio] {}: COM subsystem unavailable", kind.label());
+        log::error!("{}: COM subsystem unavailable", kind.label());
         kind.capability_error()
     })?;
     let enumerator: IMMDeviceEnumerator =
         unsafe { CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL) }.map_err(|error| {
-            eprintln!(
-                "[studymind][audio] {}: CoCreateInstance(MMDeviceEnumerator) failed: {:#010X}",
+            log::error!(
+                "{}: CoCreateInstance(MMDeviceEnumerator) failed: {:#010X}",
                 kind.label(),
                 error.code().0
             );
             kind.capability_error()
         })?;
     let device = resolve_default_endpoint(&enumerator, kind.data_flow()).map_err(|error| {
-        eprintln!(
-            "[studymind][audio] {}: no usable endpoint resolved: {:#010X}",
+        log::warn!(
+            "{}: no usable endpoint resolved: {:#010X}",
             kind.label(),
             error.code().0
         );
@@ -303,16 +295,16 @@ fn probe_source(kind: SourceKind) -> Result<(), RecordingError> {
     })?;
     let client: IAudioClient =
         unsafe { device.Activate(CLSCTX_ALL, None) }.map_err(|error| {
-            eprintln!(
-                "[studymind][audio] {}: Activate failed: {:#010X}",
+            log::error!(
+                "{}: Activate failed: {:#010X}",
                 kind.label(),
                 error.code().0
             );
             kind.capability_error()
         })?;
     let format = unsafe { client.GetMixFormat() }.map_err(|error| {
-        eprintln!(
-            "[studymind][audio] {}: GetMixFormat failed: {:#010X}",
+        log::error!(
+            "{}: GetMixFormat failed: {:#010X}",
             kind.label(),
             error.code().0
         );
@@ -386,8 +378,8 @@ fn setup_capture_client(
         unsafe { CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL) }
             .map_err(|_| kind.init_error())?;
     let device = resolve_default_endpoint(&enumerator, kind.data_flow()).map_err(|error| {
-        eprintln!(
-            "[studymind][audio] {}: start recording, no usable endpoint resolved: {:#010X}",
+        log::error!(
+            "{}: start recording, no usable endpoint resolved: {:#010X}",
             kind.label(),
             error.code().0
         );
@@ -513,15 +505,12 @@ impl ComApartment {
         // We must NOT call CoUninitialize on drop in this case, or we would tear down
         // COM for the thread that actually owns it.
         } else if hr == RPC_E_CHANGED_MODE {
-            eprintln!(
-                "[studymind][audio] ComApartment: thread already in another apartment (RPC_E_CHANGED_MODE); proceeding"
+            log::debug!(
+                "ComApartment: thread already in another apartment (RPC_E_CHANGED_MODE); proceeding"
             );
             Ok(Self { owned: false })
         } else {
-            eprintln!(
-                "[studymind][audio] ComApartment::initialize failed: {:#010X}",
-                hr.0
-            );
+            log::error!("ComApartment::initialize failed: {:#010X}", hr.0);
             Err(())
         }
     }

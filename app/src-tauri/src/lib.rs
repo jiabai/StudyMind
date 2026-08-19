@@ -38,7 +38,10 @@ pub(crate) use runtime::{
     RECORDING_TEMP_DIR_NAME, RESOURCE_DIR_ENV, USER_DATA_DIR_ENV,
 };
 
-pub(crate) use diagnostics::{append_desktop_log, summarize_worker_result_for_log};
+pub(crate) use diagnostics::{
+    append_desktop_log, register_desktop_logger, sanitize_diagnostic_text,
+    summarize_worker_result_for_log,
+};
 
 pub(crate) use asr_model::{DEFAULT_ASR_MODEL, SUPPORTED_ASR_MODELS};
 
@@ -81,12 +84,13 @@ pub fn run() {
             let runtime_paths = resolve_runtime_paths(app.handle())?;
             ensure_runtime_dirs(&runtime_paths)?;
             cleanup_stale_recording_temp_dirs(&runtime_paths)?;
+            register_desktop_logger(app.handle(), &runtime_paths)?;
             app.manage(audio_capture::RecordingController::from_runtime_paths(
                 &runtime_paths,
             ));
             #[cfg(any(windows, target_os = "linux"))]
             if let Err(error) = app.deep_link().register_all() {
-                eprintln!("[studymind] failed to register deep links: {error}");
+                log::warn!("failed to register deep links: {error}");
             }
             Ok(())
         })

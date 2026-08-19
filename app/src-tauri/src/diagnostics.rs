@@ -7,11 +7,45 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 const DESKTOP_LOG_FILE_NAME: &str = "StudyMind-desktop.log";
 
+/// Register the application logger so Rust-side logs land in the same file the
+/// worker-event log uses (`<user-data>/logs/StudyMind-desktop.log`). Debug builds
+/// keep the full Debug level; release builds default to Info, so expected noise
+/// (e.g. COM apartment messages) is filtered out while warnings/errors are kept.
+///
+/// The plugin's default rotation (40KB, keep-one-delete) would discard the
+/// worker-event history `append_desktop_log` writes to the same file, so a
+/// larger cap with archived rotation is configured explicitly.
+pub(crate) fn register_desktop_logger(
+    app: &tauri::AppHandle,
+    paths: &RuntimePaths,
+) -> Result<(), tauri::Error> {
+    let level = if cfg!(debug_assertions) {
+        log::LevelFilter::Debug
+    } else {
+        log::LevelFilter::Info
+    };
+    app.plugin(
+        tauri_plugin_log::Builder::new()
+            .level(level)
+            .max_file_size(10 * 1024 * 1024)
+            .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(3))
+            .targets([
+                tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+                tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Folder {
+                    path: desktop_log_dir(paths),
+                    file_name: Some(DESKTOP_LOG_FILE_NAME.to_string()),
+                }),
+            ])
+            .build(),
+    )
+}
+
+pub(crate) fn desktop_log_dir(paths: &RuntimePaths) -> PathBuf {
+    paths.user_data_dir.join(DESKTOP_LOG_DIR_NAME)
+}
+
 pub(crate) fn desktop_log_path(paths: &RuntimePaths) -> PathBuf {
-    paths
-        .user_data_dir
-        .join(DESKTOP_LOG_DIR_NAME)
-        .join(DESKTOP_LOG_FILE_NAME)
+    desktop_log_dir(paths).join(DESKTOP_LOG_FILE_NAME)
 }
 
 pub(crate) fn append_desktop_log(
@@ -106,7 +140,7 @@ fn redact_http_urls(text: &str) -> String {
 }
 
 fn redact_credential_assignments(text: &str) -> String {
-    const SENSITIVE_MARKERS: [&str; 14] = [
+    const SENSITIVE_MARKERS: [&str; 15] = [
         "xsec_token=",
         "access_token=",
         "session_token=",
@@ -121,6 +155,7 @@ fn redact_credential_assignments(text: &str) -> String {
         "secret=",
         "auth=",
         "key=",
+        "ticket=",
     ];
     text.split_whitespace()
         .map(|token| {
@@ -251,6 +286,14 @@ mod tests {
         assert!(!log.contains("session-token"));
         assert!(!log.contains("sig=SECRET"));
         assert!(!log.contains("--cookies"));
+    }
+
+    #[test]
+    fn desktop_log_redacts_deep_link_ticket_tokens() {
+        let redacted = sanitize_diagnostic_text(
+            "studymind://auth/callback?ticket=flt_secret123&state=state-1",
+        );
+        assert_eq!(redacted, "[credential removed]");
     }
 
     #[test]
