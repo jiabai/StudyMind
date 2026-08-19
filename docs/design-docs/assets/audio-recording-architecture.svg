@@ -10,7 +10,7 @@
 
   <rect width="1600" height="900" fill="#f6f7f9"/>
   <rect x="0" y="0" width="1600" height="72" fill="#1e3a8a"/>
-  <text x="48" y="47" fill="#ffffff" font-size="28" font-weight="700">StudyMind 内置录音 · 音源三模式架构图（Windows v1）</text>
+  <text x="48" y="47" fill="#ffffff" font-size="28" font-weight="700">StudyMind 内置录音 · 音源三模式架构图（Windows 基线 + macOS 已立项）</text>
   <text x="48" y="66" fill="#bfdbfe" font-size="15">仅系统声音 / 仅麦克风 / 混合 —— 录完复用既有本地媒体管线，下游零改动</text>
 
   <!-- 音源模式 chips -->
@@ -29,7 +29,7 @@
   <rect x="48" y="190" width="260" height="300" rx="16" fill="#ffffff" stroke="#e2e5ea"/>
   <rect x="48" y="190" width="260" height="46" rx="16" fill="#eff6ff"/>
   <rect x="48" y="220" width="260" height="16" fill="#eff6ff"/>
-  <text x="178" y="221" text-anchor="middle" font-size="17" font-weight="700" fill="#1e40af">① 前端 RecordPanel</text>
+  <text x="178" y="221" text-anchor="middle" font-size="17" font-weight="700" fill="#1e40af">① 前端 RecordingCard</text>
   <text x="70" y="268" font-size="14" fill="#374151">· 开始 / 暂停 / 停止 / 放弃</text>
   <text x="70" y="294" font-size="14" fill="#374151">· 计时 HH:MM:SS + 脉冲红点</text>
   <text x="70" y="320" font-size="14" fill="#374151">· 双路电平条（100ms RMS）</text>
@@ -53,7 +53,7 @@
   <text x="444" y="242" font-size="14.5" font-weight="700" fill="#166534">WASAPI Capture（麦克风）</text>
   <text x="444" y="268" font-size="13" fill="#374151">GetDefaultAudioCapture → IAudioClient</text>
   <text x="444" y="290" font-size="13" fill="#374151">事件驱动线程 → 数据块直写 mic.wav</text>
-  <text x="444" y="316" font-size="12.5" fill="#6b7280">权限：Windows 首次触发隐私弹窗</text>
+  <text x="444" y="316" font-size="12.5" fill="#6b7280">权限：Windows/macOS 按平台触发 TCC 隐私授权</text>
   <rect x="428" y="356" width="290" height="130" rx="10" fill="#fefce8" stroke="#fde047"/>
   <text x="444" y="382" font-size="14.5" font-weight="700" fill="#854d0e">WASAPI Loopback（系统声音）</text>
   <text x="444" y="408" font-size="13" fill="#374151">GetDefaultAudioRender + LOOPBACK 标志</text>
@@ -113,7 +113,7 @@
   <text x="78" y="634" font-size="16" font-weight="700" fill="#1e3a8a">关键决策</text>
   <g font-size="13.5" fill="#374151">
     <circle cx="88" cy="662" r="4" fill="#2563eb"/>
-    <text x="104" y="667">Windows 10 1803+ 原生 WASAPI loopback，与 EV录屏 同方案，无需虚拟声卡驱动；macOS/Linux 列入 P2</text>
+    <text x="104" y="667">Windows 使用 WASAPI loopback；macOS 13+ 使用 ScreenCaptureKit 音频；Linux 仍列入 P2</text>
     <circle cx="88" cy="690" r="4" fill="#2563eb"/>
     <text x="104" y="695">双路并发采集各写一个 WAV，停止后由捆绑 ffmpeg 混音并归一化为 16k mono PCM → 命中 worker 直拷快路径，转写启动最快</text>
     <circle cx="758" cy="662" r="4" fill="#2563eb"/>

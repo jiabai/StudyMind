@@ -1,10 +1,10 @@
 # Windows recording is finalized as local media
 
-StudyMind v1 implements built-in recording only on Windows with three `RecordingMode` values and treats a successfully finalized recording as `LocalMediaSource` for the existing Pipeline. A `RecordingSession` that loses either input in `mixed` mode fails as a whole, and its finalized WAV remains available after submission; this preserves the local-only boundary, keeps the existing recent-media shortcut valid, and avoids adding a second downstream media contract while preventing partial or failed submissions from silently discarding user audio.
+StudyMind v1 implements the Windows built-in recording baseline with three `RecordingMode` values and treats a successfully finalized recording as `LocalMediaSource` for the existing Pipeline. The same downstream decision applies to the macOS backend approved by [ADR 0005](./0005-macos-recording-backend.md): a `RecordingSession` that loses either input in `mixed` mode fails as a whole, and its finalized WAV remains available after submission. This preserves the local-only boundary, keeps the existing recent-media shortcut valid, and avoids adding a second downstream media contract while preventing partial or failed submissions from silently discarding user audio.
 
 ## Consequences
 
-- Non-Windows platforms do not expose the recording entry until a platform-specific capture backend is designed.
+- Platforms without an accepted capture backend do not expose the recording entry. macOS now has an accepted backend design in ADR 0005, but remains unsupported in production until that implementation is delivered.
 - Pause/resume, device selection, live RMS levels, silence warnings and global shortcuts remain outside v1.
 - The renderer may transiently pass the Rust-generated path through `select_local_media_by_path`; the existing local-media validation remains the security boundary.
 - An `EmptyRecording` is rejected, while a valid-frame `SilentRecording` is accepted; v1 does not infer failure from volume level.

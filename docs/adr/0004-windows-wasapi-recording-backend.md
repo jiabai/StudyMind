@@ -51,4 +51,4 @@ Costs and risks:
 - WASAPI COM/resource lifecycle code is Windows-specific and requires Windows integration testing.
 - Capture-thread shutdown and endpoint-loss handling need careful bounded joins.
 - ffmpeg remains a packaged runtime dependency for finalization.
-- Other platforms continue to report unsupported until a separate backend is designed.
+- At the time of this ADR, other platforms report unsupported until a separate backend is designed. macOS is no longer covered by this forward-looking constraint; its backend is approved separately by [ADR 0005](./0005-macos-recording-backend.md). Linux remains unsupported pending its own decision.

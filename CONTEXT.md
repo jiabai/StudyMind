@@ -38,6 +38,29 @@ _Avoid_: recording task, recording file
 录音会话的音源选择：`mic`（仅麦克风）、`system`（仅系统声音）或 `mixed`（麦克风与系统声音）。
 _Avoid_: audio source, capture type
 
+**RecordingSourceCapability**:
+某类录音音源在当前系统版本、设备与权限状态下是否可以启动的事实；它不同于用户选择的 RecordingMode。
+_Avoid_: mode availability, platform support
+
+**RecordingFallback**:
+空闲态中，已保存的 RecordingMode 因当前能力变化而不可用时，自动选择可用的 `mic` 并告知用户；用户明确点击开始后以及 RecordingSession 已开始后不静默换源。
+_Avoid_: silent downgrade, automatic source switch
+
+**SystemAudioRecording**:
+只保存可捕获的 macOS 全局系统音频，不保存或传递屏幕视频；主显示器只作为 v1 的
+`SCContentFilter` 技术入口，不是用户可见的录音范围。实现前必须验证 audio-only stream 能持续
+捕获全局系统音频。
+_Avoid_: screen recording, loopback device
+
+**MixedRecordingFailure**:
+`mixed` 会话任一路音源在启动、运行或停止阶段失败时，整个 RecordingSession 失败且不提交部分录音产物。
+_Avoid_: partial mixed recording, source fallback
+
+**RecordingWarning**:
+RecordingSession 中已经恢复、不会使录音失败，但可能影响产物连续性的非致命情况；它必须可被
+用户知晓，并与 RecordingError 区分。
+_Avoid_: error, diagnostic log
+
 **EmptyRecording**:
 没有产生有效音频帧的 RecordingSession 结果；v1 拒绝它并回到空闲态。
 _Avoid_: zero recording, blank audio

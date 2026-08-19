@@ -76,6 +76,9 @@ server/prisma/*.db-shm
 /app/src-tauri/icons/64x64.png
 /app/src-tauri/icons/android/
 /app/src-tauri/icons/ios/
+/assets/
+/generated_images/
+/generated_videos/
 
 # Local config and secrets
 .env
