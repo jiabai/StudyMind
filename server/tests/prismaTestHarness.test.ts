@@ -11,7 +11,7 @@ describe("StudyMind Prisma test harness", () => {
       const second = await fixture.createClient();
       expect(second).not.toBe(fixture.prisma);
       expect(isAbsolute(fixture.databasePath)).toBe(true);
-      expect(fixture.databaseUrl).toMatch(/^file:[A-Za-z]:\//);
+      expect(fixture.databaseUrl).toMatch(/^file:(?:[A-Za-z]:)?\//);
       await fixture.prisma.user.create({ data: { id: "u", email: "fixture@studymind.local", createdAt: new Date(0), updatedAt: new Date(0) } });
       await expect(second.user.count()).resolves.toBe(1);
     } finally {

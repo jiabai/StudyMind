@@ -1,7 +1,7 @@
 use super::WorkerTimeoutKind;
 use serde::Serialize;
 use std::process::{Command, Output};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Condvar, Mutex};
 #[cfg(unix)]
 use std::time::Duration;
 
