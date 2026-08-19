@@ -1043,7 +1043,7 @@ describe("useRecordingController", () => {
     await settle();
     expect(startRecording).toHaveBeenCalledTimes(1);
 
-    pendingStart.resolve({ sessionId: "session-duplicate-proof", warnings: [] });
+    pendingStart.resolve({ sessionId: "session-duplicate-proof" });
     await Promise.all([firstStart, secondStart]);
     expect(deps.saveAudioSourceMode).toHaveBeenCalledTimes(1);
   });
