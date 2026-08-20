@@ -1023,7 +1023,10 @@ describe("useRecordingController", () => {
   });
 
   test("does not issue duplicate starts while the first start is pending", async () => {
-    const pendingStart = createDeferred<{ sessionId: string }>();
+    const pendingStart = createDeferred<{
+      sessionId: string;
+      warnings: StartRecordingWarning[];
+    }>();
     const startRecording = vi.fn().mockReturnValue(pendingStart.promise);
     const { deps, render } = await createController({
       recordingClient: {
@@ -1043,7 +1046,10 @@ describe("useRecordingController", () => {
     await settle();
     expect(startRecording).toHaveBeenCalledTimes(1);
 
-    pendingStart.resolve({ sessionId: "session-duplicate-proof" });
+    pendingStart.resolve({
+      sessionId: "session-duplicate-proof",
+      warnings: [],
+    });
     await Promise.all([firstStart, secondStart]);
     expect(deps.saveAudioSourceMode).toHaveBeenCalledTimes(1);
   });
