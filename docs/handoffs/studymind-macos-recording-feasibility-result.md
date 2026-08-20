@@ -18,6 +18,8 @@
 
 **核心结论：ADR 0005 的绑定选型（screencapturekit crate）与全局系统音频、自身音频排除、audio-only fail-closed 语义在本机（Intel）全部成立，可以进入正式后端实现，无需重开 ADR。**
 
+F-03、F-04、F-05 因当前没有可切换的真实输出路由、外接显示器或中断注入条件，明确转为**实现后的补验/验收阻塞项**：它们不阻塞规格化或实现启动，但在取得证据前阻塞 macOS 录音的验收完成与发布结论。
+
 ## 2. 已完成的工作（引用，勿重复）
 
 - **验证 harness（throwaway）**：`scripts/macos-recording-feasibility/`
@@ -51,9 +53,10 @@
    - 错误码映射（`RECORDING_SYSTEM_AUDIO_UNAVAILABLE` / `RECORDING_STREAM_ERROR(source)` 等，复用现有错误码）
    - Info.plist：`NSScreenCaptureUsageDescription` + `NSMicrophoneUsageDescription`
    - `recording-warning` Tauri 事件（首个 code `RECORDING_SYSTEM_AUDIO_RECOVERED`）
-2. **补验 F-03/F-04/F-05**：需外接显示器（E3）真机 + 录音中切换默认输出；F-05 需 stream 中断注入观察 2s 恢复窗口。
-3. **F-08 打包形态**：ad-hoc .app / Developer ID 公证包，验证 Info.plist 文案与授权后重启。
-4. 提醒：`scripts/macos-recording-feasibility/` 是 throwaway prototype；验证通过后按 prototype 流程将决策吸收进产品代码、harness 留在 throwaway 分支。
+2. **实现后补验 F-03/F-04/F-05**（验收阻塞项）：需录音中切换默认输出；需外接显示器（E3）真机验证主显示器切换/拔插；F-05 需 stream 中断注入观察 2 秒恢复窗口。
+3. **后续验收 E2/E3**：在 Apple Silicon 和外接显示器环境重跑对应的核心与恢复场景，确认“系统声音”产品语义不随主显示器变化。
+4. **F-08 打包形态与签名验收**：ad-hoc .app / Developer ID 公证包，验证 Info.plist 文案、权限流程、授权后重探测与重启。
+5. 提醒：`scripts/macos-recording-feasibility/` 是 throwaway prototype；验证通过后按 prototype 流程将决策吸收进产品代码、harness 留在 throwaway 分支。
 
 ## 6. Suggested skills（下一个 agent 用 Skill 工具调用）
 

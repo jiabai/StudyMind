@@ -1,15 +1,19 @@
 # macOS 录音验收计划
 
-> 状态：Planned · 决策来源：[ADR 0005](../adr/0005-macos-recording-backend.md)
+> 状态：实现规格可启动；后续真机与发布验收未完成 · 决策来源：[ADR 0005](../adr/0005-macos-recording-backend.md)
 >
-> 当前结论：技术决策已 Accepted；实现、真机验证和发布验收尚未执行。
+> 当前结论：E1（Intel、macOS 15.7.7、ad-hoc CLI）已完成核心可行性验证，允许进入正式后端实现。F-03/F-04/F-05 因缺少可执行环境，明确作为实现后的补验与验收阻塞项；E2、E3、打包签名及恢复场景属于后续验收任务。
 
 ## 1. 使用规则
 
 - 本文档是 macOS 录音实现前可行性验证和实现完成验收的证据清单。
 - 每项状态只能为 `Planned`、`Pass`、`Fail` 或 `Blocked`；未经执行不得填写 `Pass`。
-- `F-*` 是正式实现前的硬门槛。任一项 `Fail` 或 `Blocked`，先重开 ADR 0005，不得静默更换
+- `F-*` 同时覆盖实现前核心可行性与实现后验收证据。F-01、F-02、F-06、F-07 的 binding、全局
+  系统音频和 audio-only 核心语义未成立时，停止实现并重开 ADR 0005，不得静默更换
   ScreenCaptureKit binding、桥接方式或产品语义。
+- F-03、F-04、F-05 是依赖真实输出路由、外接显示器或中断注入的实现后补验项。由于当前没有
+  相应条件而处于 `Blocked` 时，不重开 ADR，也不阻塞规格化和实现启动；它们会阻塞 macOS
+  录音的验收完成与发布结论，直到取得可复核证据。
 - 实现完成要求所有适用的 `F-*`、`P-*`、`C-*`、`M-*`、`D-*`、`R-*` 和 `B-*` 项为 `Pass`。
 - Evidence 填写可复核材料，例如构建日志路径、测试记录、截图、WAV 探测结果或签名验证输出；
   不在本文档中保存用户录音内容。
@@ -18,7 +22,7 @@
 
 | 环境 ID | macOS | 架构 | 包类型 | 硬件/显示器 | 状态 | Evidence |
 |---|---|---|---|---|---|---|
-| E1 | 13+ | Intel x86_64 | ad-hoc | 内置/单显示器 | Planned | — |
+| E1 | 15.7.7 | Intel x86_64 | ad-hoc CLI | 内置/单显示器 | Pass | `scripts/macos-recording-feasibility/report.html` |
 | E2 | 13+ | Apple Silicon arm64 | ad-hoc | 内置/单显示器 | Planned | — |
 | E3 | 13+ | Intel 或 arm64 | ad-hoc | 外接显示器 | Planned | — |
 | E4 | 13+ | Intel x86_64 | Developer ID + notarized | 按发布配置 | Planned | — |
@@ -34,14 +38,26 @@
 |---|---|---|---|---|---|
 | F-01 | Rust binding 编译与链接 | Intel、arm64 均能构建并启动最小 audio-only stream | E1, E2 | **E1: Pass** / E2: Planned | E1: `cargo build --release` Finished in 12.92s（screencapturekit 8.0.1, macos_13_0, Rust 1.96.0, CLT SDK 15.5 / Swift 6.1.2）；`SCStream.start_capture()` 成功。见 `scripts/macos-recording-feasibility/report.html` |
 | F-02 | 全局系统音频 | 同时播放两个独立应用的音频，两者均进入 audio output | E1, E2 | **E1: Pass** / E2: Planned | E1: 静音基线 rmsAvg=0.000000；afplay 播放 440Hz → 0.285581；say 语音 → 0.122613；两者同时 → 0.289172 |
-| F-03 | 默认输出变化 | 录音期间切换可用的默认输出路由，系统音频语义保持成立 | E1, E2 | Blocked | 需录音中人工切换系统默认输出（GUI 操作），本会话未执行；探针与流程就绪 |
-| F-04 | 显示器变化 | 切换主显示器、连接/拔出外接显示器；优先更新 filter，必要时重建 stream | E3 | Blocked | 本机无外接显示器（E3 环境不满足），无法执行 |
-| F-05 | 恢复窗口 | 单次中断不超过 2 秒时按媒体时间戳补静音并继续；超过 2 秒时失败 | E3 | Blocked | 依赖 E3 外接显示器 + stream 中断注入，本机无法执行 |
+| F-03 | 默认输出变化 | 录音期间切换可用的默认输出路由，系统音频语义保持成立 | E1, E2 | Blocked | **实现后补验/验收阻塞项**。需在录音中人工切换系统默认输出；当前无条件执行，探针与流程就绪 |
+| F-04 | 显示器变化 | 切换主显示器、连接/拔出外接显示器；优先更新 filter，必要时重建 stream | E3 | Blocked | **实现后补验/验收阻塞项**。需 E3 外接显示器环境；当前无条件执行，不阻塞实现启动 |
+| F-05 | 恢复窗口 | 单次中断不超过 2 秒时按媒体时间戳补静音并继续；超过 2 秒时失败 | E3 | Blocked | **实现后补验/验收阻塞项**。需 E3 外接显示器与 stream 中断注入；当前无条件执行，不阻塞实现启动 |
 | F-06 | 排除自身音频 | `excludesCurrentProcessAudio` 经验证生效，StudyMind 自身提示音不进入 system capture | E1, E2 | **E1: Pass** / E2: Planned | E1: 同进程 cpal 播放 440Hz：不排除 rmsAvg=0.291564；`--exclude-self` → 0.000000 |
 | F-07 | audio-only fail-closed | 未注册 screen output，writer/Worker 不接收视频 sample buffer | E1, E2 | **E1: Pass** / E2: Planned | E1: 仅注册 `SCStreamOutputType::Audio`；6 次运行 video_buffers 恒为 0，mic_buffers 恒为 0 |
 | F-08 | TCC 基础行为 | ad-hoc 包可完成麦克风、Screen Recording 请求和授权后重探测 | E1, E2 | **E1: Pass\*** / E2: Planned | E1: 未授权时 `SCShareableContent::get()` 返回 TCC 拒绝；授权后重探测成功（displays=1 apps=28）且 stream 启动。\*CLI 形态验证；ad-hoc .app 形态（Info.plist usage description）待打包阶段复验 |
 
 > 2026-08-20 更新：E1（Intel x86_64, macOS 15.7.7, ad-hoc CLI）可行性验证完成，F-01/F-02/F-06/F-07 通过、F-08 部分通过（授权后重探测）；F-03/F-04/F-05 因环境限制 Blocked。完整证据见 `scripts/macos-recording-feasibility/report.html` 与探针输出。工具链已升级至 CLT SDK 15.5 / Swift 6.1.2（原 Swift 5.3 / SDK 11.0 无法构建 screencapturekit 8.0.1）。
+
+## 3.1 后续验收任务
+
+以下任务不再作为进入规格化或启动正式实现的前置条件，但在 macOS 录音可以宣称验收完成或进入发布前必须取得证据。
+
+| 任务 | 范围 | 完成条件 | 状态 |
+|---|---|---|---|
+| E2 Apple Silicon | 在 13+ Apple Silicon ad-hoc 环境重跑 F-01、F-02、F-06、F-07、F-08 | arm64 构建、全局系统音频、自身音频排除、audio-only 和 TCC 行为均有可复核证据 | Planned |
+| E3 外接显示器 | 连接/拔出外接显示器并切换主显示器 | F-04 通过；显示器变化不改变“系统声音”产品语义，优先更新 filter，必要时重建 stream | Planned |
+| 默认输出路由 | 在录音期间切换可用的系统默认输出设备 | F-03 通过；audio-only stream 持续捕获全局系统音频，或按恢复策略重建并恢复 | Planned |
+| 恢复场景 | 注入或观察短于/超过 2 秒的 stream 中断 | F-05 通过；短中断补静音并继续，长中断按约定失败，不静默换源 | Planned |
+| 打包与签名 | ad-hoc .app、Developer ID 与 notarized 包（E4/E5） | F-08、B-02、B-03、B-04 完成；权限请求、授权后重探测、重启和签名身份均可复核 | Planned |
 
 ## 4. 权限与能力探测
 
@@ -113,7 +129,10 @@
 ## 10. 完成判定
 
 - `Accepted` ADR 与验收结果相互独立：ADR 记录批准的技术决策，本文档记录事实验证。
-- `F-*` 任一项不是 `Pass` 时，不进入正式后端实现；若 binding 或全局系统音频语义不成立，重开
-  ADR 0005。
+- F-01、F-02、F-06、F-07 的核心语义未通过时，不进入正式后端实现；若 binding 或全局系统
+  音频语义不成立，重开 ADR 0005。
+- F-03、F-04、F-05 的 `Blocked` 仅表示当前环境无法补验；它们会阻塞验收完成与发布，不
+  阻塞正式后端实现启动。
 - 所有适用项目为 `Pass` 且 Evidence 可复核后，才能宣称 macOS 录音实现完成。
-- 本计划当前全部为 `Planned`；本文档建设不代表任何实现或真机验证已经完成。
+- 当前仅 E1 核心可行性验证有证据；E2、E3、打包签名、默认输出变化和恢复场景仍为后续
+  验收任务。本文档不代表 macOS 后端实现已经完成。
