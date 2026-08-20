@@ -268,6 +268,10 @@ mod tests {
         assert!(calls[0]
             .windows(2)
             .any(|pair| pair == [OsString::from("-ac"), OsString::from("1")]));
+        assert!(calls[0]
+            .windows(2)
+            .any(|pair| pair
+                == [OsString::from("-c:a"), OsString::from("pcm_s16le")]));
         assert_eq!(
             result.path.parent(),
             Some(root.join("recordings").as_path())

@@ -377,6 +377,47 @@ async function startRecordingSession(
   return { ...created, controller };
 }
 
+type MacosMicControllerOverrides = Omit<
+  Partial<ControllerDependencies>,
+  "recordingClient"
+> & {
+  recordingClient?: Partial<ControllerDependencies["recordingClient"]>;
+};
+
+async function createMacosMicController(
+  overrides: MacosMicControllerOverrides = {},
+) {
+  const { recordingClient = {}, ...dependencyOverrides } = overrides;
+  return createController({
+    ...dependencyOverrides,
+    recordingClient: {
+      getRecordingCapabilities: vi
+        .fn<() => Promise<RecordingCapabilities>>()
+        .mockResolvedValue(MACOS_MIC_ONLY_CAPABILITIES),
+      startRecording: vi
+        .fn<
+          (
+            mode: RecordingMode,
+          ) => Promise<{ sessionId: string; warnings: StartRecordingWarning[] }>
+        >()
+        .mockResolvedValue({ sessionId: "macos-mic-session", warnings: [] }),
+      stopRecording: vi
+        .fn<(sessionId: string) => Promise<RecordingResult>>()
+        .mockResolvedValue(RESULT),
+      cancelRecording: vi
+        .fn<(sessionId: string) => Promise<void>>()
+        .mockResolvedValue(undefined),
+      ...recordingClient,
+    },
+  });
+}
+
+function recordingBlocksUploadAndNavigation(
+  controller: RecordingController,
+): boolean {
+  return ["starting", "recording", "stopping"].includes(controller.session.status);
+}
+
 describe("useRecordingController", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -486,24 +527,16 @@ describe("useRecordingController", () => {
     expect(controller.isModeAvailable("mixed")).toBe(false);
   });
 
-  test("uses macOS microphone-only capabilities and leaves other modes unavailable", async () => {
-    const startRecording = vi
-      .fn<
-        (mode: RecordingMode) => Promise<{
-          sessionId: string;
-          warnings: StartRecordingWarning[];
-        }>
-      >()
-      .mockResolvedValue({ sessionId: "macos-mic-session", warnings: [] });
-    const { render } = await createController({
-      recordingClient: {
-        getRecordingCapabilities: vi
-          .fn()
-          .mockResolvedValue(MACOS_MIC_ONLY_CAPABILITIES),
-        startRecording,
-        stopRecording: vi.fn(),
-        cancelRecording: vi.fn(),
-      },
+  test("keeps the macOS mic-only lifecycle guarded and hands off the normalized result", async () => {
+    const pendingStart = createDeferred<{
+      sessionId: string;
+      warnings: StartRecordingWarning[];
+    }>();
+    const pendingStop = createDeferred<RecordingResult>();
+    const startRecording = vi.fn().mockReturnValue(pendingStart.promise);
+    const stopRecording = vi.fn().mockReturnValue(pendingStop.promise);
+    const { deps, render } = await createMacosMicController({
+      recordingClient: { startRecording, stopRecording },
       readPreferences: vi.fn().mockResolvedValue({
         ...PREFERENCES,
         recording: { audioSourceMode: "mixed" },
@@ -523,12 +556,88 @@ describe("useRecordingController", () => {
     expect(controller.isModeAvailable("system")).toBe(false);
     expect(controller.isModeAvailable("mixed")).toBe(false);
 
+    const firstStart = controller.start();
+    const duplicateStart = controller.start();
+    await settle();
+    controller = render();
+
+    expect(recordingBlocksUploadAndNavigation(controller)).toBe(true);
+    expect(controller.session.status).toBe("starting");
+    expect(startRecording).toHaveBeenCalledTimes(1);
+    expect(startRecording).toHaveBeenCalledWith("mic");
+    pendingStart.resolve({ sessionId: "macos-mic-session", warnings: [] });
+    await Promise.all([firstStart, duplicateStart]);
+    controller = render();
+
+    expect(controller.mode).toBe("mic");
+    expect(controller.session).toEqual({ status: "recording" });
+    expect(recordingBlocksUploadAndNavigation(controller)).toBe(true);
+
+    const stopPromise = controller.stop();
+    controller = render();
+    expect(controller.session.status).toBe("stopping");
+    expect(recordingBlocksUploadAndNavigation(controller)).toBe(true);
+
+    pendingStop.resolve(RESULT);
+    await stopPromise;
+    controller = render();
+
+    expect(stopRecording).toHaveBeenCalledOnce();
+    expect(stopRecording).toHaveBeenCalledWith("macos-mic-session");
+    expect(deps.selectLocalMediaByPath).toHaveBeenCalledWith(RESULT.path);
+    expect(deps.onLocalMediaSelected).toHaveBeenCalledWith(SELECTION);
+    expect(controller.session).toEqual({ status: "idle" });
+    expect(recordingBlocksUploadAndNavigation(controller)).toBe(false);
+  });
+
+  test("cancels a macOS mic-only recording without handing it off", async () => {
+    const { deps, render } = await createMacosMicController();
+    let controller = render();
+    await settle();
+    controller = render();
+    await controller.start();
+    controller = render();
+
+    controller.requestDiscard();
+    controller = render();
+    expect(controller.discardConfirmationOpen).toBe(true);
+
+    await controller.confirmDiscard();
+    controller = render();
+
+    expect(deps.recordingClient.cancelRecording).toHaveBeenCalledOnce();
+    expect(deps.recordingClient.cancelRecording).toHaveBeenCalledWith(
+      "macos-mic-session",
+    );
+    expect(deps.recordingClient.stopRecording).not.toHaveBeenCalled();
+    expect(deps.selectLocalMediaByPath).not.toHaveBeenCalled();
+    expect(controller.session).toEqual({ status: "idle" });
+    expect(controller.activeSessionId).toBeNull();
+  });
+
+  test("keeps macOS mic-only failures stable and redacted", async () => {
+    const startRecording = vi.fn().mockRejectedValue({
+      code: "RECORDING_MIC_ACCESS_DENIED",
+      message: "/Users/student/private/lecture-token.wav",
+    });
+    const { deps, render } = await createMacosMicController({
+      recordingClient: { startRecording },
+    });
+    let controller = render();
+    await settle();
+    controller = render();
+
     await controller.start();
     controller = render();
 
     expect(startRecording).toHaveBeenCalledWith("mic");
-    expect(controller.mode).toBe("mic");
-    expect(controller.session).toEqual({ status: "recording" });
+    expect(controller.session).toEqual({
+      status: "error",
+      errorCode: "RECORDING_MIC_ACCESS_DENIED",
+    });
+    expect(deps.onError).toHaveBeenCalledWith("RECORDING_MIC_ACCESS_DENIED");
+    expect(JSON.stringify(controller)).not.toContain("lecture-token.wav");
+    expect(deps.saveAudioSourceMode).not.toHaveBeenCalled();
   });
 
   test("falls back an illegal preference value to mic", async () => {
