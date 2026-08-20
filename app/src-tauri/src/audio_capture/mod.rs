@@ -7,6 +7,11 @@ use tauri::State;
 use uuid::Uuid;
 
 mod mixer;
+#[cfg(target_os = "macos")]
+mod macos;
+#[cfg(all(test, not(target_os = "macos")))]
+#[path = "macos.rs"]
+mod macos_test;
 #[cfg(windows)]
 mod wasapi;
 mod wav_writer;
@@ -316,7 +321,21 @@ impl RecordingController {
             .with_disk_space(Arc::new(WindowsDiskSpaceProbe { path: recordings_dir }));
         }
 
-        #[cfg(not(windows))]
+        #[cfg(target_os = "macos")]
+        {
+            let recordings_dir = paths.user_data_dir.join(crate::RECORDINGS_DIR_NAME);
+            return Self::new(
+                Arc::new(macos::MacosRecordingBackend::default()),
+                Arc::new(mixer::FfmpegRecordingFinalizer::new(
+                    paths.resource_dir.clone(),
+                    recordings_dir.clone(),
+                )),
+                Arc::new(LocalRecordingFileStore::new(recordings_dir)),
+                Arc::new(SystemRecordingClock::new()),
+            );
+        }
+
+        #[cfg(not(any(windows, target_os = "macos")))]
         {
             let _ = paths;
             Self::default()
