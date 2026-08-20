@@ -17,6 +17,29 @@ pub(crate) struct WaveFormat {
 }
 
 impl WaveFormat {
+    pub(crate) fn pcm_s16le(channels: u16, sample_rate: u32) -> Result<Self, RecordingError> {
+        const FORMAT_TAG_PCM: u16 = 1;
+        const BITS_PER_SAMPLE: u16 = 16;
+        const BYTES_PER_SAMPLE: u16 = BITS_PER_SAMPLE / 8;
+
+        let block_align = channels
+            .checked_mul(BYTES_PER_SAMPLE)
+            .ok_or_else(|| RecordingError::new(RECORDING_WRITE_FAILED))?;
+        let byte_rate = sample_rate
+            .checked_mul(u32::from(block_align))
+            .ok_or_else(|| RecordingError::new(RECORDING_WRITE_FAILED))?;
+
+        let mut bytes = Vec::with_capacity(16);
+        bytes.extend_from_slice(&FORMAT_TAG_PCM.to_le_bytes());
+        bytes.extend_from_slice(&channels.to_le_bytes());
+        bytes.extend_from_slice(&sample_rate.to_le_bytes());
+        bytes.extend_from_slice(&byte_rate.to_le_bytes());
+        bytes.extend_from_slice(&block_align.to_le_bytes());
+        bytes.extend_from_slice(&BITS_PER_SAMPLE.to_le_bytes());
+
+        Self::new(bytes, channels, sample_rate, block_align, BITS_PER_SAMPLE)
+    }
+
     pub(crate) fn new(
         bytes: Vec<u8>,
         channels: u16,
@@ -328,6 +351,47 @@ pub(crate) fn read_wave_info(path: &Path) -> Result<WaveInfo, RecordingError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pcm_s16le_builds_canonical_pcm_format() {
+        let format = WaveFormat::pcm_s16le(2, 48_000).expect("valid PCM16 format");
+
+        assert_eq!(
+            format.fmt_chunk(),
+            &[1, 0, 2, 0, 0x80, 0xbb, 0, 0, 0, 0xee, 2, 0, 4, 0, 16, 0]
+        );
+        assert_eq!(format.bits_per_sample, 16);
+        assert_eq!(format.block_align, 4);
+        assert_eq!(
+            u32::from_le_bytes(format.fmt_chunk()[8..12].try_into().unwrap()),
+            192_000
+        );
+    }
+
+    #[test]
+    fn pcm_s16le_rejects_zero_channels() {
+        let error = WaveFormat::pcm_s16le(0, 48_000).expect_err("zero channels must fail");
+
+        assert_eq!(error.code, RECORDING_WRITE_FAILED);
+    }
+
+    #[test]
+    fn pcm_s16le_rejects_zero_sample_rate() {
+        let error = WaveFormat::pcm_s16le(2, 0).expect_err("zero sample rate must fail");
+
+        assert_eq!(error.code, RECORDING_WRITE_FAILED);
+    }
+
+    #[test]
+    fn pcm_s16le_rejects_arithmetic_overflow() {
+        let block_align_error =
+            WaveFormat::pcm_s16le(u16::MAX, 48_000).expect_err("block align must not overflow");
+        let byte_rate_error =
+            WaveFormat::pcm_s16le(2, u32::MAX).expect_err("byte rate must not overflow");
+
+        assert_eq!(block_align_error.code, RECORDING_WRITE_FAILED);
+        assert_eq!(byte_rate_error.code, RECORDING_WRITE_FAILED);
+    }
 
     fn pcm_format(channels: u16) -> WaveFormat {
         WaveFormat::new(
