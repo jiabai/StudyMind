@@ -38,7 +38,7 @@
 |---|---|---|---|---|---|
 | F-01 | Rust binding 编译与链接 | Intel、arm64 均能构建并启动最小 audio-only stream | E1, E2 | **E1: Pass** / E2: Planned | E1: `cargo build --release` Finished in 12.92s（screencapturekit 8.0.1, macos_13_0, Rust 1.96.0, CLT SDK 15.5 / Swift 6.1.2）；`SCStream.start_capture()` 成功。见 `scripts/macos-recording-feasibility/report.html` |
 | F-02 | 全局系统音频 | 同时播放两个独立应用的音频，两者均进入 audio output | E1, E2 | **E1: Pass** / E2: Planned | E1: 静音基线 rmsAvg=0.000000；afplay 播放 440Hz → 0.285581；say 语音 → 0.122613；两者同时 → 0.289172 |
-| F-03 | 默认输出变化 | 录音期间切换可用的默认输出路由，系统音频语义保持成立 | E1, E2 | Blocked | **实现后补验/验收阻塞项**。需在录音中人工切换系统默认输出；当前无条件执行，探针与流程就绪 |
+| F-03 | 默认输出变化 | 录音期间切换可用的默认输出路由，系统音频语义保持成立 | E1, E2 | **E1: Partial** / E2: Planned | E1(2026-08-21 产品级): 录音 75s 中把默认输出 扬声器↔外置耳机 切换，440Hz 连续音全程 RMS -24dB 稳定（切换后持续捕获 ✅）；但切换点出现 **1.04s 静音缺口**（macOS 输出路由切换自然中断，< 2s 恢复窗口）。产品 F-05 补静音逻辑未实现，缺口不会被补上 → 需 F-05 恢复实现后复核，暂不能标 Pass |
 | F-04 | 显示器变化 | 切换主显示器、连接/拔出外接显示器；优先更新 filter，必要时重建 stream | E3 | Blocked | **实现后补验/验收阻塞项**。需 E3 外接显示器环境；当前无条件执行，不阻塞实现启动 |
 | F-05 | 恢复窗口 | 单次中断不超过 2 秒时按媒体时间戳补静音并继续；超过 2 秒时失败 | E3 | Blocked | **实现后补验/验收阻塞项**。需 E3 外接显示器与 stream 中断注入；当前无条件执行，不阻塞实现启动 |
 | F-06 | 排除自身音频 | `excludesCurrentProcessAudio` 经验证生效，StudyMind 自身提示音不进入 system capture | E1, E2 | **E1: Pass** / E2: Planned | E1: 同进程 cpal 播放 440Hz：不排除 rmsAvg=0.291564；`--exclude-self` → 0.000000 |
@@ -212,10 +212,10 @@ macOS E1/E2/E3 上重新执行 native compile、TCC、两类应用全局音频�
 
 | ID | 场景 | 预期结果 | 环境 | 状态 | Evidence |
 |---|---|---|---|---|---|
-| B-01 | ffmpeg/ffprobe 资源 | 架构匹配、可执行位正确、运行时路径可解析 | E1, E2, E4, E5 | Planned | — |
-| B-02 | Info.plist | 两个 purpose string 均存在且文案说明 audio-only | E4, E5 | Planned | — |
-| B-03 | Developer ID 签名 | bundle identity 稳定，签名验证通过 | E4, E5 | Planned | — |
-| B-04 | 公证包 | notarization、启动、TCC、重启流程均通过 | E4, E5 | Planned | — |
+| B-01 | ffmpeg/ffprobe 资源 | 架构匹配、可执行位正确、运行时路径可解析 | E1, E2, E4, E5 | **E1: Pass**（ad-hoc .app） / E2, E4, E5: Planned | E1(2026-08-21): `tauri build --bundles app` 产出 StudyMind.app（x86_64），内含 ffmpeg/ffprobe 资源；codesign `--verify --deep --strict` PASS |
+| B-02 | Info.plist | 两个 purpose string 均存在且文案说明 audio-only | E4, E5 | **E1: Pass**（ad-hoc .app 形态） / E4, E5: Planned | E1(2026-08-21): `NSMicrophoneUsageDescription`="StudyMind records microphone audio for local transcription and study notes."；`NSScreenCaptureUsageDescription`="StudyMind records system audio for local transcription and study notes. Screen content is not saved."；bundle id `com.studymind.desktop` |
+| B-03 | Developer ID 签名 | bundle identity 稳定，签名验证通过 | E4, E5 | Blocked | ad-hoc 签名（identity "-"）验证通过；Developer ID 签名需证书，无凭据 |
+| B-04 | 公证包 | notarization、启动、TCC、重启流程均通过 | E4, E5 | Blocked | 无 APPLE_ID/APPLE_API_KEY，notarization 未执行 |
 
 ## 10. 完成判定
 
