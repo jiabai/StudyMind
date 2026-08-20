@@ -10,7 +10,8 @@ use super::wav_writer::{WavCaptureSummary, WaveFormat, WaveWriter};
 use super::CaptureWorkspace;
 use super::{
     CapturedRecording, RecordingCapabilities, RecordingError, RecordingMode, RecordingPlatform,
-    RecordingSourceCapability, RECORDING_MIC_ACCESS_DENIED, RECORDING_MIC_INIT_FAILED,
+    RecordingErrorCode, RecordingSourceCapability, RECORDING_MIC_ACCESS_DENIED,
+    RECORDING_MIC_INIT_FAILED,
     RECORDING_MIX_FAILED, RECORDING_STREAM_ERROR, RECORDING_SYSTEM_AUDIO_UNAVAILABLE,
     RECORDING_SYSTEM_LOOPBACK_INIT_FAILED,
 };
@@ -305,9 +306,16 @@ fn map_system_start_error<E>(result: Result<(), E>) -> Result<(), RecordingError
 fn receive_startup_signal(
     receiver: &Receiver<Result<(), RecordingError>>,
 ) -> Result<(), RecordingError> {
+    receive_startup_signal_with(receiver, RECORDING_MIC_INIT_FAILED)
+}
+
+fn receive_startup_signal_with(
+    receiver: &Receiver<Result<(), RecordingError>>,
+    fallback: RecordingErrorCode,
+) -> Result<(), RecordingError> {
     receiver
         .recv()
-        .map_err(|_| RecordingError::new(RECORDING_MIC_INIT_FAILED))?
+        .map_err(|_| RecordingError::new(fallback))?
 }
 
 #[derive(Default)]
@@ -608,12 +616,66 @@ mod platform {
         stream
     }
 
-    #[derive(Default)]
-    pub(crate) struct MacosRecordingBackend;
+    pub(crate) struct MacosRecordingBackend {
+        system_probe: Arc<dyn SystemAudioProbe>,
+        system_runtime: Arc<dyn SystemAudioRuntime>,
+    }
+
+    impl Default for MacosRecordingBackend {
+        fn default() -> Self {
+            Self {
+                system_probe: Arc::new(NativeSystemAudioProbe),
+                system_runtime: Arc::new(NativeSystemAudioRuntime),
+            }
+        }
+    }
+
+    struct NativeSystemAudioProbe;
+
+    impl SystemAudioProbe for NativeSystemAudioProbe {
+        fn probe(&self) -> Result<SystemAudioAvailability, RecordingError> {
+            let content = SCShareableContent::get()
+                .map_err(|_| RecordingError::new(RECORDING_SYSTEM_AUDIO_UNAVAILABLE))?;
+            if content.displays().is_empty() {
+                Ok(SystemAudioAvailability::NoShareableDisplay)
+            } else {
+                Ok(SystemAudioAvailability::Available)
+            }
+        }
+    }
+
+    struct NativeSystemAudioRuntime;
+
+    impl SystemAudioRuntime for NativeSystemAudioRuntime {
+        fn start(
+            &self,
+            workspace: &CaptureWorkspace,
+        ) -> Result<Box<dyn ActiveCapture>, RecordingError> {
+            let (control_tx, control_rx) = mpsc::channel();
+            let (ready_tx, ready_rx) = mpsc::sync_channel(1);
+            let path = workspace.temp_dir.join("system.wav");
+            let worker = thread::Builder::new()
+                .name("studymind-macos-system-audio".to_string())
+                .spawn(move || run_system_capture_worker(path, control_rx, ready_tx))
+                .map_err(|_| RecordingError::new(RECORDING_SYSTEM_LOOPBACK_INIT_FAILED))?;
+
+            match receive_startup_signal_with(&ready_rx, RECORDING_SYSTEM_LOOPBACK_INIT_FAILED) {
+                Ok(()) => Ok(Box::new(MacosActiveCapture { control_tx, worker })),
+                Err(error) => {
+                    let _ = worker.join();
+                    Err(error)
+                }
+            }
+        }
+    }
 
     impl RecordingBackend for MacosRecordingBackend {
         fn capabilities(&self) -> Result<RecordingCapabilities, RecordingError> {
-            Ok(capabilities_for(permission_status()?, probe_default_input))
+            Ok(capabilities_for_with_system(
+                permission_status()?,
+                probe_default_input,
+                self.system_probe.as_ref(),
+            ))
         }
 
         fn start(
@@ -621,28 +683,31 @@ mod platform {
             mode: RecordingMode,
             workspace: &CaptureWorkspace,
         ) -> Result<Box<dyn ActiveCapture>, RecordingError> {
-            if !matches!(mode, RecordingMode::Mic) {
-                return Err(RecordingError::new(RECORDING_SYSTEM_AUDIO_UNAVAILABLE));
-            }
-            authorize_start(mode, permission_status()?, request_microphone_access)?;
+            match mode {
+                RecordingMode::Mic => {
+                    authorize_start(mode, permission_status()?, request_microphone_access)?;
 
-            let (control_tx, control_rx) = mpsc::channel();
-            let (ready_tx, ready_rx) = mpsc::sync_channel(1);
-            let path = workspace.temp_dir.join("mic.wav");
-            let worker = thread::Builder::new()
-                .name("studymind-macos-microphone".to_string())
-                .spawn(move || run_capture_worker(path, control_rx, ready_tx))
-                .map_err(|_| RecordingError::new(RECORDING_MIC_INIT_FAILED))?;
+                    let (control_tx, control_rx) = mpsc::channel();
+                    let (ready_tx, ready_rx) = mpsc::sync_channel(1);
+                    let path = workspace.temp_dir.join("mic.wav");
+                    let worker = thread::Builder::new()
+                        .name("studymind-macos-microphone".to_string())
+                        .spawn(move || run_capture_worker(path, control_rx, ready_tx))
+                        .map_err(|_| RecordingError::new(RECORDING_MIC_INIT_FAILED))?;
 
-            // CoreAudio/CPAL device setup can block in native code and cannot be safely
-            // force-detached. Wait for the worker's readiness/error signal, and on error
-            // join it before returning so controller cleanup cannot race a live writer.
-            match receive_startup_signal(&ready_rx) {
-                Ok(()) => Ok(Box::new(MacosActiveCapture { control_tx, worker })),
-                Err(error) => {
-                    let _ = worker.join();
-                    Err(error)
+                    // CoreAudio/CPAL device setup can block in native code and cannot be safely
+                    // force-detached. Wait for the worker's readiness/error signal, and on error
+                    // join it before returning so controller cleanup cannot race a live writer.
+                    match receive_startup_signal(&ready_rx) {
+                        Ok(()) => Ok(Box::new(MacosActiveCapture { control_tx, worker })),
+                        Err(error) => {
+                            let _ = worker.join();
+                            Err(error)
+                        }
+                    }
                 }
+                RecordingMode::System => self.system_runtime.start(workspace),
+                RecordingMode::Mixed => Err(RecordingError::new(RECORDING_MIX_FAILED)),
             }
         }
     }
@@ -701,6 +766,115 @@ mod platform {
         host.default_input_device()
             .and_then(|device| device.default_input_config().ok())
             .is_some()
+    }
+
+    fn run_system_capture_worker(
+        path: PathBuf,
+        control_rx: mpsc::Receiver<CaptureControl>,
+        ready_tx: SyncSender<Result<(), RecordingError>>,
+    ) -> Result<Option<CapturedRecording>, RecordingError> {
+        let content = match SCShareableContent::get() {
+            Ok(content) => content,
+            Err(_) => {
+                return notify_setup_error(
+                    ready_tx,
+                    RecordingError::new(RECORDING_SYSTEM_AUDIO_UNAVAILABLE),
+                )
+            }
+        };
+        let display = match content.displays().into_iter().next() {
+            Some(display) => display,
+            None => {
+                return notify_setup_error(
+                    ready_tx,
+                    RecordingError::new(RECORDING_SYSTEM_AUDIO_UNAVAILABLE),
+                )
+            }
+        };
+        let filter = SCContentFilter::create()
+            .with_display(&display)
+            .with_excluding_windows(&[])
+            .build();
+        let spec = system_stream_config_spec();
+        let format = match WaveFormat::pcm_s16le(spec.channel_count, spec.sample_rate) {
+            Ok(format) => format,
+            Err(_) => {
+                return notify_setup_error(
+                    ready_tx,
+                    RecordingError::new(RECORDING_SYSTEM_LOOPBACK_INIT_FAILED),
+                )
+            }
+        };
+
+        let (audio_tx, audio_rx) = mpsc::sync_channel(AUDIO_QUEUE_CAPACITY);
+        let (writer_ready_tx, writer_ready_rx) = mpsc::sync_channel(1);
+        let writer = thread::Builder::new()
+            .name("studymind-macos-system-audio-writer".to_string())
+            .spawn(move || {
+                let wave_writer = WaveWriter::create(path, format);
+                match wave_writer {
+                    Ok(wave_writer) => {
+                        if writer_ready_tx.send(Ok(())).is_err() {
+                            return Err(RecordingError::new(RECORDING_STREAM_ERROR));
+                        }
+                        write_blocks(wave_writer, audio_rx)
+                    }
+                    Err(error) => {
+                        let _ = writer_ready_tx.send(Err(error.clone()));
+                        Err(error)
+                    }
+                }
+            })
+            .map_err(|_| RecordingError::new(RECORDING_SYSTEM_LOOPBACK_INIT_FAILED));
+        let writer = match writer {
+            Ok(writer) => writer,
+            Err(error) => return notify_setup_error(ready_tx, error),
+        };
+        let writer_guard = WriterJoinGuard::new(writer, audio_tx);
+        match receive_startup_signal_with(&writer_ready_rx, RECORDING_SYSTEM_LOOPBACK_INIT_FAILED)
+        {
+            Ok(()) => {}
+            Err(error) => return notify_setup_error(ready_tx, error),
+        }
+
+        let first_error = Arc::new(FirstStreamError::default());
+        let stream = match configure_system_audio_stream(
+            &filter,
+            writer_guard.sender(),
+            Arc::clone(&first_error),
+        ) {
+            Ok(stream) => stream,
+            Err(error) => return notify_setup_error(ready_tx, error),
+        };
+        if let Err(error) = map_system_start_error(stream.start_capture()) {
+            drop(stream);
+            return notify_setup_error(ready_tx, error);
+        }
+        if ready_tx.send(Ok(())).is_err() {
+            let _ = stream.stop_capture();
+            drop(stream);
+            return Err(RecordingError::new(RECORDING_STREAM_ERROR));
+        }
+
+        let control = loop {
+            match control_rx.recv_timeout(CONTROL_POLL_INTERVAL) {
+                Ok(control) => break control,
+                Err(mpsc::RecvTimeoutError::Timeout) if first_error.is_set() => {
+                    break CaptureControl::Stop
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Disconnected) => break CaptureControl::Cancel,
+            }
+        };
+        if stream.stop_capture().is_err() {
+            first_error.store();
+        }
+        drop(stream);
+        let source_failed = first_error.is_set();
+        let writer_result = writer_guard
+            .join()
+            .map_err(|_| RecordingError::new(RECORDING_STREAM_ERROR))?;
+        finish_capture(control, source_failed, writer_result)
     }
 
     fn run_capture_worker(
@@ -1193,6 +1367,122 @@ mod tests {
             assert_eq!(capture.source_paths, [path]);
             std::fs::remove_dir_all(root).expect("cleanup");
         }
+    }
+
+    #[test]
+    fn system_start_stop_returns_one_captured_recording() {
+        let root = temp_root();
+        let path = root.join("system.wav");
+        let format = WaveFormat::pcm_s16le(2, 48_000).expect("format");
+        let (sender, receiver) = mpsc::sync_channel(2);
+        let writer = std::thread::spawn({
+            let path = path.clone();
+            move || run_writer(path, format, receiver)
+        });
+        sender
+            .send(pcm16_from_i16(&[1, 0, -1, 0], 2).expect("block"))
+            .expect("queue block");
+        drop(sender);
+
+        let summary = writer.join().expect("join writer").expect("writer summary");
+        let capture = finish_capture(CaptureControl::Stop, false, Ok(summary))
+            .expect("stop capture")
+            .expect("captured recording");
+
+        assert_eq!(capture.valid_frame_count, 2);
+        assert_eq!(capture.source_paths, [path]);
+        std::fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn system_stop_drains_blocks_and_preserves_silent_recordings() {
+        let root = temp_root();
+        let path = root.join("system.wav");
+        let format = WaveFormat::pcm_s16le(2, 48_000).expect("format");
+        let (sender, receiver) = mpsc::sync_channel(2);
+        let writer = std::thread::spawn({
+            let path = path.clone();
+            move || run_writer(path, format, receiver)
+        });
+        sender
+            .send(AudioBlock::silence(2, 2))
+            .expect("first block");
+        sender
+            .send(AudioBlock::silence(3, 2))
+            .expect("second block");
+        drop(sender);
+
+        let summary = writer.join().expect("join writer").expect("writer summary");
+        let capture = finish_capture(CaptureControl::Stop, false, Ok(summary))
+            .expect("stop capture")
+            .expect("captured recording");
+
+        assert_eq!(capture.valid_frame_count, 5);
+        assert!(capture.silent);
+        std::fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn system_empty_capture_returns_recording_empty() {
+        let root = temp_root();
+        let path = root.join("system.wav");
+        let format = WaveFormat::pcm_s16le(2, 48_000).expect("format");
+        let (sender, receiver) = mpsc::sync_channel(1);
+        drop(sender);
+        let summary = run_writer(path.clone(), format, receiver).expect("empty summary");
+        let capture = finish_capture(CaptureControl::Stop, false, Ok(summary))
+            .expect("stop capture")
+            .expect("captured recording");
+
+        assert_eq!(capture.valid_frame_count, 0);
+        std::fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn system_cancel_leaves_no_temporary_wav() {
+        let root = temp_root();
+        let path = root.join("system.wav");
+        let format = WaveFormat::pcm_s16le(2, 48_000).expect("format");
+        let (sender, receiver) = mpsc::sync_channel(1);
+        drop(sender);
+        let summary = run_writer(path.clone(), format, receiver).expect("summary");
+        assert!(finish_capture(CaptureControl::Cancel, false, Ok(summary))
+            .expect("cancel")
+            .is_none());
+
+        assert!(path.exists());
+        std::fs::remove_dir_all(root).expect("controller cleanup");
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn system_queue_overflow_maps_to_stream_error_without_blocking() {
+        let first_error = FirstStreamError::default();
+        let (sender, _receiver) = mpsc::sync_channel(1);
+        submit_block(&sender, AudioBlock::silence(1, 2), &first_error)
+            .expect("first block");
+        let error = submit_block(&sender, AudioBlock::silence(1, 2), &first_error)
+            .expect_err("queue overflow");
+
+        assert_eq!(error.code, RECORDING_STREAM_ERROR);
+        assert!(first_error.is_set());
+    }
+
+    #[test]
+    fn system_runtime_error_wins_over_concurrent_stop() {
+        let root = temp_root();
+        let path = root.join("system.wav");
+        let format = WaveFormat::pcm_s16le(2, 48_000).expect("format");
+        let mut writer = WaveWriter::create(&path, format).expect("writer");
+        writer.write_silence(2).expect("silence");
+        let summary = writer.finish().expect("summary");
+        let first_error = FirstStreamError::default();
+        first_error.store();
+
+        let error = finish_capture(CaptureControl::Stop, first_error.is_set(), Ok(summary))
+            .expect_err("runtime error wins");
+        assert_eq!(error.code, RECORDING_STREAM_ERROR);
+        std::fs::remove_dir_all(root).expect("cleanup");
     }
 
     #[test]
