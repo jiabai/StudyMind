@@ -273,6 +273,7 @@ mod platform {
 
     use block2::RcBlock;
     use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+    use objc2::runtime::Bool;
     use objc2_av_foundation::{AVAuthorizationStatus, AVCaptureDevice, AVMediaTypeAudio};
 
     use super::*;
@@ -362,7 +363,7 @@ mod platform {
             return false;
         };
         let (sender, receiver) = mpsc::sync_channel(1);
-        let block = RcBlock::new(move |granted| {
+        let block = RcBlock::new(move |granted: Bool| {
             let _ = sender.try_send(granted.as_bool());
         });
         unsafe { AVCaptureDevice::requestAccessForMediaType_completionHandler(media_type, &block) };
