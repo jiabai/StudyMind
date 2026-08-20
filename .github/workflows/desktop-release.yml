@@ -219,6 +219,12 @@ jobs:
           export STUDYMIND_PYTHON_STANDALONE_URL_MACOS_X64 STUDYMIND_FFMPEG_ARCHIVE_URL_MACOS_X64 STUDYMIND_FFPROBE_ARCHIVE_URL_MACOS_X64
           node scripts/build-installer.mjs --target macos-x64 --skip-tauri-build
 
+      - name: Test macOS audio capture
+        run: cargo test --manifest-path app/src-tauri/Cargo.toml --target x86_64-apple-darwin audio_capture
+
+      - name: Check Tauri backend
+        run: cargo check --manifest-path app/src-tauri/Cargo.toml --target x86_64-apple-darwin
+
       - name: Build app bundle
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -230,6 +236,7 @@ jobs:
         run: |
           set -euo pipefail
           APP_PATH="app/src-tauri/target/x86_64-apple-darwin/release/bundle/macos/StudyMind.app"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :NSMicrophoneUsageDescription' "$APP_PATH/Contents/Info.plist")" = "StudyMind records microphone audio for local transcription and study notes."
           RESOURCES="$APP_PATH/Contents/Resources/resources"
           PYTHON="$RESOURCES/python/bin/python3"
 
@@ -296,6 +303,12 @@ jobs:
           export STUDYMIND_PYTHON_STANDALONE_URL_MACOS_ARM64 STUDYMIND_FFMPEG_ARCHIVE_URL_MACOS_ARM64 STUDYMIND_FFPROBE_ARCHIVE_URL_MACOS_ARM64
           node scripts/build-installer.mjs --target macos-arm64 --skip-tauri-build
 
+      - name: Test macOS audio capture
+        run: cargo test --manifest-path app/src-tauri/Cargo.toml --target aarch64-apple-darwin audio_capture
+
+      - name: Check Tauri backend
+        run: cargo check --manifest-path app/src-tauri/Cargo.toml --target aarch64-apple-darwin
+
       - name: Build app bundle
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -307,6 +320,7 @@ jobs:
         run: |
           set -euo pipefail
           APP_PATH="app/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/StudyMind.app"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :NSMicrophoneUsageDescription' "$APP_PATH/Contents/Info.plist")" = "StudyMind records microphone audio for local transcription and study notes."
           RESOURCES="$APP_PATH/Contents/Resources/resources"
           PYTHON="$RESOURCES/python/bin/python3"
 
