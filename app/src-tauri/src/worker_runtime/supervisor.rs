@@ -2,6 +2,8 @@ use super::WorkerTimeoutKind;
 use serde::Serialize;
 use std::process::{Command, Output};
 use std::sync::{Condvar, Mutex};
+#[cfg(target_os = "windows")]
+use std::sync::Arc;
 #[cfg(unix)]
 use std::time::Duration;
 
