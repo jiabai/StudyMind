@@ -18,6 +18,7 @@ function createController(
         platform: "windows",
         microphone: { available: true },
         systemAudio: { available: true },
+        mixed: { available: true },
       },
     },
     mode: "mic",

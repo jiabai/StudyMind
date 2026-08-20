@@ -154,6 +154,7 @@ pub(crate) struct RecordingCapabilities {
     pub(crate) platform: RecordingPlatform,
     pub(crate) microphone: RecordingSourceCapability,
     pub(crate) system_audio: RecordingSourceCapability,
+    pub(crate) mixed: RecordingSourceCapability,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -584,6 +585,15 @@ fn validate_mode(
         ));
     }
 
+    if mode == RecordingMode::Mixed && !capabilities.mixed.available {
+        return Err(RecordingError::new(
+            capabilities
+                .mixed
+                .reason_code
+                .unwrap_or(RECORDING_MIX_FAILED),
+        ));
+    }
+
     Ok(())
 }
 
@@ -637,7 +647,8 @@ impl RecordingBackend for UnavailableRecordingBackend {
         Ok(RecordingCapabilities {
             platform,
             microphone: unavailable.clone(),
-            system_audio: unavailable,
+            system_audio: unavailable.clone(),
+            mixed: unavailable,
         })
     }
 
@@ -830,6 +841,10 @@ mod tests {
                         reason_code: None,
                     },
                     system_audio: RecordingSourceCapability {
+                        available: true,
+                        reason_code: None,
+                    },
+                    mixed: RecordingSourceCapability {
                         available: true,
                         reason_code: None,
                     },
@@ -1133,6 +1148,26 @@ mod tests {
 
         assert_eq!(error.code, RECORDING_MIC_INIT_FAILED);
         assert!(prepared.lock().expect("prepared lock").is_empty());
+    }
+
+    #[test]
+    fn mixed_mode_requires_its_explicit_capability_after_sources_are_available() {
+        let mut capabilities = FakeBackend::available(CapturedRecording {
+            source_paths: Vec::new(),
+            valid_frame_count: 1,
+            silent: false,
+            duration_ms: 100,
+        })
+        .capabilities;
+        capabilities.mixed = RecordingSourceCapability {
+            available: false,
+            reason_code: Some(RECORDING_MIX_FAILED),
+        };
+
+        let error = validate_mode(RecordingMode::Mixed, &capabilities)
+            .expect_err("mixed must remain unavailable until its implementation lands");
+
+        assert_eq!(error.code, RECORDING_MIX_FAILED);
     }
 
     #[test]

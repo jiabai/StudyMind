@@ -25,6 +25,10 @@ const VALID_CAPABILITIES = {
     available: false,
     reasonCode: "RECORDING_SYSTEM_AUDIO_UNAVAILABLE",
   },
+  mixed: {
+    available: false,
+    reasonCode: "RECORDING_MIX_FAILED",
+  },
 } as const;
 
 const VALID_START = { sessionId: "session-123" } as const;
@@ -46,6 +50,7 @@ class CapabilityResponse {
   platform = "windows";
   microphone = { available: true };
   systemAudio = { available: true };
+  mixed = { available: true };
 }
 
 class StartResponse {
@@ -89,6 +94,10 @@ describe("recording client", () => {
       systemAudio: {
         available: false,
         reasonCode: "RECORDING_SYSTEM_AUDIO_UNAVAILABLE",
+      },
+      mixed: {
+        available: false,
+        reasonCode: "RECORDING_MIX_FAILED",
       },
     });
     await expect(startRecording("mic")).resolves.toEqual({
@@ -150,6 +159,10 @@ describe("recording client", () => {
         available: false,
         reasonCode: "RECORDING_SYSTEM_AUDIO_UNAVAILABLE",
       },
+      mixed: {
+        available: false,
+        reasonCode: "RECORDING_MIX_FAILED",
+      },
     });
     await expect(startRecording("mic", runner)).resolves.toEqual({
       sessionId: "session-123",
@@ -181,6 +194,10 @@ describe("recording client", () => {
       systemAudio: {
         available: false,
         reasonCode: "RECORDING_SYSTEM_AUDIO_UNAVAILABLE",
+      },
+      mixed: {
+        available: false,
+        reasonCode: "RECORDING_MIX_FAILED",
       },
     } as const;
 
@@ -290,6 +307,7 @@ describe("recording client", () => {
         platform: "windows",
         microphone,
         systemAudio: { available: true },
+        mixed: { available: true },
       })),
     ).rejects.toSatisfy((error: unknown) => {
       expectRecordingError(error, "RECORDING_IPC_RESPONSE_INVALID");
@@ -517,6 +535,7 @@ describe("recording client", () => {
         platform: "windows",
         microphone: { available: true },
         systemAudio: { available: true },
+        mixed: { available: true },
       },
       "platform",
       {

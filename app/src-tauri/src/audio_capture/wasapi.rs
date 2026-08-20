@@ -22,8 +22,9 @@ use super::wav_writer::{WavCaptureSummary, WaveFormat, WaveWriter};
 use super::{
     ActiveCapture, CaptureWorkspace, CapturedRecording, RecordingBackend, RecordingCapabilities,
     RecordingError, RecordingMode, RecordingPlatform, RecordingSourceCapability,
-    RECORDING_MIC_ACCESS_DENIED, RECORDING_MIC_INIT_FAILED, RECORDING_STREAM_ERROR,
-    RECORDING_SYSTEM_AUDIO_UNAVAILABLE, RECORDING_SYSTEM_LOOPBACK_INIT_FAILED,
+    RECORDING_MIC_ACCESS_DENIED, RECORDING_MIC_INIT_FAILED, RECORDING_MIX_FAILED,
+    RECORDING_STREAM_ERROR, RECORDING_SYSTEM_AUDIO_UNAVAILABLE,
+    RECORDING_SYSTEM_LOOPBACK_INIT_FAILED,
 };
 
 #[derive(Default)]
@@ -103,11 +104,17 @@ impl RecordingBackend for WasapiRecordingBackend {
                 reason_code: Some(error.code),
             },
         };
+        let mixed_available = microphone.available && system_audio.available;
+        let mixed = RecordingSourceCapability {
+            available: mixed_available,
+            reason_code: (!mixed_available).then_some(RECORDING_MIX_FAILED),
+        };
 
         Ok(RecordingCapabilities {
             platform: RecordingPlatform::Windows,
             microphone,
             system_audio,
+            mixed,
         })
     }
 
@@ -539,7 +546,12 @@ mod tests {
             .expect("capability probe returns a stable response");
 
         assert_eq!(capabilities.platform, RecordingPlatform::Windows);
-        for source in [capabilities.microphone, capabilities.system_audio] {
+        let expected_mixed =
+            capabilities.microphone.available && capabilities.system_audio.available;
+        let payload = serde_json::to_value(&capabilities).expect("serialize capabilities");
+        assert_eq!(payload["mixed"]["available"], expected_mixed);
+
+        for source in [&capabilities.microphone, &capabilities.system_audio] {
             if !source.available {
                 assert!(source.reason_code.is_some());
             }

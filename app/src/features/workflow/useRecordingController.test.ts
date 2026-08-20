@@ -100,6 +100,7 @@ const CAPABILITIES: RecordingCapabilities = {
   platform: "windows",
   microphone: { available: true },
   systemAudio: { available: true },
+  mixed: { available: true },
 };
 
 const SYSTEM_ONLY_CAPABILITIES: RecordingCapabilities = {
@@ -109,6 +110,7 @@ const SYSTEM_ONLY_CAPABILITIES: RecordingCapabilities = {
     reasonCode: "RECORDING_MIC_INIT_FAILED",
   },
   systemAudio: { available: true },
+  mixed: { available: false, reasonCode: "RECORDING_MIX_FAILED" },
 };
 
 const MIC_ONLY_CAPABILITIES: RecordingCapabilities = {
@@ -118,6 +120,7 @@ const MIC_ONLY_CAPABILITIES: RecordingCapabilities = {
     available: false,
     reasonCode: "RECORDING_SYSTEM_AUDIO_UNAVAILABLE",
   },
+  mixed: { available: false, reasonCode: "RECORDING_MIX_FAILED" },
 };
 
 const MACOS_MIC_ONLY_CAPABILITIES: RecordingCapabilities = {
@@ -127,12 +130,14 @@ const MACOS_MIC_ONLY_CAPABILITIES: RecordingCapabilities = {
     available: false,
     reasonCode: "RECORDING_SYSTEM_AUDIO_UNAVAILABLE",
   },
+  mixed: { available: false, reasonCode: "RECORDING_MIX_FAILED" },
 };
 
 const UNSUPPORTED_CAPABILITIES: RecordingCapabilities = {
   platform: "unsupported",
   microphone: { available: false },
   systemAudio: { available: false },
+  mixed: { available: false },
 };
 
 const UNAVAILABLE_CAPABILITIES: RecordingCapabilities = {
@@ -145,6 +150,7 @@ const UNAVAILABLE_CAPABILITIES: RecordingCapabilities = {
     available: false,
     reasonCode: "RECORDING_SYSTEM_AUDIO_UNAVAILABLE",
   },
+  mixed: { available: false, reasonCode: "RECORDING_MIX_FAILED" },
 };
 
 const PREFERENCES: UiPreferencesView = {
@@ -525,6 +531,38 @@ describe("useRecordingController", () => {
     expect(controller.isModeAvailable("mic")).toBe(true);
     expect(controller.isModeAvailable("system")).toBe(false);
     expect(controller.isModeAvailable("mixed")).toBe(false);
+  });
+
+  test("keeps macOS mixed unavailable until its explicit capability is enabled", async () => {
+    const capabilities = {
+      platform: "macos",
+      microphone: { available: true },
+      systemAudio: { available: true },
+      mixed: {
+        available: false,
+        reasonCode: "RECORDING_MIX_FAILED",
+      },
+    } as unknown as RecordingCapabilities;
+    const { render } = await createController({
+      recordingClient: {
+        getRecordingCapabilities: vi.fn().mockResolvedValue(capabilities),
+        startRecording: vi.fn().mockResolvedValue({ sessionId: "session-1", warnings: [] }),
+        stopRecording: vi.fn().mockResolvedValue(RESULT),
+        cancelRecording: vi.fn(),
+      },
+      readPreferences: vi.fn().mockResolvedValue({
+        ...PREFERENCES,
+        recording: { audioSourceMode: "mixed" },
+      }),
+    });
+
+    let controller = render();
+    await settle();
+    controller = render();
+
+    expect(controller.isModeAvailable("system")).toBe(true);
+    expect(controller.isModeAvailable("mixed")).toBe(false);
+    expect(controller.mode).toBe("mic");
   });
 
   test("keeps the macOS mic-only lifecycle guarded and hands off the normalized result", async () => {

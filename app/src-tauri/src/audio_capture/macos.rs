@@ -11,7 +11,7 @@ use super::CaptureWorkspace;
 use super::{
     CapturedRecording, RecordingCapabilities, RecordingError, RecordingMode, RecordingPlatform,
     RecordingSourceCapability, RECORDING_MIC_ACCESS_DENIED, RECORDING_MIC_INIT_FAILED,
-    RECORDING_STREAM_ERROR, RECORDING_SYSTEM_AUDIO_UNAVAILABLE,
+    RECORDING_MIX_FAILED, RECORDING_STREAM_ERROR, RECORDING_SYSTEM_AUDIO_UNAVAILABLE,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,6 +52,10 @@ fn capabilities_for(
         system_audio: RecordingSourceCapability {
             available: false,
             reason_code: Some(RECORDING_SYSTEM_AUDIO_UNAVAILABLE),
+        },
+        mixed: RecordingSourceCapability {
+            available: false,
+            reason_code: Some(RECORDING_MIX_FAILED),
         },
     }
 }
@@ -591,6 +595,10 @@ mod tests {
                 capabilities.system_audio.reason_code,
                 Some(RECORDING_SYSTEM_AUDIO_UNAVAILABLE)
             );
+
+            let payload = serde_json::to_value(&capabilities).expect("serialize capabilities");
+            assert_eq!(payload["mixed"]["available"], false);
+            assert_eq!(payload["mixed"]["reasonCode"], "RECORDING_MIX_FAILED");
         }
 
         // There is deliberately no request-access callback in the capability seam.

@@ -168,7 +168,7 @@ function isModeAvailableFromCapabilities(
   if (!capabilities || capabilities.platform === "unsupported") return false;
   if (mode === "mic") return capabilities.microphone.available;
   if (mode === "system") return capabilities.systemAudio.available;
-  return capabilities.microphone.available && capabilities.systemAudio.available;
+  return capabilities.mixed.available;
 }
 
 function hasUsableRecordingSource(

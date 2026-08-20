@@ -34,6 +34,7 @@ export type RecordingCapabilities = {
   platform: "windows" | "macos" | "unsupported";
   microphone: RecordingSourceCapability;
   systemAudio: RecordingSourceCapability;
+  mixed: RecordingSourceCapability;
 };
 
 export type RecordingResult = {
@@ -163,7 +164,7 @@ async function runRecordingCommand(
 function parseRecordingCapabilities(value: unknown): RecordingCapabilities {
   const response = readRecordingObject(
     value,
-    ["platform", "microphone", "systemAudio"],
+    ["platform", "microphone", "systemAudio", "mixed"],
     [],
   );
   if (
@@ -177,6 +178,7 @@ function parseRecordingCapabilities(value: unknown): RecordingCapabilities {
     platform: response.platform,
     microphone: parseSourceCapability(response.microphone),
     systemAudio: parseSourceCapability(response.systemAudio),
+    mixed: parseSourceCapability(response.mixed),
   };
 }
 
