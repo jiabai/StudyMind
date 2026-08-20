@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(target_os = "macos")]
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError};
+use std::thread::JoinHandle;
 
 use super::wav_writer::{WavCaptureSummary, WaveFormat, WaveWriter};
 #[cfg(target_os = "macos")]
@@ -195,6 +196,46 @@ fn write_blocks(
         writer.write_frames(&block.bytes, block.frame_count, block.silent)?;
     }
     writer.finish()
+}
+
+struct WriterJoinGuard<T> {
+    writer: Option<JoinHandle<T>>,
+    sender: Option<SyncSender<AudioBlock>>,
+}
+
+impl<T> WriterJoinGuard<T> {
+    fn new(writer: JoinHandle<T>, sender: SyncSender<AudioBlock>) -> Self {
+        Self {
+            writer: Some(writer),
+            sender: Some(sender),
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn sender(&self) -> SyncSender<AudioBlock> {
+        self.sender
+            .as_ref()
+            .expect("writer join guard sender is present")
+            .clone()
+    }
+
+    #[cfg(target_os = "macos")]
+    fn join(mut self) -> std::thread::Result<T> {
+        drop(self.sender.take());
+        self.writer
+            .take()
+            .expect("writer join guard handle is present")
+            .join()
+    }
+}
+
+impl<T> Drop for WriterJoinGuard<T> {
+    fn drop(&mut self) {
+        drop(self.sender.take());
+        if let Some(writer) = self.writer.take() {
+            let _ = writer.join();
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -394,12 +435,10 @@ mod platform {
             Ok(writer) => writer,
             Err(error) => return notify_setup_error(ready_tx, error),
         };
+        let writer_guard = WriterJoinGuard::new(writer, audio_tx);
         match receive_startup_signal(&writer_ready_rx) {
             Ok(()) => {}
-            Err(error) => {
-                let _ = writer.join();
-                return notify_setup_error(ready_tx, error);
-            }
+            Err(error) => return notify_setup_error(ready_tx, error),
         }
 
         let first_error = Arc::new(FirstStreamError::default());
@@ -408,7 +447,7 @@ mod platform {
             cpal::SampleFormat::F32 => build_stream(
                 &device,
                 &stream_config,
-                audio_tx,
+                writer_guard.sender(),
                 Arc::clone(&first_error),
                 channels,
                 pcm16_from_f32,
@@ -416,7 +455,7 @@ mod platform {
             cpal::SampleFormat::I16 => build_stream(
                 &device,
                 &stream_config,
-                audio_tx,
+                writer_guard.sender(),
                 Arc::clone(&first_error),
                 channels,
                 pcm16_from_i16,
@@ -424,7 +463,7 @@ mod platform {
             cpal::SampleFormat::U16 => build_stream(
                 &device,
                 &stream_config,
-                audio_tx,
+                writer_guard.sender(),
                 Arc::clone(&first_error),
                 channels,
                 pcm16_from_u16,
@@ -433,19 +472,14 @@ mod platform {
         };
         let stream = match stream {
             Ok(stream) => stream,
-            Err(error) => {
-                let _ = writer.join();
-                return notify_setup_error(ready_tx, error);
-            }
+            Err(error) => return notify_setup_error(ready_tx, error),
         };
         if let Err(error) = map_stream_play_error(stream.play()) {
             drop(stream);
-            let _ = writer.join();
             return notify_setup_error(ready_tx, error);
         }
         if ready_tx.send(Ok(())).is_err() {
             drop(stream);
-            let _ = writer.join();
             return Err(RecordingError::new(RECORDING_STREAM_ERROR));
         }
 
@@ -461,7 +495,7 @@ mod platform {
         };
         drop(stream);
         let source_failed = first_error.is_set();
-        let writer_result = writer
+        let writer_result = writer_guard
             .join()
             .map_err(|_| RecordingError::new(RECORDING_STREAM_ERROR))?;
         finish_capture(control, source_failed, writer_result)
@@ -505,7 +539,7 @@ pub(crate) use platform::MacosRecordingBackend;
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::mpsc;
 
     use super::*;
@@ -723,6 +757,21 @@ mod tests {
 
         let error = receive_startup_signal(&ready_rx).expect_err("startup must fail");
         assert_eq!(error.code, RECORDING_MIC_INIT_FAILED);
+    }
+
+    #[test]
+    fn writer_join_guard_closes_sender_before_drop_joins_writer() {
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let writer_exited = std::sync::Arc::new(AtomicBool::new(false));
+        let writer_exited_in_thread = std::sync::Arc::clone(&writer_exited);
+        let writer = std::thread::spawn(move || {
+            assert!(receiver.recv().is_err());
+            writer_exited_in_thread.store(true, Ordering::SeqCst);
+        });
+
+        drop(WriterJoinGuard::new(writer, sender));
+
+        assert!(writer_exited.load(Ordering::SeqCst));
     }
 
     fn temp_root() -> std::path::PathBuf {
