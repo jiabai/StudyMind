@@ -64,6 +64,14 @@
 Windows 上的 `cargo check` 不会编译 `cfg(target_os = "macos")` 下的原生 AVFoundation/CPAL
 代码，因此上述 Windows host 证据不能证明 macOS native backend 可编译、可链接或可运行。
 
+> 2026-08-20 更新：已在 **E1（Intel x86_64, macOS 15.7.7）真机**完成 macOS 原生编译与 mic 真机验收。
+> 期间发现并修复了 macOS `cfg` 分支的编译错误（`audio_capture/macos.rs` 的 `RcBlock` 闭包参数缺
+> `objc2::runtime::Bool` 类型标注，E0282；Windows host 编译不到该分支故漏检），见 commit
+> `36e27b6`（已合入 master，含 `objc2 = "0.6"` 依赖）。修复后 `cargo build`/`cargo check` 通过，
+> `audio_capture` 模块 **45/45** 测试通过，mic 的 TCC 懒请求/允许/拒绝、start/stop/cancel、
+> 16 kHz 单声道 16-bit PCM WAV 均已真机验证。对应 P-01/P-02/P-06 与 C-01/C-03/C-04/C-05 在 E1
+> 标记为 Pass（CLI 形态；真实 `.app` 的 Info.plist/TCC 仍见 §3.2 打包项）。
+
 ## 3.2 后续验收任务
 
 以下任务不再作为进入规格化或启动正式实现的前置条件，但在 macOS 录音可以宣称验收完成或进入发布前必须取得证据。
@@ -79,7 +87,7 @@ Windows 上的 `cargo check` 不会编译 `cfg(target_os = "macos")` 下的原�
 以下项目均为**实现后补验/验收阻塞项**，当前不得标记为 `Pass`：
 
 - F-03、F-04、F-05；E2 与 E3。
-- 在实际 x64 与 arm64 macOS 主机上编译原生 AVFoundation/CPAL 代码并运行测试。
+- 在实际 x64 与 arm64 macOS 主机上编译原生 AVFoundation/CPAL 代码并运行测试。（x64 已于 2026-08-20 完成并标记 Pass，见 §3.1；arm64/E2 仍待验）
 - 使用真实 `.app` 验证 TCC：进入录音入口不弹窗、允许、拒绝、撤销权限及重启后的行为。
 - 验证 Tauri 的 Info.plist 合并结果，并检查最终 packaged bundle 中的 purpose strings。
 - 完成 Developer ID 签名与公证验证。
@@ -89,12 +97,12 @@ Windows 上的 `cargo check` 不会编译 `cfg(target_os = "macos")` 下的原�
 
 | ID | 场景 | 预期结果 | 环境 | 状态 | Evidence |
 |---|---|---|---|---|---|
-| P-01 | 首次进入录音入口 | 不主动弹出 TCC 请求 | E1, E2 | Planned | — |
-| P-02 | 首次启动 mic | 点击开始后请求麦克风权限 | E1, E2 | Planned | — |
+| P-01 | 首次进入录音入口 | 不主动弹出 TCC 请求 | E1, E2 | **E1: Pass** / E2: Planned | E1: NotDetermined 下 `capabilities()` 返回 `microphone.available:true` 且不触发弹窗（permission 仍为 NotDetermined，仅读 `authorizationStatusForMediaType`）；单测 `capability_matrix_is_stable_and_probe_never_requests_permission` 亦覆盖 |
+| P-02 | 首次启动 mic | 点击开始后请求麦克风权限 | E1, E2 | **E1: Pass** / E2: Planned | E1: NotDetermined 下 `start(Mic)` 触发 `requestAccessForMediaType` 弹窗，用户允许后录音成功；`start(System|Mixed)` 不请求麦克风权限（单测 `system_and_mixed_start_fail_without_prompting`） |
 | P-03 | 首次启动 system | 点击开始后请求 Screen Recording 权限，并说明只保存音频 | E1, E2 | Planned | — |
 | P-04 | 首次启动 mixed | 固定先请求麦克风，再请求 Screen Recording | E1, E2 | Planned | — |
 | P-05 | mixed 部分授权 | 整体失败、清理临时文件、不回退 mic | E1, E2 | Planned | — |
-| P-06 | 拒绝与系统设置 | 显示来源明确的错误和设置入口；回到前台后重新探测 | E1, E2 | Planned | — |
+| P-06 | 拒绝与系统设置 | 显示来源明确的错误和设置入口；回到前台后重新探测 | E1, E2 | **E1: Pass** / E2: Planned | E1: Denied 下 `start(Mic)` 0.11s 返回 `{"code":"RECORDING_MIC_ACCESS_DENIED","message":"Microphone access was denied."}`，不弹窗、不静默换源 |
 | P-07 | 授权后重启 | 重启后能力与 TCC 状态一致 | E1, E2, E4, E5 | Planned | — |
 | P-08 | 撤销权限 | option 灰显；空闲态偏好可回退，明确开始后不静默换源 | E1, E2 | Planned | — |
 | P-09 | macOS 12.x | 只暴露 mic，system/mixed 不可用 | E6 | Planned | — |
@@ -103,11 +111,11 @@ Windows 上的 `cargo check` 不会编译 `cfg(target_os = "macos")` 下的原�
 
 | ID | 场景 | 预期结果 | 环境 | 状态 | Evidence |
 |---|---|---|---|---|---|
-| C-01 | mic start/stop/cancel | 状态机正确，成功停止产出规范 WAV，取消不留产物 | E1, E2 | Planned | — |
+| C-01 | mic start/stop/cancel | 状态机正确，成功停止产出规范 WAV，取消不留产物 | E1, E2 | **E1: Pass** / E2: Planned | E1: 录音 3s→stop 产出 WAV，`.tmp` session 目录清空；cancel 后 `.tmp` 无 mic.wav 残留（`cancel_temp_wav_residue=0`） |
 | C-02 | system start/stop/cancel | 捕获全局系统音频，不产生屏幕视频数据 | E1, E2 | Planned | — |
-| C-03 | SilentRecording | 有有效零振幅帧时允许提交 | E1, E2 | Planned | — |
-| C-04 | EmptyRecording | 没有有效音频帧时拒绝提交 | E1, E2 | Planned | — |
-| C-05 | 输出格式 | 最终文件为 16 kHz、单声道、16-bit PCM WAV | E1, E2 | Planned | — |
+| C-03 | SilentRecording | 有有效零振幅帧时允许提交 | E1, E2 | **E1: Pass** / E2: Planned | E1: 单测确定性覆盖（`empty_capture_is_rejected_but_valid_silent_capture_is_finalized`、`stop_drains_blocks_and_returns_valid_silent_or_non_silent_summary` 静音分支）；真机后端实测环境有底噪 `silent=false`（`valid_frame_count=95744`），静音帧允许提交逻辑已由单测证明 |
+| C-04 | EmptyRecording | 没有有效音频帧时拒绝提交 | E1, E2 | **E1: Pass** / E2: Planned | E1: 单测 `empty_capture_is_rejected_but_valid_silent_capture_is_finalized`（`valid_frame_count=0` → `RECORDING_EMPTY`）；真机 CoreAudio 持续送帧，空录音不可自然复现 |
+| C-05 | 输出格式 | 最终文件为 16 kHz、单声道、16-bit PCM WAV | E1, E2 | **E1: Pass** / E2: Planned | E1: ffprobe 验证 `pcm_s16le / 16000Hz / 1ch / 16bit / 2.976s / 95310B`，header 含 `Lavf63.1`（真实 ffmpeg finalizer 产物） |
 | C-06 | 60 分钟录音 | 无明显错位、截断、写入中断或不可解释残留 | E1, E2 | Planned | — |
 | C-07 | 低磁盘空间 | 低于 500 MB 时发出既有 warning，写入边界保持一致 | E1, E2 | Planned | — |
 
