@@ -441,35 +441,29 @@ impl RecordingController {
             ..
         } = active;
 
-        let captured = match capture.stop() {
-            Ok(captured) => captured,
-            Err(error) => {
-                self.set_error(error.clone())?;
-                return Err(error);
+        let operation_result = capture.stop().and_then(|captured| {
+            if captured.valid_frame_count == 0 {
+                return Err(RecordingError::new(RECORDING_EMPTY));
             }
+
+            self.finalizer.finalize(&workspace, captured, mode)
+        });
+        let cleanup_result = self.file_store.cleanup(&workspace);
+        let result = match operation_result {
+            Err(error) => Err(error),
+            Ok(finalized) => cleanup_result.map(|()| finalized.into()),
         };
 
-        if captured.valid_frame_count == 0 {
-            let error = RecordingError::new(RECORDING_EMPTY);
-            self.set_error(error.clone())?;
-            return Err(error);
-        }
-
-        let finalized = match self.finalizer.finalize(&workspace, captured, mode) {
-            Ok(finalized) => finalized,
+        match result {
+            Ok(finalized) => {
+                *self.lock_state()? = ControllerState::Idle;
+                Ok(finalized)
+            }
             Err(error) => {
                 self.set_error(error.clone())?;
-                return Err(error);
+                Err(error)
             }
-        };
-
-        if let Err(error) = self.file_store.cleanup(&workspace) {
-            self.set_error(error.clone())?;
-            return Err(error);
         }
-
-        *self.lock_state()? = ControllerState::Idle;
-        Ok(finalized.into())
     }
 
     pub(crate) fn close(&self) -> Result<(), RecordingError> {
@@ -496,18 +490,20 @@ impl RecordingController {
             workspace, capture, ..
         } = active;
 
-        if let Err(error) = capture.cancel() {
-            self.set_error(error.clone())?;
-            return Err(error);
-        }
+        let cancel_result = capture.cancel();
+        let cleanup_result = self.file_store.cleanup(&workspace);
+        let result = cancel_result.and(cleanup_result);
 
-        if let Err(error) = self.file_store.cleanup(&workspace) {
-            self.set_error(error.clone())?;
-            return Err(error);
+        match result {
+            Ok(()) => {
+                *self.lock_state()? = ControllerState::Idle;
+                Ok(())
+            }
+            Err(error) => {
+                self.set_error(error.clone())?;
+                Err(error)
+            }
         }
-
-        *self.lock_state()? = ControllerState::Idle;
-        Ok(())
     }
 
     fn take_active_session(&self, session_id: &str) -> Result<RecordingSession, RecordingError> {
@@ -804,6 +800,7 @@ mod tests {
         capabilities: RecordingCapabilities,
         start_error: Option<RecordingError>,
         stop_error: Option<RecordingError>,
+        cancel_error: Option<RecordingError>,
         captured: CapturedRecording,
     }
 
@@ -823,6 +820,7 @@ mod tests {
                 },
                 start_error: None,
                 stop_error: None,
+                cancel_error: None,
                 captured,
             }
         }
@@ -847,7 +845,7 @@ mod tests {
                     .stop_error
                     .clone()
                     .map_or_else(|| Ok(self.captured.clone()), Err),
-                cancel_result: Ok(()),
+                cancel_result: self.cancel_error.clone().map_or(Ok(()), Err),
             }))
         }
     }
@@ -900,6 +898,7 @@ mod tests {
     struct TrackingFileStore {
         prepared: Arc<Mutex<Vec<PathBuf>>>,
         cleaned: Arc<Mutex<Vec<PathBuf>>>,
+        cleanup_error: Option<RecordingError>,
     }
 
     impl TrackingFileStore {
@@ -907,6 +906,14 @@ mod tests {
             Self {
                 prepared: Arc::new(Mutex::new(Vec::new())),
                 cleaned: Arc::new(Mutex::new(Vec::new())),
+                cleanup_error: None,
+            }
+        }
+
+        fn with_cleanup_error(error: RecordingError) -> Self {
+            Self {
+                cleanup_error: Some(error),
+                ..Self::new()
             }
         }
     }
@@ -929,7 +936,7 @@ mod tests {
                 .lock()
                 .expect("cleaned lock")
                 .push(workspace.temp_dir.clone());
-            Ok(())
+            self.cleanup_error.clone().map_or(Ok(()), Err)
         }
     }
 
@@ -1141,6 +1148,8 @@ mod tests {
 
     #[test]
     fn empty_capture_is_rejected_but_valid_silent_capture_is_finalized() {
+        let file_store = TrackingFileStore::new();
+        let cleaned = file_store.cleaned.clone();
         let empty_controller = RecordingController::new(
             Arc::new(FakeBackend::available(CapturedRecording {
                 source_paths: Vec::new(),
@@ -1149,7 +1158,7 @@ mod tests {
                 duration_ms: 0,
             })),
             Arc::new(FakeFinalizer),
-            Arc::new(FakeFileStore),
+            Arc::new(file_store),
             Arc::new(FakeClock::new(1_000)),
         );
         let empty_session = empty_controller
@@ -1162,6 +1171,7 @@ mod tests {
                 .code,
             RECORDING_EMPTY
         );
+        assert_eq!(cleaned.lock().expect("cleaned lock").len(), 1);
 
         let silent_controller = RecordingController::new(
             Arc::new(FakeBackend::available(CapturedRecording {
@@ -1215,7 +1225,40 @@ mod tests {
     }
 
     #[test]
-    fn stream_failure_preserves_the_workspace_and_returns_a_stable_error() {
+    fn cancel_failure_cleans_the_workspace_and_returns_the_capture_error() {
+        let mut backend = FakeBackend::available(CapturedRecording {
+            source_paths: Vec::new(),
+            valid_frame_count: 1,
+            silent: false,
+            duration_ms: 100,
+        });
+        backend.cancel_error = Some(RecordingError::new(RECORDING_STREAM_ERROR));
+        let file_store = TrackingFileStore::new();
+        let cleaned = file_store.cleaned.clone();
+        let controller = RecordingController::new(
+            Arc::new(backend),
+            Arc::new(FakeFinalizer),
+            Arc::new(file_store),
+            Arc::new(FakeClock::new(1_000)),
+        );
+        let started = controller
+            .start(RecordingMode::Mic)
+            .expect("start recording");
+
+        let error = controller
+            .cancel(&started.session_id)
+            .expect_err("capture cancellation must fail");
+
+        assert_eq!(error.code, RECORDING_STREAM_ERROR);
+        assert_eq!(cleaned.lock().expect("cleaned lock").len(), 1);
+        assert!(matches!(
+            *controller.state.lock().expect("state lock"),
+            ControllerState::Error
+        ));
+    }
+
+    #[test]
+    fn stream_failure_cleans_the_workspace_and_returns_a_stable_error() {
         let mut backend = FakeBackend::available(CapturedRecording {
             source_paths: Vec::new(),
             valid_frame_count: 1,
@@ -1240,12 +1283,15 @@ mod tests {
             .expect_err("stream interruption must fail");
 
         assert_eq!(error.code, RecordingErrorCode::StreamError);
-        assert!(cleaned.lock().expect("cleaned lock").is_empty());
-        assert!(controller.state().expect("read state").is_none());
+        assert_eq!(cleaned.lock().expect("cleaned lock").len(), 1);
+        assert!(matches!(
+            *controller.state.lock().expect("state lock"),
+            ControllerState::Error
+        ));
     }
 
     #[test]
-    fn finalization_failure_preserves_the_workspace_and_returns_a_stable_error() {
+    fn finalization_failure_cleans_the_workspace_and_returns_a_stable_error() {
         let file_store = TrackingFileStore::new();
         let cleaned = file_store.cleaned.clone();
         let controller = RecordingController::new(
@@ -1268,8 +1314,167 @@ mod tests {
             .expect_err("finalization must fail");
 
         assert_eq!(error.code, RECORDING_FINALIZE_FAILED);
-        assert!(cleaned.lock().expect("cleaned lock").is_empty());
-        assert!(controller.state().expect("read state").is_none());
+        assert_eq!(cleaned.lock().expect("cleaned lock").len(), 1);
+        assert!(matches!(
+            *controller.state.lock().expect("state lock"),
+            ControllerState::Error
+        ));
+    }
+
+    #[test]
+    fn cleanup_failure_after_successful_stop_is_returned_and_sets_error_state() {
+        let file_store =
+            TrackingFileStore::with_cleanup_error(RecordingError::new(RECORDING_WRITE_FAILED));
+        let cleaned = file_store.cleaned.clone();
+        let controller = RecordingController::new(
+            Arc::new(FakeBackend::available(CapturedRecording {
+                source_paths: Vec::new(),
+                valid_frame_count: 1,
+                silent: false,
+                duration_ms: 100,
+            })),
+            Arc::new(FakeFinalizer),
+            Arc::new(file_store),
+            Arc::new(FakeClock::new(1_000)),
+        );
+        let started = controller
+            .start(RecordingMode::Mic)
+            .expect("start recording");
+
+        let error = controller
+            .stop(&started.session_id)
+            .expect_err("cleanup must fail");
+
+        assert_eq!(error.code, RECORDING_WRITE_FAILED);
+        assert_eq!(cleaned.lock().expect("cleaned lock").len(), 1);
+        assert!(matches!(
+            *controller.state.lock().expect("state lock"),
+            ControllerState::Error
+        ));
+    }
+
+    #[test]
+    fn cleanup_failure_after_successful_cancel_is_returned_and_sets_error_state() {
+        let file_store =
+            TrackingFileStore::with_cleanup_error(RecordingError::new(RECORDING_WRITE_FAILED));
+        let cleaned = file_store.cleaned.clone();
+        let controller = RecordingController::new(
+            Arc::new(FakeBackend::available(CapturedRecording {
+                source_paths: Vec::new(),
+                valid_frame_count: 1,
+                silent: false,
+                duration_ms: 100,
+            })),
+            Arc::new(FakeFinalizer),
+            Arc::new(file_store),
+            Arc::new(FakeClock::new(1_000)),
+        );
+        let started = controller
+            .start(RecordingMode::Mic)
+            .expect("start recording");
+
+        let error = controller
+            .cancel(&started.session_id)
+            .expect_err("cleanup must fail");
+
+        assert_eq!(error.code, RECORDING_WRITE_FAILED);
+        assert_eq!(cleaned.lock().expect("cleaned lock").len(), 1);
+        assert!(matches!(
+            *controller.state.lock().expect("state lock"),
+            ControllerState::Error
+        ));
+    }
+
+    #[test]
+    fn cancel_error_wins_when_cleanup_also_fails() {
+        let mut backend = FakeBackend::available(CapturedRecording {
+            source_paths: Vec::new(),
+            valid_frame_count: 1,
+            silent: false,
+            duration_ms: 100,
+        });
+        backend.cancel_error = Some(RecordingError::new(RECORDING_STREAM_ERROR));
+        let file_store =
+            TrackingFileStore::with_cleanup_error(RecordingError::new(RECORDING_WRITE_FAILED));
+        let cleaned = file_store.cleaned.clone();
+        let controller = RecordingController::new(
+            Arc::new(backend),
+            Arc::new(FakeFinalizer),
+            Arc::new(file_store),
+            Arc::new(FakeClock::new(1_000)),
+        );
+        let started = controller
+            .start(RecordingMode::Mic)
+            .expect("start recording");
+
+        let error = controller
+            .cancel(&started.session_id)
+            .expect_err("cancellation and cleanup must fail");
+
+        assert_eq!(error.code, RECORDING_STREAM_ERROR);
+        assert_eq!(cleaned.lock().expect("cleaned lock").len(), 1);
+        assert!(matches!(
+            *controller.state.lock().expect("state lock"),
+            ControllerState::Error
+        ));
+    }
+
+    #[test]
+    fn capture_error_wins_when_cleanup_also_fails() {
+        let mut backend = FakeBackend::available(CapturedRecording {
+            source_paths: Vec::new(),
+            valid_frame_count: 1,
+            silent: false,
+            duration_ms: 100,
+        });
+        backend.stop_error = Some(RecordingError::new(RECORDING_STREAM_ERROR));
+        let file_store =
+            TrackingFileStore::with_cleanup_error(RecordingError::new(RECORDING_WRITE_FAILED));
+        let cleaned = file_store.cleaned.clone();
+        let controller = RecordingController::new(
+            Arc::new(backend),
+            Arc::new(FakeFinalizer),
+            Arc::new(file_store),
+            Arc::new(FakeClock::new(1_000)),
+        );
+        let started = controller
+            .start(RecordingMode::Mic)
+            .expect("start recording");
+
+        let error = controller
+            .stop(&started.session_id)
+            .expect_err("capture and cleanup must fail");
+
+        assert_eq!(error.code, RECORDING_STREAM_ERROR);
+        assert_eq!(cleaned.lock().expect("cleaned lock").len(), 1);
+    }
+
+    #[test]
+    fn finalizer_error_wins_when_cleanup_also_fails() {
+        let file_store =
+            TrackingFileStore::with_cleanup_error(RecordingError::new(RECORDING_WRITE_FAILED));
+        let cleaned = file_store.cleaned.clone();
+        let controller = RecordingController::new(
+            Arc::new(FakeBackend::available(CapturedRecording {
+                source_paths: Vec::new(),
+                valid_frame_count: 1,
+                silent: false,
+                duration_ms: 100,
+            })),
+            Arc::new(FailingFinalizer),
+            Arc::new(file_store),
+            Arc::new(FakeClock::new(1_000)),
+        );
+        let started = controller
+            .start(RecordingMode::Mic)
+            .expect("start recording");
+
+        let error = controller
+            .stop(&started.session_id)
+            .expect_err("finalization and cleanup must fail");
+
+        assert_eq!(error.code, RECORDING_FINALIZE_FAILED);
+        assert_eq!(cleaned.lock().expect("cleaned lock").len(), 1);
     }
 
     #[test]
