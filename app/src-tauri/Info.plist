@@ -4,5 +4,7 @@
 <dict>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>StudyMind records microphone audio for local transcription and study notes.</string>
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>StudyMind records system audio for local transcription and study notes. Screen content is not saved.</string>
 </dict>
 </plist>

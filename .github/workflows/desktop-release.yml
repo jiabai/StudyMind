@@ -237,6 +237,7 @@ jobs:
           set -euo pipefail
           APP_PATH="app/src-tauri/target/x86_64-apple-darwin/release/bundle/macos/StudyMind.app"
           test "$(/usr/libexec/PlistBuddy -c 'Print :NSMicrophoneUsageDescription' "$APP_PATH/Contents/Info.plist")" = "StudyMind records microphone audio for local transcription and study notes."
+          test "$(/usr/libexec/PlistBuddy -c 'Print :NSScreenCaptureUsageDescription' "$APP_PATH/Contents/Info.plist")" = "StudyMind records system audio for local transcription and study notes. Screen content is not saved."
           RESOURCES="$APP_PATH/Contents/Resources/resources"
           PYTHON="$RESOURCES/python/bin/python3"
 
@@ -321,6 +322,7 @@ jobs:
           set -euo pipefail
           APP_PATH="app/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/StudyMind.app"
           test "$(/usr/libexec/PlistBuddy -c 'Print :NSMicrophoneUsageDescription' "$APP_PATH/Contents/Info.plist")" = "StudyMind records microphone audio for local transcription and study notes."
+          test "$(/usr/libexec/PlistBuddy -c 'Print :NSScreenCaptureUsageDescription' "$APP_PATH/Contents/Info.plist")" = "StudyMind records system audio for local transcription and study notes. Screen content is not saved."
           RESOURCES="$APP_PATH/Contents/Resources/resources"
           PYTHON="$RESOURCES/python/bin/python3"
 
