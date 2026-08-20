@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — macOS 内置录音已立项，本文档冻结技术边界；实现尚未开始，也尚未进入具体排期。
+Accepted — macOS 内置录音已立项，本文档冻结技术边界；#17 麦克风 E1 已完成，#18 系统声音进入实施，#20 负责 mixed，完整真机与发布验收仍未完成。
 
 Accepted 表示技术决策已批准，不表示实现或发布门槛已经通过。当前验证状态见
 [macOS 录音验收计划](../test-plans/macos-recording-acceptance.md)，在要求项全部通过前不得宣称
@@ -151,8 +151,10 @@ ScreenCaptureKit 的 Rust 绑定选用 `screencapturekit` crate（启用 macOS 1
   `(warningCode, source)` 去重并累计 `count` / `totalGapMs`；`get_recording_state` 和
   `stop_recording` 都必须返回当前累计的 `warnings` 列表，使前端重新挂载或漏收事件后仍能恢复。
 - `RecordingCapabilities.platform` 类型增加 `"macos"`，解析器和能力判断允许
-  `windows` / `macos`，不再硬编码 Windows；三种模式仍由 microphone/systemAudio 两个
-  source capability 组合得出。
+  `windows` / `macos`，不再硬编码 Windows。能力契约显式携带 microphone、systemAudio 和
+  mixed capability：Windows 可由两路已实现 source 组合出 mixed；macOS 在 #18 只开放 system，
+  mixed 必须保持 unavailable，直到 #20 完成双路 ready、原子失败和清理语义后才开放。这样分阶段
+  交付不会把“两个 source 分别可用”误解释为“mixed 已实现”。
 - `start_recording` v1 仍只接收 `{ mode }`，不提前加入未实现的 `micDeviceId`；设备选择属于
   P1，需要另行定义设备生命周期和权限行为。
 - 复用现有错误码，不增加 macOS 专用错误码：
