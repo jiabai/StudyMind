@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — macOS 内置录音已立项，本文档冻结技术边界；#17 麦克风 E1 已完成，#18 系统声音进入实施，#20 负责 mixed，完整真机与发布验收仍未完成。
+Accepted — macOS 内置录音已立项，本文档冻结技术边界；#17 麦克风 E1 已完成，#18 系统声音已进入实现，#20 负责 mixed，完整真机与发布验收仍未完成。
 
 Accepted 表示技术决策已批准，不表示实现或发布门槛已经通过。当前验证状态见
 [macOS 录音验收计划](../test-plans/macos-recording-acceptance.md)，在要求项全部通过前不得宣称
@@ -40,7 +40,7 @@ macOS 录音实现完成。
 
 | macOS 版本 | `mic` | `system` | `mixed` | 说明 |
 |---|---:|---:|---:|---|
-| macOS 13+ | 可用 | 可用（需 Screen Recording 权限） | 可用（需两类权限） | 目标完整能力；仍受设备、TCC 和运行时流状态影响 |
+| macOS 13+ | 可用 | #18 已实现，待 native E1 重验（需 Screen Recording 权限） | #18 不开放；#20 完成双路 ready、原子失败和清理后再开放 | source 能力仍受设备、TCC 和运行时流状态影响 |
 | macOS 12.x | 可用（cpal） | 不可用 | 不可用 | ScreenCaptureKit 的系统音频能力不纳入本产品兼容范围 |
 | 其他平台 | 由现有后端决定 | 由现有后端决定 | 由现有后端决定 | Linux 仍是另案 P2 |
 
@@ -48,6 +48,10 @@ macOS 13+ 的任一 source 因权限、无可捕获内容或初始化失败而�
 标记为不可用，并携带 `reasonCode`。在空闲态加载偏好或刷新能力时，已保存的不可用模式回退到
 可用的 `mic`，并向用户解释原因；用户明确点击开始后不得静默换源，能力竞争或启动失败必须重新
 探测并报错。录音已经开始后不做静默降级，采集流中断按失败处理。
+
+能力契约中的 `mixed` 是显式 source capability，不得由 `microphone.available` 与
+`systemAudio.available` 推导。#18 即使两路 source 都可用也保持 macOS `mixed` 不可用；只有
+#20 完成双路 ready 屏障、原子失败、停止和清理语义后才允许开放。
 
 ### 2. 平台适配边界
 

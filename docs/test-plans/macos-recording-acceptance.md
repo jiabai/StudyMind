@@ -1,8 +1,8 @@
 # macOS 录音验收计划
 
-> 状态：Issue #17 麦克风 E1 真机验收完成；系统/混合录音、E2/E3 与发布验收未完成 · 决策来源：[ADR 0005](../adr/0005-macos-recording-backend.md)
+> 状态：Issue #17 麦克风 E1 真机验收完成；Issue #18 system 实现已落地到 native adapter/lifecycle，macOS system E1、混合录音、E2/E3 与发布验收未完成 · 决策来源：[ADR 0005](../adr/0005-macos-recording-backend.md)
 >
-> 当前结论：Issue #17 麦克风在 E1（Intel、macOS 15.7.7、ad-hoc CLI）已完成原生编译和真机验收；P-01/P-02/P-06、C-01/C-03/C-04/C-05 的 E1 证据已回填。F-03/F-04/F-05 因缺少可执行环境，明确作为实现后的补验与验收阻塞项；E2、E3、打包签名及恢复场景属于后续验收任务。
+> 当前结论：Issue #17 麦克风在 E1（Intel、macOS 15.7.7、ad-hoc CLI）已完成原生编译和真机验收；#18 的 ScreenCaptureKit 依赖、audio-only adapter、显式 capability gate、有界 PCM writer、system lifecycle 和前端门控已实现，并由 Windows host 自动化测试覆盖。#18 的 macOS native compile、TCC、全局系统音频、self-audio exclusion 和真实 `.app` 仍未在本轮执行。F-03/F-04/F-05 明确作为实现后的补验与验收阻塞项；E2、E3、打包签名及恢复场景属于后续验收任务。
 
 ## 1. 使用规则
 
@@ -93,6 +93,30 @@ E1 x86_64 CLI 的原生编译与麦克风验收已完成，不再列为阻塞项
 - 完成 Developer ID 签名与公证验证。
 - 完成默认设备变化、短中断恢复与超时失败场景。
 
+## 3.3 Issue #18 实现阶段证据（不等同于 macOS E1 Pass）
+
+本轮实现位于隔离分支 `codex/issue-18-macos-system-audio`，主要提交为：
+
+- `38196c3`：锁定 `screencapturekit 8.0.1` 与 macOS 13 audio API 编译探针；
+- `efabddb`：能力探测、Screen Recording 拒绝和稳定错误码 seam；
+- `a7c4535`：audio-only 配置、当前进程音频排除、视频 fail-closed 和 PCM16 边界；
+- `53ccf4e`：system worker、bounded queue、WAV lifecycle 和 controller 接入；
+- `bcd97a6`：macOS system capability 前端门控；`5db14b2`：purpose string 与 x64/arm64 bundle 校验。
+
+已执行的 host-side evidence：
+
+- `cargo test --manifest-path app/src-tauri/Cargo.toml audio_capture -- --test-threads=1`：62 项通过；
+- `cargo check --manifest-path app/src-tauri/Cargo.toml`：通过；
+- `npm --prefix app test -- --run src/recordingClient.test.ts src/features/workflow/useRecordingController.test.ts src/features/workflow/RecordingCard.test.tsx`：133 项通过；
+- `git diff --check`：通过；`Info.plist` XML 与 Screen Recording audio-only 文案检查：通过。
+
+以上证据只证明跨平台 seam、状态机和配置边界，不能替代本次产品实现的 macOS native
+runtime 验收。表格中 F-01/F-02/F-06/F-07/F-08 的 E1 Pass 是实现前 feasibility probe
+的历史证据；它们仍需在本次产品实现上重跑，才能回填 #18 的实现验收。当前不得将
+C-02/P-03 或本次实现对应的 F-01/F-02/F-06/F-07 的 macOS runtime 结果标记为 Pass。必须在
+macOS E1/E2/E3 上重新执行 native compile、TCC、两类应用全局音频、self-audio exclusion、
+真实 `.app` 和 WAV/ffprobe 检查。
+
 ## 4. 权限与能力探测
 
 | ID | 场景 | 预期结果 | 环境 | 状态 | Evidence |
@@ -168,6 +192,7 @@ E1 x86_64 CLI 的原生编译与麦克风验收已完成，不再列为阻塞项
 - F-03、F-04、F-05 的 `Blocked` 仅表示当前环境无法补验；它们会阻塞验收完成与发布，不
   阻塞正式后端实现启动。
 - 所有适用项目为 `Pass` 且 Evidence 可复核后，才能宣称 macOS 录音实现完成。
-- Issue #17 麦克风的 E1 原生编译与 CLI 真机验收已有证据；E2、E3、系统/混合录音相关补验、
+- Issue #17 麦克风的 E1 原生编译与 CLI 真机验收已有证据；#18 system 的 macOS native E1、
+  E2、E3、混合录音相关补验、
   打包签名、默认输出变化和恢复场景仍为后续验收任务。本文档不代表整个 macOS 录音能力
   已完成。

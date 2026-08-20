@@ -196,13 +196,15 @@ ffmpeg -y \
 
 | 平台 | 系统声音方案 | 状态 |
 |------|-------------|------|
-| macOS | ScreenCaptureKit（macOS 13+，TCC Screen Recording）；<13 仅 mic（cpal），system/mixed 不可用 | **已立项** → [ADR 0005](../adr/0005-macos-recording-backend.md)，mic implementation awaiting native verification; system/mixed remain #18 |
+| macOS | ScreenCaptureKit（macOS 13+，TCC Screen Recording）；<13 仅 mic（cpal），system/mixed 不可用 | **已立项** → [ADR 0005](../adr/0005-macos-recording-backend.md)；#17 mic E1 已完成，#18 system 实现已落地但待 macOS E1 重验，#20 mixed 后续开放 |
 | Linux | PulseAudio monitor source | P2 |
 
-生产 mic implementation 已落地，但 native verification 仍待完成；实现完成后由
-`RecordingCapabilities` 决定三种 option 的可用性。macOS 13+ 的 mic / system / mixed 与
-Windows 行为对齐；空闲态已保存的不可用模式灰显后回退到 mic，用户明确点击开始后和活动会话中
-均不做静默降级。
+生产 mic implementation 已落地并完成 E1 验收；#18 已加入 ScreenCaptureKit audio-only
+adapter、显式能力门禁、有界 PCM writer 和 system session lifecycle。当前 Windows host 的
+自动化测试不能替代 macOS native compile、TCC、全局系统音频和真实 bundle 验收；这些证据由
+[macOS 录音验收计划](../test-plans/macos-recording-acceptance.md) 管理。macOS 13+ 的可用
+option 由 `RecordingCapabilities` 决定；#18 只开放 system，mixed 由 #20 负责。空闲态已保存的
+不可用模式灰显后回退到 mic，用户明确点击开始后和活动会话中均不做静默降级。
 Linux 仍保持 P2。
 
 ---
