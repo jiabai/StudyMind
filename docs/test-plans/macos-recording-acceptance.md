@@ -58,7 +58,7 @@
 | 清理语义 | `e62cb3f` | 会话失败、取消与临时文件清理语义 |
 | PCM 构造器 | `ffa4057` | PCM/WAV 构造路径 |
 | macOS 后端源码与纯逻辑测试 | `7e6d83a` | Windows host 上 8 个 focused tests；仅覆盖可在该 host 执行的纯逻辑 |
-| Info.plist/workflow | `2e99add` | purpose strings 配置与前端工作流接线 |
+| Info.plist/workflow | `2e99add` | microphone purpose string and x64/arm64 workflow gates |
 | 生命周期/mixer 回归 | `de93c8e` | frontend 41/41、mixer 3/3 |
 
 Windows 上的 `cargo check` 不会编译 `cfg(target_os = "macos")` 下的原生 AVFoundation/CPAL

@@ -196,10 +196,10 @@ ffmpeg -y \
 
 | 平台 | 系统声音方案 | 状态 |
 |------|-------------|------|
-| macOS | ScreenCaptureKit（macOS 13+，TCC Screen Recording）；<13 仅 mic（cpal），system/mixed 不可用 | **已立项** → [ADR 0005](../adr/0005-macos-recording-backend.md)，实现未开始 |
+| macOS | ScreenCaptureKit（macOS 13+，TCC Screen Recording）；<13 仅 mic（cpal），system/mixed 不可用 | **已立项** → [ADR 0005](../adr/0005-macos-recording-backend.md)，mic implementation awaiting native verification; system/mixed remain #18 |
 | Linux | PulseAudio monitor source | P2 |
 
-在 macOS 后端实现前，当前生产代码仍由 unsupported backend 兜底；实现完成后由
+生产 mic implementation 已落地，但 native verification 仍待完成；实现完成后由
 `RecordingCapabilities` 决定三种 option 的可用性。macOS 13+ 的 mic / system / mixed 与
 Windows 行为对齐；空闲态已保存的不可用模式灰显后回退到 mic，用户明确点击开始后和活动会话中
 均不做静默降级。

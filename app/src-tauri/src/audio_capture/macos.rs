@@ -137,6 +137,18 @@ fn convert_samples<T: Copy>(
     })
 }
 
+fn map_stream_play_error<E>(result: Result<(), E>) -> Result<(), RecordingError> {
+    result.map_err(|_| RecordingError::new(RECORDING_MIC_INIT_FAILED))
+}
+
+fn receive_startup_signal(
+    receiver: &Receiver<Result<(), RecordingError>>,
+) -> Result<(), RecordingError> {
+    receiver
+        .recv()
+        .map_err(|_| RecordingError::new(RECORDING_MIC_INIT_FAILED))?
+}
+
 #[derive(Default)]
 struct FirstStreamError(AtomicBool);
 
@@ -226,7 +238,6 @@ mod platform {
     use crate::audio_capture::{ActiveCapture, RecordingBackend};
 
     const AUDIO_QUEUE_CAPACITY: usize = 32;
-    const START_TIMEOUT: Duration = Duration::from_secs(3);
     const CONTROL_POLL_INTERVAL: Duration = Duration::from_millis(20);
 
     #[derive(Default)]
@@ -255,16 +266,14 @@ mod platform {
                 .spawn(move || run_capture_worker(path, control_rx, ready_tx))
                 .map_err(|_| RecordingError::new(RECORDING_MIC_INIT_FAILED))?;
 
-            match ready_rx.recv_timeout(START_TIMEOUT) {
-                Ok(Ok(())) => Ok(Box::new(MacosActiveCapture { control_tx, worker })),
-                Ok(Err(error)) => {
+            // CoreAudio/CPAL device setup can block in native code and cannot be safely
+            // force-detached. Wait for the worker's readiness/error signal, and on error
+            // join it before returning so controller cleanup cannot race a live writer.
+            match receive_startup_signal(&ready_rx) {
+                Ok(()) => Ok(Box::new(MacosActiveCapture { control_tx, worker })),
+                Err(error) => {
                     let _ = worker.join();
                     Err(error)
-                }
-                Err(_) => {
-                    let _ = control_tx.send(CaptureControl::Cancel);
-                    let _ = worker.join();
-                    Err(RecordingError::new(RECORDING_STREAM_ERROR))
                 }
             }
         }
@@ -385,16 +394,11 @@ mod platform {
             Ok(writer) => writer,
             Err(error) => return notify_setup_error(ready_tx, error),
         };
-        match writer_ready_rx.recv_timeout(START_TIMEOUT) {
-            Ok(Ok(())) => {}
-            Ok(Err(error)) => {
+        match receive_startup_signal(&writer_ready_rx) {
+            Ok(()) => {}
+            Err(error) => {
                 let _ = writer.join();
                 return notify_setup_error(ready_tx, error);
-            }
-            Err(_) => {
-                drop(audio_tx);
-                let _ = writer.join();
-                return notify_setup_error(ready_tx, RecordingError::new(RECORDING_STREAM_ERROR));
             }
         }
 
@@ -434,10 +438,10 @@ mod platform {
                 return notify_setup_error(ready_tx, error);
             }
         };
-        if stream.play().is_err() {
+        if let Err(error) = map_stream_play_error(stream.play()) {
             drop(stream);
             let _ = writer.join();
-            return notify_setup_error(ready_tx, RecordingError::new(RECORDING_STREAM_ERROR));
+            return notify_setup_error(ready_tx, error);
         }
         if ready_tx.send(Ok(())).is_err() {
             drop(stream);
@@ -702,6 +706,23 @@ mod tests {
             .chunks_exact(2)
             .map(|sample| i16::from_le_bytes([sample[0], sample[1]]))
             .collect()
+    }
+
+    #[test]
+    fn stream_play_failure_maps_to_microphone_initialization_error() {
+        let error = map_stream_play_error::<()>(Err(())).expect_err("stream play must fail");
+        assert_eq!(error.code, RECORDING_MIC_INIT_FAILED);
+    }
+
+    #[test]
+    fn startup_failure_signal_is_propagated_by_the_readiness_handshake() {
+        let (ready_tx, ready_rx) = mpsc::sync_channel(1);
+        ready_tx
+            .send(Err(RecordingError::new(RECORDING_MIC_INIT_FAILED)))
+            .expect("send startup failure");
+
+        let error = receive_startup_signal(&ready_rx).expect_err("startup must fail");
+        assert_eq!(error.code, RECORDING_MIC_INIT_FAILED);
     }
 
     fn temp_root() -> std::path::PathBuf {

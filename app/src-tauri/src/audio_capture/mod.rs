@@ -406,10 +406,7 @@ impl RecordingController {
         let capture = match self.backend.start(mode, &workspace) {
             Ok(capture) => capture,
             Err(error) => {
-                if let Err(cleanup_error) = self.file_store.cleanup(&workspace) {
-                    *state = ControllerState::Error;
-                    return Err(cleanup_error);
-                }
+                let _ = self.file_store.cleanup(&workspace);
                 *state = ControllerState::Error;
                 return Err(error);
             }
@@ -1161,6 +1158,35 @@ mod tests {
             .expect_err("backend start must fail");
 
         assert_eq!(error.code, RECORDING_MIC_INIT_FAILED);
+        assert_eq!(cleaned.lock().expect("cleaned lock").len(), 1);
+        assert!(controller.state().expect("read state").is_none());
+    }
+
+    #[test]
+    fn failed_backend_start_returns_start_error_when_cleanup_also_fails() {
+        let mut backend = FakeBackend::available(CapturedRecording {
+            source_paths: Vec::new(),
+            valid_frame_count: 1,
+            silent: false,
+            duration_ms: 100,
+        });
+        backend.start_error = Some(RecordingError::new(RECORDING_STREAM_ERROR));
+        let file_store = TrackingFileStore::with_cleanup_error(RecordingError::new(
+            RECORDING_WRITE_FAILED,
+        ));
+        let cleaned = file_store.cleaned.clone();
+        let controller = RecordingController::new(
+            Arc::new(backend),
+            Arc::new(FakeFinalizer),
+            Arc::new(file_store),
+            Arc::new(FakeClock::new(1_000)),
+        );
+
+        let error = controller
+            .start(RecordingMode::Mic)
+            .expect_err("backend start must fail");
+
+        assert_eq!(error.code, RECORDING_STREAM_ERROR);
         assert_eq!(cleaned.lock().expect("cleaned lock").len(), 1);
         assert!(controller.state().expect("read state").is_none());
     }
