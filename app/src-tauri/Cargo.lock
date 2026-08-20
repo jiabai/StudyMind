@@ -4061,6 +4061,7 @@ dependencies = [
  "block2",
  "cpal",
  "log",
+ "objc2",
  "objc2-av-foundation",
  "reqwest 0.12.28",
  "serde",
