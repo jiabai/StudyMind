@@ -1,11 +1,11 @@
 # Handoff — StudyMind macOS 麦克风 RecordingSession 实现
 
 > 更新时间：2026-08-20（GMT+8）
-> 当前状态：Issue #17 代码实现完成，允许进入 macOS 原生验证；不代表 macOS 验收或发布完成。
+> 当前状态：Issue #17 麦克风 E1（Intel x86_64、macOS 15.7.7、ad-hoc CLI）原生编译与真机验收完成；系统/混合录音、E2/E3、打包与发布验收未完成。
 
 ## 1. 交接结论
 
-Issue #17 已在隔离分支 `codex/issue-17-macos-mic` 完成实现，并通过 Windows host 上可执行的自动化验证。最终代码审查确认可进入 macOS x64/arm64 原生编译、打包、TCC 和硬件录音验证。
+Issue #17 已在隔离分支 `codex/issue-17-macos-mic` 完成实现，并在 E1 Intel macOS 主机完成原生编译与 CLI 形态的麦克风真机验收。E2 Apple Silicon、真实 `.app` 打包/TCC 和发布验收仍待执行。
 
 本切片只实现 macOS 麦克风 `RecordingMode::Mic`：
 
@@ -33,8 +33,9 @@ Issue #17 已在隔离分支 `codex/issue-17-macos-mic` 完成实现，并通过
 | `be3ecf6` | CPAL 版本和验收证据文档同步 |
 | `e5eac17` | 启动错误映射、错误优先级、readiness handshake 修复 |
 | `404b1d3` | writer panic-safe RAII 所有权修复 |
+| `36e27b6` | 修复 macOS `RcBlock` 闭包参数的 `objc2::runtime::Bool` 类型标注，使 macOS cfg 分支可编译 |
 
-建议交接使用最终提交 `404b1d3` 作为代码基线。
+代码基线为 `36e27b6`；验收计划回填提交为 `69d29dc`。
 
 ## 3. 已有验证证据
 
@@ -44,16 +45,19 @@ Windows host 上已完成：
 - 前端 production build passed；
 - Rust 完整测试：323 passed；
 - Rust `cargo check` passed；
-- Task 4/修复的 macOS 纯逻辑与 `audio_capture` 定向测试：46 passed；
+- Windows host 上 Task 4/修复的 macOS 纯逻辑与 `audio_capture` 定向测试：46 passed；
 - `git diff --check` passed；
 - plist XML 与 GitHub Actions workflow 语法检查通过；
 - 最终代码审查通过，没有 ScreenCaptureKit、Worker 契约或 mixed 实现越界。
 
-这些证据不能证明 `cfg(target_os = "macos")` 分支已编译、链接或能访问真实 CoreAudio/TCC。Windows host 不具备 Apple SDK、CoreAudio runtime 或 TCC 环境。
+E1 Intel macOS（15.7.7、ad-hoc CLI）另有原生证据：`cargo build`/`cargo check` 通过，
+`audio_capture` 定向测试 45/45 通过；mic 的 TCC 懒请求/允许/拒绝、start/stop/cancel，
+以及 16 kHz、单声道、16-bit PCM WAV 已完成真机验证。该证据不覆盖真实 `.app` 的
+Info.plist/TCC、Apple Silicon、默认输出变化、显示器变化或恢复场景。
 
-## 4. macOS 原生验证顺序
+## 4. 后续 macOS 原生与发布验证顺序
 
-在 macOS x64 和 arm64 runner 上分别执行：
+E1 x86_64 CLI 麦克风验证已完成；在 E2 Apple Silicon、E3 外接显示器以及发布环境上继续执行：
 
 ```bash
 cargo test --manifest-path app/src-tauri/Cargo.toml
@@ -71,22 +75,25 @@ APP_PATH="app/src-tauri/target/<target>/release/bundle/macos/StudyMind.app"
 codesign --verify --deep --strict "$APP_PATH"
 ```
 
-## 5. 麦克风功能验收
+## 5. 麦克风功能验收范围
 
-在稳定 bundle identity 的 ad-hoc `.app` 上记录证据：
+E1 CLI 形态已完成并回填证据的范围：
 
-1. 首次进入录音入口不弹麦克风 TCC；
-2. 点击 mic 开始后弹出麦克风权限；
-3. 允许后录音、停止，确认 LocalMediaSource 可进入既有 Pipeline；
-4. 拒绝后返回 `RECORDING_MIC_ACCESS_DENIED`，不静默换源；
-5. 撤销权限、重启 app 后重新探测，能力和 UI 状态一致；
-6. 无输入设备、初始化失败、运行中 stream 错误分别记录稳定错误码；
-7. 空录音失败、非空静音录音成功；取消和失败后确认没有临时 WAV 残留；
-8. 默认输入设备变化和外接麦克风连接/断开作为实现后补验记录。
+- 首次进入录音入口不主动请求麦克风权限，点击 mic 开始时请求权限；
+- 允许后完成录音、停止和取消；拒绝后返回 `RECORDING_MIC_ACCESS_DENIED`，不静默换源；
+- 空录音失败、非空静音录音成功，取消和失败后没有临时 WAV 残留；
+- 最终产物为 16 kHz、单声道、16-bit PCM WAV。
+
+以下不计入 E1 CLI 的 Pass，需在真实 `.app`、E2 或后续验收环境中补验：
+
+- 撤销权限、重启 app 后重新探测，能力和 UI 状态一致；
+- 无输入设备、初始化失败、运行中 stream 错误分别返回稳定错误码；
+- 确认 LocalMediaSource 可进入既有 Pipeline；
+- 默认输入设备变化和外接麦克风连接/断开。
 
 ## 6. 明确的后续验收阻塞项
 
-以下项目不能由当前工作站完成，也不能标为 Pass：
+以下项目尚未完成，不能标为 Pass：
 
 - F-03 默认输出路由变化；
 - F-04 主显示器切换、外接显示器连接/拔出；

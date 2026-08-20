@@ -1,8 +1,8 @@
 # macOS 录音验收计划
 
-> 状态：实现规格可启动；后续真机与发布验收未完成 · 决策来源：[ADR 0005](../adr/0005-macos-recording-backend.md)
+> 状态：Issue #17 麦克风 E1 真机验收完成；系统/混合录音、E2/E3 与发布验收未完成 · 决策来源：[ADR 0005](../adr/0005-macos-recording-backend.md)
 >
-> 当前结论：E1（Intel、macOS 15.7.7、ad-hoc CLI）已完成核心可行性验证，允许进入正式后端实现。F-03/F-04/F-05 因缺少可执行环境，明确作为实现后的补验与验收阻塞项；E2、E3、打包签名及恢复场景属于后续验收任务。
+> 当前结论：Issue #17 麦克风在 E1（Intel、macOS 15.7.7、ad-hoc CLI）已完成原生编译和真机验收；P-01/P-02/P-06、C-01/C-03/C-04/C-05 的 E1 证据已回填。F-03/F-04/F-05 因缺少可执行环境，明确作为实现后的补验与验收阻塞项；E2、E3、打包签名及恢复场景属于后续验收任务。
 
 ## 1. 使用规则
 
@@ -43,14 +43,14 @@
 | F-05 | 恢复窗口 | 单次中断不超过 2 秒时按媒体时间戳补静音并继续；超过 2 秒时失败 | E3 | Blocked | **实现后补验/验收阻塞项**。需 E3 外接显示器与 stream 中断注入；当前无条件执行，不阻塞实现启动 |
 | F-06 | 排除自身音频 | `excludesCurrentProcessAudio` 经验证生效，StudyMind 自身提示音不进入 system capture | E1, E2 | **E1: Pass** / E2: Planned | E1: 同进程 cpal 播放 440Hz：不排除 rmsAvg=0.291564；`--exclude-self` → 0.000000 |
 | F-07 | audio-only fail-closed | 未注册 screen output，writer/Worker 不接收视频 sample buffer | E1, E2 | **E1: Pass** / E2: Planned | E1: 仅注册 `SCStreamOutputType::Audio`；6 次运行 video_buffers 恒为 0，mic_buffers 恒为 0 |
-| F-08 | TCC 基础行为 | ad-hoc 包可完成麦克风、Screen Recording 请求和授权后重探测 | E1, E2 | **E1: Pass\*** / E2: Planned | E1: 未授权时 `SCShareableContent::get()` 返回 TCC 拒绝；授权后重探测成功（displays=1 apps=28）且 stream 启动。\*CLI 形态验证；ad-hoc .app 形态（Info.plist usage description）待打包阶段复验 |
+| F-08 | TCC 基础行为（CLI 可行性探针） | CLI 形态可完成 Screen Recording 请求和授权后重探测 | E1, E2 | **E1: Pass** / E2: Planned | E1: 未授权时 `SCShareableContent::get()` 返回 TCC 拒绝；授权后重探测成功（displays=1 apps=28）且 stream 启动。真实 ad-hoc `.app` 形态（Info.plist usage description）待打包阶段复验，见 §3.2 |
 
-> 2026-08-20 更新：E1（Intel x86_64, macOS 15.7.7, ad-hoc CLI）可行性验证完成，F-01/F-02/F-06/F-07 通过、F-08 部分通过（授权后重探测）；F-03/F-04/F-05 因环境限制 Blocked。完整证据见 `scripts/macos-recording-feasibility/report.html` 与探针输出。工具链已升级至 CLT SDK 15.5 / Swift 6.1.2（原 Swift 5.3 / SDK 11.0 无法构建 screencapturekit 8.0.1）。
+> 2026-08-20 更新：E1（Intel x86_64, macOS 15.7.7, ad-hoc CLI）可行性验证完成，F-01/F-02/F-06/F-07 与 F-08（CLI 范围）通过；F-03/F-04/F-05 因环境限制 Blocked。完整证据见 `scripts/macos-recording-feasibility/report.html` 与探针输出。工具链已升级至 CLT SDK 15.5 / Swift 6.1.2（原 Swift 5.3 / SDK 11.0 无法构建 screencapturekit 8.0.1）。
 
-## 3.1 Issue #17 实施证据（非 macOS 真机验收）
+## 3.1 Issue #17 实施与 E1 麦克风验收证据
 
-以下提交记录了已落地的 macOS 麦克风实现工作，但不替代 macOS 原生编译、真机测试、TCC
-或发布包验收：
+以下提交记录了已落地的 macOS 麦克风实现工作；下面的 E1 更新补充了原生编译和 CLI
+形态的麦克风真机验收。Windows host 证据仍不替代 E2/E3、真实 `.app` 或发布包验收：
 
 | 范围 | Commit | 已有证据 |
 |---|---|---|
@@ -84,10 +84,10 @@ Windows 上的 `cargo check` 不会编译 `cfg(target_os = "macos")` 下的原�
 | 恢复场景 | 注入或观察短于/超过 2 秒的 stream 中断 | F-05 通过；短中断补静音并继续，长中断按约定失败，不静默换源 | Planned |
 | 打包与签名 | ad-hoc .app、Developer ID 与 notarized 包（E4/E5） | F-08、B-02、B-03、B-04 完成；权限请求、授权后重探测、重启和签名身份均可复核 | Planned |
 
-以下项目均为**实现后补验/验收阻塞项**，当前不得标记为 `Pass`：
+E1 x86_64 CLI 的原生编译与麦克风验收已完成，不再列为阻塞项。以下项目仍为**实现后补验/验收阻塞项**，当前不得标记为 `Pass`：
 
 - F-03、F-04、F-05；E2 与 E3。
-- 在实际 x64 与 arm64 macOS 主机上编译原生 AVFoundation/CPAL 代码并运行测试。（x64 已于 2026-08-20 完成并标记 Pass，见 §3.1；arm64/E2 仍待验）
+- 在实际 arm64 macOS 主机上编译原生 AVFoundation/CPAL 代码并运行测试（E2）。
 - 使用真实 `.app` 验证 TCC：进入录音入口不弹窗、允许、拒绝、撤销权限及重启后的行为。
 - 验证 Tauri 的 Info.plist 合并结果，并检查最终 packaged bundle 中的 purpose strings。
 - 完成 Developer ID 签名与公证验证。
@@ -168,5 +168,6 @@ Windows 上的 `cargo check` 不会编译 `cfg(target_os = "macos")` 下的原�
 - F-03、F-04、F-05 的 `Blocked` 仅表示当前环境无法补验；它们会阻塞验收完成与发布，不
   阻塞正式后端实现启动。
 - 所有适用项目为 `Pass` 且 Evidence 可复核后，才能宣称 macOS 录音实现完成。
-- 当前仅 E1 核心可行性验证有证据；E2、E3、打包签名、默认输出变化和恢复场景仍为后续
-  验收任务。本文档不代表 macOS 后端实现已经完成。
+- Issue #17 麦克风的 E1 原生编译与 CLI 真机验收已有证据；E2、E3、系统/混合录音相关补验、
+  打包签名、默认输出变化和恢复场景仍为后续验收任务。本文档不代表整个 macOS 录音能力
+  已完成。
