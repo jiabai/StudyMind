@@ -747,9 +747,9 @@ macOS 录音不再列入“另案评估”。实现前后的技术边界和验�
 +   "Win32_System_Threading",
 + ] }
 
-# app/src-tauri/Cargo.toml（macOS target，ADR 0005）
-+ cpal = "0.18"
-+ screencapturekit = { version = "8", features = ["macos_13_0"] }
+# app/src-tauri/Cargo.toml（macOS target）
++ cpal = "=0.15.3"
++ screencapturekit = { version = "8", features = ["macos_13_0"] } # Issue #18，非本提交范围
 
 # app/src-tauri/src/lib.rs
 + mod audio_capture;
@@ -774,3 +774,8 @@ macOS 录音不再列入“另案评估”。实现前后的技术边界和验�
   app/src/workflowState.ts
   app/src/desktopWorkerProtocol.ts
 ```
+
+`cpal` 使用已实现的精确版本 `=0.15.3`：CPAL 0.17/0.18 属于 CoreAudio loopback-era
+版本，当前会抬高最低 macOS 兼容要求（0.18.1 文档标明 macOS 14.2），与 Issue #17 的
+macOS 12 麦克风目标冲突。ADR 0005 只确定 cpal/CoreAudio 技术方案，并未锁定依赖版本。
+`screencapturekit` 仍明确属于 Issue #18，不代表已包含在本提交中。

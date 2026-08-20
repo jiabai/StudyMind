@@ -47,7 +47,24 @@
 
 > 2026-08-20 更新：E1（Intel x86_64, macOS 15.7.7, ad-hoc CLI）可行性验证完成，F-01/F-02/F-06/F-07 通过、F-08 部分通过（授权后重探测）；F-03/F-04/F-05 因环境限制 Blocked。完整证据见 `scripts/macos-recording-feasibility/report.html` 与探针输出。工具链已升级至 CLT SDK 15.5 / Swift 6.1.2（原 Swift 5.3 / SDK 11.0 无法构建 screencapturekit 8.0.1）。
 
-## 3.1 后续验收任务
+## 3.1 Issue #17 实施证据（非 macOS 真机验收）
+
+以下提交记录了已落地的 macOS 麦克风实现工作，但不替代 macOS 原生编译、真机测试、TCC
+或发布包验收：
+
+| 范围 | Commit | 已有证据 |
+|---|---|---|
+| 平台/能力契约 | `ec27655` | macOS 平台和能力门控契约 |
+| 清理语义 | `e62cb3f` | 会话失败、取消与临时文件清理语义 |
+| PCM 构造器 | `ffa4057` | PCM/WAV 构造路径 |
+| macOS 后端源码与纯逻辑测试 | `7e6d83a` | Windows host 上 8 个 focused tests；仅覆盖可在该 host 执行的纯逻辑 |
+| Info.plist/workflow | `2e99add` | purpose strings 配置与前端工作流接线 |
+| 生命周期/mixer 回归 | `de93c8e` | frontend 41/41、mixer 3/3 |
+
+Windows 上的 `cargo check` 不会编译 `cfg(target_os = "macos")` 下的原生 AVFoundation/CPAL
+代码，因此上述 Windows host 证据不能证明 macOS native backend 可编译、可链接或可运行。
+
+## 3.2 后续验收任务
 
 以下任务不再作为进入规格化或启动正式实现的前置条件，但在 macOS 录音可以宣称验收完成或进入发布前必须取得证据。
 
@@ -58,6 +75,15 @@
 | 默认输出路由 | 在录音期间切换可用的系统默认输出设备 | F-03 通过；audio-only stream 持续捕获全局系统音频，或按恢复策略重建并恢复 | Planned |
 | 恢复场景 | 注入或观察短于/超过 2 秒的 stream 中断 | F-05 通过；短中断补静音并继续，长中断按约定失败，不静默换源 | Planned |
 | 打包与签名 | ad-hoc .app、Developer ID 与 notarized 包（E4/E5） | F-08、B-02、B-03、B-04 完成；权限请求、授权后重探测、重启和签名身份均可复核 | Planned |
+
+以下项目均为**实现后补验/验收阻塞项**，当前不得标记为 `Pass`：
+
+- F-03、F-04、F-05；E2 与 E3。
+- 在实际 x64 与 arm64 macOS 主机上编译原生 AVFoundation/CPAL 代码并运行测试。
+- 使用真实 `.app` 验证 TCC：进入录音入口不弹窗、允许、拒绝、撤销权限及重启后的行为。
+- 验证 Tauri 的 Info.plist 合并结果，并检查最终 packaged bundle 中的 purpose strings。
+- 完成 Developer ID 签名与公证验证。
+- 完成默认设备变化、短中断恢复与超时失败场景。
 
 ## 4. 权限与能力探测
 
