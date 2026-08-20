@@ -147,6 +147,96 @@ struct AudioBlock {
     silent: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SystemStreamOutput {
+    Audio,
+    Screen,
+    Microphone,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SystemStreamConfigSpec {
+    captures_audio: bool,
+    excludes_current_process_audio: bool,
+    registered_outputs: [SystemStreamOutput; 1],
+    display_is_user_visible_source: bool,
+    sample_rate: u32,
+    channel_count: u16,
+}
+
+fn system_stream_config_spec() -> SystemStreamConfigSpec {
+    SystemStreamConfigSpec {
+        captures_audio: true,
+        excludes_current_process_audio: true,
+        registered_outputs: [SystemStreamOutput::Audio],
+        display_is_user_visible_source: false,
+        sample_rate: 48_000,
+        channel_count: 2,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AudioSampleEncoding {
+    F32,
+    I16,
+    U16,
+}
+
+fn accept_system_sample(
+    output: SystemStreamOutput,
+    block: Result<AudioBlock, RecordingError>,
+) -> Result<AudioBlock, RecordingError> {
+    if output != SystemStreamOutput::Audio {
+        return Err(RecordingError::new(RECORDING_STREAM_ERROR));
+    }
+    block
+}
+
+fn system_audio_block_from_bytes(
+    encoding: AudioSampleEncoding,
+    bytes: &[u8],
+    channels: u16,
+) -> Result<AudioBlock, RecordingError> {
+    match encoding {
+        AudioSampleEncoding::F32 => {
+            let mut samples = Vec::with_capacity(bytes.len() / 4);
+            for chunk in bytes.chunks_exact(4) {
+                samples.push(f32::from_ne_bytes(
+                    chunk.try_into().expect("chunks_exact guarantees four bytes"),
+                ));
+            }
+            if !bytes.chunks_exact(4).remainder().is_empty() {
+                return Err(RecordingError::new(RECORDING_STREAM_ERROR));
+            }
+            pcm16_from_f32(&samples, channels)
+        }
+        AudioSampleEncoding::I16 => {
+            let mut samples = Vec::with_capacity(bytes.len() / 2);
+            for chunk in bytes.chunks_exact(2) {
+                samples.push(i16::from_ne_bytes(
+                    chunk.try_into().expect("chunks_exact guarantees two bytes"),
+                ));
+            }
+            if !bytes.chunks_exact(2).remainder().is_empty() {
+                return Err(RecordingError::new(RECORDING_STREAM_ERROR));
+            }
+            pcm16_from_i16(&samples, channels)
+        }
+        AudioSampleEncoding::U16 => {
+            let mut samples = Vec::with_capacity(bytes.len() / 2);
+            for chunk in bytes.chunks_exact(2) {
+                samples.push(u16::from_ne_bytes(
+                    chunk.try_into().expect("chunks_exact guarantees two bytes"),
+                ));
+            }
+            if !bytes.chunks_exact(2).remainder().is_empty() {
+                return Err(RecordingError::new(RECORDING_STREAM_ERROR));
+            }
+            pcm16_from_u16(&samples, channels)
+        }
+    }
+}
+
 impl AudioBlock {
     #[cfg(test)]
     fn silence(frame_count: u64, channels: u16) -> Self {
@@ -353,6 +443,152 @@ mod platform {
     const AUDIO_QUEUE_CAPACITY: usize = 32;
     const CONTROL_POLL_INTERVAL: Duration = Duration::from_millis(20);
 
+    const AUDIO_FORMAT_FLAG_IS_SIGNED_INTEGER: u32 = 1 << 2;
+    const AUDIO_FORMAT_FLAG_IS_NON_INTERLEAVED: u32 = 1 << 5;
+
+    fn native_system_stream_configuration() -> SCStreamConfiguration {
+        let spec = system_stream_config_spec();
+        SCStreamConfiguration::new()
+            .with_captures_audio(spec.captures_audio)
+            .with_excludes_current_process_audio(spec.excludes_current_process_audio)
+            .with_sample_rate(spec.sample_rate)
+            .with_channel_count(spec.channel_count)
+    }
+
+    fn native_system_stream_output(output: SCStreamOutputType) -> SystemStreamOutput {
+        match output {
+            SCStreamOutputType::Audio => SystemStreamOutput::Audio,
+            SCStreamOutputType::Screen => SystemStreamOutput::Screen,
+            SCStreamOutputType::Microphone => SystemStreamOutput::Microphone,
+        }
+    }
+
+    fn interleave_non_interleaved_audio(
+        channel_blocks: Vec<AudioBlock>,
+    ) -> Result<AudioBlock, RecordingError> {
+        let Some(first) = channel_blocks.first() else {
+            return Err(RecordingError::new(RECORDING_STREAM_ERROR));
+        };
+        let frame_count = first.frame_count;
+        if channel_blocks
+            .iter()
+            .any(|block| block.frame_count != frame_count)
+        {
+            return Err(RecordingError::new(RECORDING_STREAM_ERROR));
+        }
+
+        let channels = channel_blocks.len();
+        let mut bytes = Vec::with_capacity(
+            frame_count
+                .saturating_mul(channels as u64)
+                .saturating_mul(2) as usize,
+        );
+        let mut silent = true;
+        for frame in 0..frame_count as usize {
+            let byte_offset = frame.saturating_mul(2);
+            for block in &channel_blocks {
+                let sample = block
+                    .bytes
+                    .get(byte_offset..byte_offset.saturating_add(2))
+                    .ok_or_else(|| RecordingError::new(RECORDING_STREAM_ERROR))?;
+                silent &= sample == [0, 0];
+                bytes.extend_from_slice(sample);
+            }
+        }
+
+        Ok(AudioBlock {
+            bytes,
+            frame_count,
+            silent,
+        })
+    }
+
+    fn pcm16_from_screen_capture_sample(
+        sample: CMSampleBuffer,
+    ) -> Result<AudioBlock, RecordingError> {
+        let format = sample
+            .format_description()
+            .ok_or_else(|| RecordingError::new(RECORDING_STREAM_ERROR))?;
+        let bits_per_channel = format
+            .audio_bits_per_channel()
+            .ok_or_else(|| RecordingError::new(RECORDING_STREAM_ERROR))?;
+        let flags = format
+            .audio_format_flags()
+            .ok_or_else(|| RecordingError::new(RECORDING_STREAM_ERROR))?;
+        if format.audio_is_big_endian() {
+            return Err(RecordingError::new(RECORDING_STREAM_ERROR));
+        }
+
+        let encoding = if format.audio_is_float() && bits_per_channel == 32 {
+            AudioSampleEncoding::F32
+        } else if flags & AUDIO_FORMAT_FLAG_IS_SIGNED_INTEGER != 0 && bits_per_channel == 16 {
+            AudioSampleEncoding::I16
+        } else if flags & AUDIO_FORMAT_FLAG_IS_SIGNED_INTEGER == 0 && bits_per_channel == 16 {
+            AudioSampleEncoding::U16
+        } else {
+            return Err(RecordingError::new(RECORDING_STREAM_ERROR));
+        };
+        let channels = format
+            .audio_channel_count()
+            .and_then(|count| u16::try_from(count).ok())
+            .filter(|count| *count > 0)
+            .ok_or_else(|| RecordingError::new(RECORDING_STREAM_ERROR))?;
+        let buffers = sample
+            .audio_buffer_list()
+            .ok_or_else(|| RecordingError::new(RECORDING_STREAM_ERROR))?;
+        let non_interleaved = flags & AUDIO_FORMAT_FLAG_IS_NON_INTERLEAVED != 0;
+
+        if non_interleaved {
+            if buffers.num_buffers() != usize::from(channels) {
+                return Err(RecordingError::new(RECORDING_STREAM_ERROR));
+            }
+            let channel_blocks = buffers
+                .iter()
+                .map(|buffer| system_audio_block_from_bytes(encoding, buffer.data(), 1))
+                .collect::<Result<Vec<_>, _>>()?;
+            interleave_non_interleaved_audio(channel_blocks)
+        } else {
+            if buffers.num_buffers() != 1 {
+                return Err(RecordingError::new(RECORDING_STREAM_ERROR));
+            }
+            let buffer = buffers
+                .get(0)
+                .ok_or_else(|| RecordingError::new(RECORDING_STREAM_ERROR))?;
+            system_audio_block_from_bytes(encoding, buffer.data(), channels)
+        }
+    }
+
+    fn configure_system_audio_stream(
+        filter: &SCContentFilter,
+        sender: SyncSender<AudioBlock>,
+        first_error: Arc<FirstStreamError>,
+    ) -> Result<SCStream, RecordingError> {
+        let config = native_system_stream_configuration();
+        let mut stream = SCStream::new(filter, &config);
+        let callback_error = Arc::clone(&first_error);
+        let registered = stream.add_output_handler(
+            move |sample: CMSampleBuffer, output: SCStreamOutputType| {
+                let output = native_system_stream_output(output);
+                let block = if output == SystemStreamOutput::Audio {
+                    pcm16_from_screen_capture_sample(sample)
+                } else {
+                    Err(RecordingError::new(RECORDING_STREAM_ERROR))
+                };
+                match accept_system_sample(output, block) {
+                    Ok(block) => {
+                        let _ = submit_block(&sender, block, &callback_error);
+                    }
+                    Err(_) => callback_error.store(),
+                }
+            },
+            SCStreamOutputType::Audio,
+        );
+        if registered.is_none() {
+            return Err(RecordingError::new(RECORDING_SYSTEM_LOOPBACK_INIT_FAILED));
+        }
+        Ok(stream)
+    }
+
     // Compile-only seam for the native system-audio path. It intentionally registers
     // only the Audio output type: the display is a ScreenCaptureKit filter entry point,
     // not a user-visible recording scope. Runtime permission/content checks and stream
@@ -363,10 +599,7 @@ mod platform {
             .with_display(display)
             .with_excluding_windows(&[])
             .build();
-        let config = SCStreamConfiguration::new()
-            .with_captures_audio(true)
-            .with_sample_rate(48_000)
-            .with_channel_count(2);
+        let config = native_system_stream_configuration();
         let mut stream = SCStream::new(&filter, &config);
         stream.add_output_handler(
             |_sample: CMSampleBuffer, _of_type: SCStreamOutputType| {},
@@ -796,6 +1029,51 @@ mod tests {
         assert_eq!(error.code, RECORDING_SYSTEM_LOOPBACK_INIT_FAILED);
         assert_eq!(error.message, "System audio could not be initialized.");
         assert!(!serialized.contains("NativeError"));
+    }
+
+    #[test]
+    fn system_stream_config_is_audio_only_and_excludes_current_process() {
+        let config = system_stream_config_spec();
+
+        assert!(config.captures_audio);
+        assert!(config.excludes_current_process_audio);
+        assert_eq!(config.registered_outputs, [SystemStreamOutput::Audio]);
+        assert!(config
+            .registered_outputs
+            .iter()
+            .all(|output| *output != SystemStreamOutput::Screen));
+    }
+
+    #[test]
+    fn main_display_filter_is_not_a_user_visible_source() {
+        let config = system_stream_config_spec();
+
+        assert!(!config.display_is_user_visible_source);
+    }
+
+    #[test]
+    fn video_buffer_is_fail_closed_and_never_reaches_writer() {
+        let error = accept_system_sample(
+            SystemStreamOutput::Screen,
+            Ok(AudioBlock::silence(1, 2)),
+        )
+        .expect_err("video sample must fail closed");
+
+        assert_eq!(error.code, RECORDING_STREAM_ERROR);
+    }
+
+    #[test]
+    fn audio_sample_buffers_become_owned_pcm16_blocks() {
+        let samples = [-1.0_f32, 0.0, 1.0, 0.5];
+        let bytes = samples
+            .into_iter()
+            .flat_map(|sample| sample.to_ne_bytes())
+            .collect::<Vec<_>>();
+        let block = system_audio_block_from_bytes(AudioSampleEncoding::F32, &bytes, 2)
+            .expect("audio sample conversion");
+
+        assert_eq!(block.frame_count, 2);
+        assert_eq!(decode_pcm16(&block.bytes), [-32768, 0, 32767, 16384]);
     }
 
     #[test]
