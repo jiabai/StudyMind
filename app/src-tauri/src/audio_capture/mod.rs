@@ -131,6 +131,7 @@ impl RecordingMode {
 #[serde(rename_all = "lowercase")]
 pub(crate) enum RecordingPlatform {
     Windows,
+    Macos,
     Unsupported,
 }
 
@@ -1275,6 +1276,10 @@ mod tests {
     fn public_mode_and_error_payloads_are_stable_and_redacted() {
         let mode: RecordingMode = serde_json::from_str("\"mixed\"").expect("parse mode");
         assert_eq!(mode, RecordingMode::Mixed);
+
+        let platform = serde_json::to_string(&RecordingPlatform::Macos)
+            .expect("serialize macOS platform");
+        assert_eq!(platform, "\"macos\"");
 
         let error = RecordingError::new(RECORDING_MIC_INIT_FAILED);
         let serialized = serde_json::to_string(&error).expect("serialize error");

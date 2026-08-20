@@ -120,6 +120,15 @@ const MIC_ONLY_CAPABILITIES: RecordingCapabilities = {
   },
 };
 
+const MACOS_MIC_ONLY_CAPABILITIES: RecordingCapabilities = {
+  platform: "macos",
+  microphone: { available: true },
+  systemAudio: {
+    available: false,
+    reasonCode: "RECORDING_SYSTEM_AUDIO_UNAVAILABLE",
+  },
+};
+
 const UNSUPPORTED_CAPABILITIES: RecordingCapabilities = {
   platform: "unsupported",
   microphone: { available: false },
@@ -475,6 +484,51 @@ describe("useRecordingController", () => {
     expect(controller.isModeAvailable("mic")).toBe(true);
     expect(controller.isModeAvailable("system")).toBe(false);
     expect(controller.isModeAvailable("mixed")).toBe(false);
+  });
+
+  test("uses macOS microphone-only capabilities and leaves other modes unavailable", async () => {
+    const startRecording = vi
+      .fn<
+        (mode: RecordingMode) => Promise<{
+          sessionId: string;
+          warnings: StartRecordingWarning[];
+        }>
+      >()
+      .mockResolvedValue({ sessionId: "macos-mic-session", warnings: [] });
+    const { render } = await createController({
+      recordingClient: {
+        getRecordingCapabilities: vi
+          .fn()
+          .mockResolvedValue(MACOS_MIC_ONLY_CAPABILITIES),
+        startRecording,
+        stopRecording: vi.fn(),
+        cancelRecording: vi.fn(),
+      },
+      readPreferences: vi.fn().mockResolvedValue({
+        ...PREFERENCES,
+        recording: { audioSourceMode: "mixed" },
+      }),
+    });
+
+    let controller = render();
+    await settle();
+    controller = render();
+
+    expect(controller.capability).toEqual({
+      status: "ready",
+      details: MACOS_MIC_ONLY_CAPABILITIES,
+    });
+    expect(controller.mode).toBe("mic");
+    expect(controller.isModeAvailable("mic")).toBe(true);
+    expect(controller.isModeAvailable("system")).toBe(false);
+    expect(controller.isModeAvailable("mixed")).toBe(false);
+
+    await controller.start();
+    controller = render();
+
+    expect(startRecording).toHaveBeenCalledWith("mic");
+    expect(controller.mode).toBe("mic");
+    expect(controller.session).toEqual({ status: "recording" });
   });
 
   test("falls back an illegal preference value to mic", async () => {

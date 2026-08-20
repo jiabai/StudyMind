@@ -31,7 +31,7 @@ export type RecordingSourceCapability = {
 };
 
 export type RecordingCapabilities = {
-  platform: "windows" | "unsupported";
+  platform: "windows" | "macos" | "unsupported";
   microphone: RecordingSourceCapability;
   systemAudio: RecordingSourceCapability;
 };
@@ -166,7 +166,11 @@ function parseRecordingCapabilities(value: unknown): RecordingCapabilities {
     ["platform", "microphone", "systemAudio"],
     [],
   );
-  if (response.platform !== "windows" && response.platform !== "unsupported") {
+  if (
+    response.platform !== "windows" &&
+    response.platform !== "macos" &&
+    response.platform !== "unsupported"
+  ) {
     throwInvalidResponse();
   }
   return {

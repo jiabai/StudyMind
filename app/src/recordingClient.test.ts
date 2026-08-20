@@ -174,6 +174,21 @@ describe("recording client", () => {
     ]);
   });
 
+  test("accepts a complete macOS capability response", async () => {
+    const capabilities = {
+      platform: "macos",
+      microphone: { available: true },
+      systemAudio: {
+        available: false,
+        reasonCode: "RECORDING_SYSTEM_AUDIO_UNAVAILABLE",
+      },
+    } as const;
+
+    await expect(
+      getRecordingCapabilities(async () => capabilities),
+    ).resolves.toEqual(capabilities);
+  });
+
   test.each([null, undefined])(
     "accepts %s as a successful cancel response",
     async (response) => {

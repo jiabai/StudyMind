@@ -165,7 +165,7 @@ function isModeAvailableFromCapabilities(
   capabilities: RecordingCapabilities | undefined,
   mode: RecordingMode,
 ): boolean {
-  if (!capabilities || capabilities.platform !== "windows") return false;
+  if (!capabilities || capabilities.platform === "unsupported") return false;
   if (mode === "mic") return capabilities.microphone.available;
   if (mode === "system") return capabilities.systemAudio.available;
   return capabilities.microphone.available && capabilities.systemAudio.available;
@@ -175,7 +175,7 @@ function hasUsableRecordingSource(
   capabilities: RecordingCapabilities,
 ): boolean {
   return (
-    capabilities.platform === "windows" &&
+    capabilities.platform !== "unsupported" &&
     (capabilities.microphone.available || capabilities.systemAudio.available)
   );
 }
