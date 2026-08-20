@@ -459,7 +459,7 @@ mod platform {
         SCStreamConfiguration::new()
             .with_captures_audio(spec.captures_audio)
             .with_excludes_current_process_audio(spec.excludes_current_process_audio)
-            .with_sample_rate(spec.sample_rate)
+            .with_sample_rate(spec.sample_rate as i32)
             .with_channel_count(spec.channel_count)
     }
 

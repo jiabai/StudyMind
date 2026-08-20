@@ -41,8 +41,8 @@ fn main() {
 
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
     let swift_triple = match target_arch.as_str() {
-        "x86_64" => "x86_64-apple-macosx",
-        "aarch64" => "arm64-apple-macosx",
+        "x86_64" => "x86_64-apple-macos15.0",
+        "aarch64" => "arm64-apple-macos15.0",
         other => panic!("apple-cf: unsupported target arch '{other}'. Expected x86_64 or aarch64."),
     };
 
@@ -61,6 +61,10 @@ fn main() {
 
     let output = Command::new("swift")
         .args(&swift_args)
+        .arg("-Xswiftc")
+        .arg("-target")
+        .arg("-Xswiftc")
+        .arg(swift_triple)
         .output()
         .expect("Failed to build Swift bridge");
 
