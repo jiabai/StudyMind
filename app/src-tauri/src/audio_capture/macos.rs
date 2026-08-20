@@ -279,12 +279,35 @@ mod platform {
     use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
     use objc2::runtime::Bool;
     use objc2_av_foundation::{AVAuthorizationStatus, AVCaptureDevice, AVMediaTypeAudio};
+    use screencapturekit::prelude::*;
 
     use super::*;
     use crate::audio_capture::{ActiveCapture, RecordingBackend};
 
     const AUDIO_QUEUE_CAPACITY: usize = 32;
     const CONTROL_POLL_INTERVAL: Duration = Duration::from_millis(20);
+
+    // Compile-only seam for the native system-audio path. It intentionally registers
+    // only the Audio output type: the display is a ScreenCaptureKit filter entry point,
+    // not a user-visible recording scope. Runtime permission/content checks and stream
+    // lifecycle belong to the implementation task that follows this dependency gate.
+    #[allow(dead_code)]
+    fn screencapturekit_audio_only_stream_probe(display: &SCDisplay) -> SCStream {
+        let filter = SCContentFilter::create()
+            .with_display(display)
+            .with_excluding_windows(&[])
+            .build();
+        let config = SCStreamConfiguration::new()
+            .with_captures_audio(true)
+            .with_sample_rate(48_000)
+            .with_channel_count(2);
+        let mut stream = SCStream::new(&filter, &config);
+        stream.add_output_handler(
+            |_sample: CMSampleBuffer, _of_type: SCStreamOutputType| {},
+            SCStreamOutputType::Audio,
+        );
+        stream
+    }
 
     #[derive(Default)]
     pub(crate) struct MacosRecordingBackend;
