@@ -12,6 +12,7 @@ use super::{
     CapturedRecording, RecordingCapabilities, RecordingError, RecordingMode, RecordingPlatform,
     RecordingSourceCapability, RECORDING_MIC_ACCESS_DENIED, RECORDING_MIC_INIT_FAILED,
     RECORDING_MIX_FAILED, RECORDING_STREAM_ERROR, RECORDING_SYSTEM_AUDIO_UNAVAILABLE,
+    RECORDING_SYSTEM_LOOPBACK_INIT_FAILED,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -22,9 +23,73 @@ enum PermissionStatus {
     Restricted,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SystemAudioAvailability {
+    Available,
+    PermissionNotDetermined,
+    Denied,
+    NoShareableDisplay,
+    Unsupported,
+    InitializationFailed,
+}
+
+trait SystemAudioProbe: Send + Sync {
+    fn probe(&self) -> Result<SystemAudioAvailability, RecordingError>;
+}
+
+#[allow(dead_code)]
+trait SystemAudioRuntime: Send + Sync {
+    fn start(
+        &self,
+        workspace: &super::CaptureWorkspace,
+    ) -> Result<Box<dyn super::ActiveCapture>, RecordingError>;
+}
+
+struct UnavailableSystemAudioProbe;
+
+impl SystemAudioProbe for UnavailableSystemAudioProbe {
+    fn probe(&self) -> Result<SystemAudioAvailability, RecordingError> {
+        Ok(SystemAudioAvailability::PermissionNotDetermined)
+    }
+}
+
+fn system_capability_for(
+    result: Result<SystemAudioAvailability, RecordingError>,
+) -> RecordingSourceCapability {
+    match result {
+        Ok(SystemAudioAvailability::Available) => RecordingSourceCapability {
+            available: true,
+            reason_code: None,
+        },
+        Ok(
+            SystemAudioAvailability::PermissionNotDetermined
+            | SystemAudioAvailability::Denied
+            | SystemAudioAvailability::NoShareableDisplay
+            | SystemAudioAvailability::Unsupported,
+        ) => RecordingSourceCapability {
+            available: false,
+            reason_code: Some(RECORDING_SYSTEM_AUDIO_UNAVAILABLE),
+        },
+        Ok(SystemAudioAvailability::InitializationFailed) | Err(_) => {
+            RecordingSourceCapability {
+                available: false,
+                reason_code: Some(RECORDING_SYSTEM_LOOPBACK_INIT_FAILED),
+            }
+        }
+    }
+}
+
 fn capabilities_for(
     permission: PermissionStatus,
     probe_input: impl FnOnce() -> bool,
+) -> RecordingCapabilities {
+    capabilities_for_with_system(permission, probe_input, &UnavailableSystemAudioProbe)
+}
+
+fn capabilities_for_with_system(
+    permission: PermissionStatus,
+    probe_input: impl FnOnce() -> bool,
+    system_probe: &dyn SystemAudioProbe,
 ) -> RecordingCapabilities {
     let microphone = match permission {
         PermissionStatus::Denied | PermissionStatus::Restricted => RecordingSourceCapability {
@@ -49,10 +114,7 @@ fn capabilities_for(
     RecordingCapabilities {
         platform: RecordingPlatform::Macos,
         microphone,
-        system_audio: RecordingSourceCapability {
-            available: false,
-            reason_code: Some(RECORDING_SYSTEM_AUDIO_UNAVAILABLE),
-        },
+        system_audio: system_capability_for(system_probe.probe()),
         mixed: RecordingSourceCapability {
             available: false,
             reason_code: Some(RECORDING_MIX_FAILED),
@@ -144,6 +206,10 @@ fn convert_samples<T: Copy>(
 
 fn map_stream_play_error<E>(result: Result<(), E>) -> Result<(), RecordingError> {
     result.map_err(|_| RecordingError::new(RECORDING_MIC_INIT_FAILED))
+}
+
+fn map_system_start_error<E>(result: Result<(), E>) -> Result<(), RecordingError> {
+    result.map_err(|_| RecordingError::new(RECORDING_SYSTEM_LOOPBACK_INIT_FAILED))
 }
 
 fn receive_startup_signal(
@@ -575,7 +641,20 @@ mod tests {
     use crate::audio_capture::{
         RecordingMode, RecordingPlatform, RECORDING_MIC_ACCESS_DENIED, RECORDING_MIC_INIT_FAILED,
         RECORDING_STREAM_ERROR, RECORDING_SYSTEM_AUDIO_UNAVAILABLE,
+        RECORDING_SYSTEM_LOOPBACK_INIT_FAILED,
     };
+
+    struct StubSystemAudioProbe {
+        result: Result<SystemAudioAvailability, RecordingError>,
+        calls: AtomicUsize,
+    }
+
+    impl SystemAudioProbe for StubSystemAudioProbe {
+        fn probe(&self) -> Result<SystemAudioAvailability, RecordingError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.result.clone()
+        }
+    }
 
     #[test]
     fn capability_matrix_is_stable_and_probe_never_requests_permission() {
@@ -627,6 +706,96 @@ mod tests {
         // There is deliberately no request-access callback in the capability seam.
         // Supplying only the current status and a device/config probe makes prompting
         // impossible during capability evaluation.
+    }
+
+    #[test]
+    fn system_capability_probe_never_requests_permission() {
+        let probe = StubSystemAudioProbe {
+            result: Ok(SystemAudioAvailability::Available),
+            calls: AtomicUsize::new(0),
+        };
+        let capabilities = capabilities_for_with_system(
+            PermissionStatus::NotDetermined,
+            || true,
+            &probe,
+        );
+
+        assert!(capabilities.system_audio.available);
+        assert_eq!(probe.calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn system_capability_maps_screen_recording_denial_to_unavailable() {
+        let probe = StubSystemAudioProbe {
+            result: Ok(SystemAudioAvailability::Denied),
+            calls: AtomicUsize::new(0),
+        };
+        let capabilities = capabilities_for_with_system(
+            PermissionStatus::Authorized,
+            || true,
+            &probe,
+        );
+
+        assert!(!capabilities.system_audio.available);
+        assert_eq!(
+            capabilities.system_audio.reason_code,
+            Some(RECORDING_SYSTEM_AUDIO_UNAVAILABLE)
+        );
+    }
+
+    #[test]
+    fn system_capability_requires_macos_13_and_a_shareable_display() {
+        for availability in [
+            SystemAudioAvailability::Unsupported,
+            SystemAudioAvailability::NoShareableDisplay,
+        ] {
+            let probe = StubSystemAudioProbe {
+                result: Ok(availability),
+                calls: AtomicUsize::new(0),
+            };
+            let capabilities = capabilities_for_with_system(
+                PermissionStatus::Authorized,
+                || true,
+                &probe,
+            );
+
+            assert!(!capabilities.system_audio.available);
+            assert_eq!(
+                capabilities.system_audio.reason_code,
+                Some(RECORDING_SYSTEM_AUDIO_UNAVAILABLE)
+            );
+        }
+    }
+
+    #[test]
+    fn system_start_does_not_request_microphone_permission() {
+        let prompt_count = AtomicUsize::new(0);
+        let result = authorize_start(RecordingMode::System, PermissionStatus::Authorized, || {
+            prompt_count.fetch_add(1, Ordering::SeqCst);
+            true
+        });
+
+        assert_eq!(
+            result
+                .expect_err("system is not on the microphone path")
+                .code,
+            RECORDING_SYSTEM_AUDIO_UNAVAILABLE
+        );
+        assert_eq!(prompt_count.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn system_start_redacts_native_errors_to_stable_codes() {
+        #[derive(Debug)]
+        struct NativeError;
+
+        let error = map_system_start_error::<NativeError>(Err(NativeError))
+            .expect_err("native setup error must be returned");
+        let serialized = serde_json::to_string(&error).expect("serialize stable error");
+
+        assert_eq!(error.code, RECORDING_SYSTEM_LOOPBACK_INIT_FAILED);
+        assert_eq!(error.message, "System audio could not be initialized.");
+        assert!(!serialized.contains("NativeError"));
     }
 
     #[test]
