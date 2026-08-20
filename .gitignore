@@ -56,14 +56,7 @@ server/prisma/*.db-shm
 /progress.md
 /task_plan.md
 /tauri-log.txt
-/IDENTITY.md
-/USER.md
-/HEARTBEAT.md
-/SOUL.md
-/TOOLS.md
 /MEMORY.md
-/.openclaw/*
-/.openclaw-attachments/*
 /evolution-drafts/*
 
 # Local docs and preview artifacts
