@@ -669,7 +669,7 @@ mod platform {
             now_ms: u64,
         ) -> Result<(), RecordingError> {
             self.start_recovery_window(now_ms)?;
-            self.reconcile(now_ms).map(|_| ())
+            self.reconcile().map(|_| ())
         }
 
         pub(crate) fn handle_display_anchor_changed(
@@ -679,7 +679,7 @@ mod platform {
         ) -> Result<(), RecordingError> {
             self.anchor = new_anchor;
             self.start_recovery_window(now_ms)?;
-            self.reconcile(now_ms).map(|_| ())
+            self.reconcile().map(|_| ())
         }
 
         fn start_recovery_window(&self, now_ms: u64) -> Result<(), RecordingError> {
@@ -690,7 +690,7 @@ mod platform {
             )
         }
 
-        fn reconcile(&mut self, _now_ms: u64) -> Result<ReconcileOutcome, RecordingError> {
+        fn reconcile(&mut self) -> Result<ReconcileOutcome, RecordingError> {
             if let Some(stream) = self.stream.as_ref() {
                 if stream.update_content_filter(self.anchor).is_ok() {
                     return Ok(ReconcileOutcome::FilterUpdated);
@@ -780,7 +780,6 @@ mod platform {
     fn write_system_blocks(
         mut writer: WaveWriter,
         receiver: Receiver<SystemStreamEvent>,
-        rebuild_tx: SyncSender<()>,
         reporter: RecordingWarningReporter,
         sample_rate: u32,
         channels: u16,
@@ -798,22 +797,24 @@ mod platform {
                             )?,
                             WriteAction::Silence { frames } => writer.write_silence(frames)?,
                             WriteAction::Recovered { gap_ms } => reporter.record_recovery(gap_ms),
-                            WriteAction::RebuildStream => {
-                                let _ = rebuild_tx.try_send(());
-                            }
                             WriteAction::FailSource => {
                                 return Err(RecordingError::new(RECORDING_STREAM_ERROR))
                             }
                             WriteAction::StopCleanly => {}
+                            // RebuildStream is ignored here: the supervisor
+                            // reconciles the OS stream (filter update first,
+                            // then rebuild) inline when it handles the
+                            // interrupt/anchor-change, so the writer only needs
+                            // to open the media-recovery window via interrupt().
+                            WriteAction::RebuildStream => {}
                         }
                     }
                 }
                 SystemStreamEvent::Interrupt { now_ms } => {
-                    for action in recovery.interrupt(now_ms) {
-                        if action == WriteAction::RebuildStream {
-                            let _ = rebuild_tx.try_send(());
-                        }
-                    }
+                    // Open (or refresh) the 2s media-recovery window. The
+                    // rebuild decision lives in the supervisor; this worker
+                    // only tracks the deadline and back-fills gaps.
+                    let _ = recovery.interrupt(now_ms);
                 }
                 SystemStreamEvent::DeadlineElapsed { now_ms } => {
                     for action in recovery.deadline_elapsed(now_ms) {
@@ -1130,7 +1131,6 @@ mod platform {
         let channels = format.channels;
 
         let (events_tx, events_rx) = mpsc::sync_channel(AUDIO_QUEUE_CAPACITY);
-        let (rebuild_tx, rebuild_rx) = mpsc::sync_channel(1);
         let (interrupt_tx, interrupt_rx) = mpsc::sync_channel(1);
         let (writer_ready_tx, writer_ready_rx) = mpsc::sync_channel(1);
         let writer = thread::Builder::new()
@@ -1145,7 +1145,6 @@ mod platform {
                         write_system_blocks(
                             wave_writer,
                             events_rx,
-                            rebuild_tx,
                             reporter,
                             sample_rate,
                             channels,
@@ -1215,12 +1214,6 @@ mod platform {
                 Err(mpsc::RecvTimeoutError::Timeout) => {
                     if interrupt_rx.try_recv().is_ok() {
                         if let Err(error) = supervisor.handle_stream_interrupted(now_ms()) {
-                            run_error = Some(error);
-                            break;
-                        }
-                    }
-                    if rebuild_rx.try_recv().is_ok() {
-                        if let Err(error) = supervisor.reconcile(now_ms()) {
                             run_error = Some(error);
                             break;
                         }
