@@ -625,6 +625,11 @@ mod platform {
             interrupt: SyncSender<()>,
             first_error: Arc<FirstStreamError>,
         ) -> Result<Box<dyn SystemStream>, RecordingError>;
+        /// Notifies the factory that the worker consumed an interrupt. The real
+        /// factory is a no-op; the test factory uses it to let the fake pump
+        /// stop so the recovery deadline can elapse. Keeping it on the trait
+        /// avoids special-casing the worker loop for tests.
+        fn mark_interrupt_consumed(&self) {}
     }
 
     /// Owns the current stream and reconciles it on delegate interruption or
@@ -1236,6 +1241,7 @@ mod platform {
                             run_error = Some(error);
                             break;
                         }
+                        factory.mark_interrupt_consumed();
                     }
                     if last_topology_poll.elapsed() >= TOPOLOGY_POLL_INTERVAL {
                         last_topology_poll = std::time::Instant::now();
@@ -2195,6 +2201,8 @@ mod tests {
             update_failures_remaining: Arc<AtomicUsize>,
             interrupt_sender: Arc<Mutex<Option<SyncSender<()>>>>,
             counter: Arc<AtomicU64>,
+            pump_stop_after_interrupt: bool,
+            interrupt_seen: Arc<AtomicBool>,
         }
 
         impl SystemStreamFactory for WorkerFakeFactory {
@@ -2217,9 +2225,15 @@ mod tests {
                     update_failures_remaining: Arc::clone(&self.update_failures_remaining),
                     counter: Arc::clone(&self.counter),
                     pump: Arc::new(Mutex::new(None)),
+                    pump_stop_after_interrupt: self.pump_stop_after_interrupt,
+                    interrupt_seen: Arc::clone(&self.interrupt_seen),
                 }))
-            }
         }
+
+        fn mark_interrupt_consumed(&self) {
+            self.interrupt_seen.store(true, Ordering::SeqCst);
+        }
+    }
 
         struct WorkerFakeStream {
             stop: Arc<AtomicBool>,
@@ -2227,6 +2241,8 @@ mod tests {
             update_failures_remaining: Arc<AtomicUsize>,
             counter: Arc<AtomicU64>,
             pump: Arc<Mutex<Option<thread::JoinHandle<()>>>>,
+            pump_stop_after_interrupt: bool,
+            interrupt_seen: Arc<AtomicBool>,
         }
 
         impl SystemStream for WorkerFakeStream {
@@ -2247,8 +2263,18 @@ mod tests {
                 let stop = Arc::clone(&self.stop);
                 let events = self.events.clone();
                 let counter = Arc::clone(&self.counter);
+                let stop_after_interrupt = self.pump_stop_after_interrupt;
+                let interrupt_seen = Arc::clone(&self.interrupt_seen);
                 let handle = thread::spawn(move || {
                     while !stop.load(Ordering::SeqCst) {
+                        // When configured, stop pumping as soon as the worker
+                        // consumes the interrupt, so the recovery window opens
+                        // with no further audio. The writer's wall-clock
+                        // deadline (based on the worker's Instant clock) then
+                        // elapses and the source is failed.
+                        if stop_after_interrupt && interrupt_seen.load(Ordering::SeqCst) {
+                            break;
+                        }
                         let i = counter.fetch_add(1, Ordering::SeqCst);
                         let timing = AudioSampleTiming {
                             presentation_ns: i * 10_000_000,
@@ -2291,7 +2317,10 @@ mod tests {
         fn run_worker(
             factory: Arc<WorkerFakeFactory>,
             interrupt_sender: Arc<Mutex<Option<SyncSender<()>>>>,
-            fire_interrupt: bool,
+            interrupt_at_ms: Option<u64>,
+            second_interrupt_at_ms: Option<u64>,
+            send_stop: bool,
+            stop_delay_ms: u64,
         ) -> Result<Option<crate::audio_capture::CapturedRecording>, RecordingError> {
             let path = std::env::temp_dir().join(format!(
                 "studymind-worker-test-{}-{}.wav",
@@ -2311,19 +2340,58 @@ mod tests {
                 .recv_timeout(Duration::from_secs(2))
                 .expect("worker becomes ready")
                 .expect("worker reports ready without error");
-            if fire_interrupt {
+
+            let interrupt = |at_ms: u64| {
                 // Let some audio flow, then simulate the SCStream delegate
                 // firing did_stop_with_error by signalling the interrupt channel.
-                thread::sleep(Duration::from_millis(60));
+                thread::sleep(Duration::from_millis(at_ms));
                 if let Some(sender) = interrupt_sender.lock().unwrap().clone() {
                     let _ = sender.try_send(());
                 }
+            };
+
+            if let Some(at_ms) = interrupt_at_ms {
+                interrupt(at_ms);
             }
-            thread::sleep(Duration::from_millis(60));
-            control_tx
-                .send(CaptureControl::Stop)
-                .expect("send stop control");
+            if let Some(at_ms) = second_interrupt_at_ms {
+                // The second interrupt fires after the first; the worker marks
+                // the interrupt consumed on its next poll, so mirror that here
+                // to let the deadline/stop pumps observe it.
+                interrupt(at_ms);
+            }
+            if send_stop {
+                // Normal happy-path: stop after `stop_delay_ms` so the capture
+                // drains and finalizes. The deadline test uses a delay longer
+                // than the 2s wall-clock recovery window so the writer fails the
+                // source first; Stop then finalizes the failure.
+                thread::sleep(Duration::from_millis(stop_delay_ms));
+                control_tx
+                    .send(CaptureControl::Stop)
+                    .expect("send stop control");
+            }
             worker.join().expect("worker thread joins")
+        }
+
+        /// Build a WorkerFakeFactory with the given knobs. `interrupt_seen` is
+        /// shared so the pump thread can stop after the worker consumes an
+        /// interrupt (used to simulate a stream that goes permanently silent so
+        /// the recovery deadline elapses).
+        fn build_factory(
+            create_stream_count: Arc<AtomicUsize>,
+            update_failures_remaining: Arc<AtomicUsize>,
+            interrupt_sender: Arc<Mutex<Option<SyncSender<()>>>>,
+            pump_stop_after_interrupt: bool,
+            interrupt_seen: Arc<AtomicBool>,
+        ) -> Arc<WorkerFakeFactory> {
+            Arc::new(WorkerFakeFactory {
+                anchor: 1,
+                create_stream_count,
+                update_failures_remaining,
+                interrupt_sender,
+                counter: Arc::new(AtomicU64::new(0)),
+                pump_stop_after_interrupt,
+                interrupt_seen,
+            })
         }
 
         #[test]
@@ -2331,15 +2399,16 @@ mod tests {
             let create_stream_count = Arc::new(AtomicUsize::new(0));
             let update_failures_remaining = Arc::new(AtomicUsize::new(0));
             let interrupt_sender = Arc::new(Mutex::new(None));
-            let factory = Arc::new(WorkerFakeFactory {
-                anchor: 1,
-                create_stream_count: Arc::clone(&create_stream_count),
-                update_failures_remaining: Arc::clone(&update_failures_remaining),
-                interrupt_sender: Arc::clone(&interrupt_sender),
-                counter: Arc::new(AtomicU64::new(0)),
-            });
+            let interrupt_seen = Arc::new(AtomicBool::new(false));
+            let factory = build_factory(
+                Arc::clone(&create_stream_count),
+                Arc::clone(&update_failures_remaining),
+                Arc::clone(&interrupt_sender),
+                false,
+                Arc::clone(&interrupt_seen),
+            );
 
-            let recording = run_worker(factory, interrupt_sender, true)
+            let recording = run_worker(factory, interrupt_sender, Some(60), None, true, 60)
                 .expect("capture completes after interrupt")
                 .expect("capture produced a recording");
 
@@ -2356,15 +2425,16 @@ mod tests {
             let create_stream_count = Arc::new(AtomicUsize::new(0));
             let update_failures_remaining = Arc::new(AtomicUsize::new(1));
             let interrupt_sender = Arc::new(Mutex::new(None));
-            let factory = Arc::new(WorkerFakeFactory {
-                anchor: 1,
-                create_stream_count: Arc::clone(&create_stream_count),
-                update_failures_remaining: Arc::clone(&update_failures_remaining),
-                interrupt_sender: Arc::clone(&interrupt_sender),
-                counter: Arc::new(AtomicU64::new(0)),
-            });
+            let interrupt_seen = Arc::new(AtomicBool::new(false));
+            let factory = build_factory(
+                Arc::clone(&create_stream_count),
+                Arc::clone(&update_failures_remaining),
+                Arc::clone(&interrupt_sender),
+                false,
+                Arc::clone(&interrupt_seen),
+            );
 
-            let recording = run_worker(factory, interrupt_sender, true)
+            let recording = run_worker(factory, interrupt_sender, Some(60), None, true, 60)
                 .expect("capture completes after rebuild")
                 .expect("capture produced a recording");
 
@@ -2378,6 +2448,63 @@ mod tests {
                 update_failures_remaining.load(Ordering::SeqCst),
                 0,
                 "the failed update was consumed by reconcile"
+            );
+        }
+
+        #[test]
+        fn worker_second_interrupt_in_window_does_not_rebuild() {
+            // Two interrupts inside the open 2s recovery window must NOT trigger
+            // a second rebuild: the supervisor reconciles on the first and the
+            // open window absorbs the second. The stream is created exactly once
+            // and audio keeps flowing, so the capture completes successfully.
+            let create_stream_count = Arc::new(AtomicUsize::new(0));
+            let update_failures_remaining = Arc::new(AtomicUsize::new(0));
+            let interrupt_sender = Arc::new(Mutex::new(None));
+            let interrupt_seen = Arc::new(AtomicBool::new(false));
+            let factory = build_factory(
+                Arc::clone(&create_stream_count),
+                Arc::clone(&update_failures_remaining),
+                Arc::clone(&interrupt_sender),
+                false,
+                Arc::clone(&interrupt_seen),
+            );
+
+            let recording = run_worker(factory, interrupt_sender, Some(60), Some(90), true, 60)
+                .expect("capture completes after double interrupt")
+                .expect("capture produced a recording");
+
+            assert!(recording.valid_frame_count > 0, "audio was written");
+            assert_eq!(
+                create_stream_count.load(Ordering::SeqCst),
+                1,
+                "the second interrupt inside the open window must not rebuild"
+            );
+        }
+
+        #[test]
+        fn worker_fails_source_when_recovery_deadline_elapses() {
+            // Simulate a stream that goes permanently silent after the interrupt:
+            // the pump stops, no audio arrives, and the writer's wall-clock
+            // recovery deadline (2s, based on the worker's Instant clock) elapses
+            // without further audio, so the source is failed with
+            // RECORDING_STREAM_ERROR rather than producing a recording.
+            let create_stream_count = Arc::new(AtomicUsize::new(0));
+            let update_failures_remaining = Arc::new(AtomicUsize::new(0));
+            let interrupt_sender = Arc::new(Mutex::new(None));
+            let interrupt_seen = Arc::new(AtomicBool::new(false));
+            let factory = build_factory(
+                Arc::clone(&create_stream_count),
+                Arc::clone(&update_failures_remaining),
+                Arc::clone(&interrupt_sender),
+                true,
+                Arc::clone(&interrupt_seen),
+            );
+
+            let result = run_worker(factory, interrupt_sender, Some(60), None, true, 2500);
+            assert!(
+                matches!(result, Err(ref e) if e.code == RECORDING_STREAM_ERROR),
+                "deadline elapsed with no audio must fail the source: {:?}",
+                result
             );
         }
     }
