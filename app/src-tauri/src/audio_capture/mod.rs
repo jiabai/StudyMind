@@ -7,6 +7,7 @@ use tauri::State;
 use uuid::Uuid;
 
 mod mixer;
+mod system_audio_recovery;
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(all(test, not(target_os = "macos")))]

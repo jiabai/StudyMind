@@ -46,7 +46,7 @@ Current facts:
 - Modify: app/src-tauri/src/audio_capture/mod.rs to register the module
 - Test: app/src-tauri/src/audio_capture/system_audio_recovery.rs
 
-- [ ] **Step 1: Write the failing tests first.**
+- [x] **Step 1: Write the failing tests first.**
 
 Add tests with these exact behaviours and names:
 
@@ -58,10 +58,12 @@ fn recovery_inserts_silence_for_a_1040ms_gap() {
 
     let actions = recovery.push(sample(1_040_000_000, 20_000_000));
 
+    // The presentation delta is 1,040ms; subtracting the first sample's
+    // 20ms duration leaves a 1,020ms media gap.
     assert_eq!(actions, vec![
-        WriteAction::Silence { frames: 49_920 },
+        WriteAction::Silence { frames: 48_960 },
         WriteAction::Audio,
-        WriteAction::Recovered { gap_ms: 1_040 },
+        WriteAction::Recovered { gap_ms: 1_020 },
     ]);
 }
 
@@ -96,7 +98,7 @@ fn recovery_deadline_fails_without_future_audio() {
     let mut recovery = SystemAudioRecovery::new(48_000, 2);
     recovery.push(sample(0, 20_000_000));
     assert_eq!(recovery.interrupt(10_000), vec![WriteAction::RebuildStream]);
-    assert_eq!(recovery.deadline_elapsed(2_000), vec![WriteAction::FailSource]);
+    assert_eq!(recovery.deadline_elapsed(12_000), vec![WriteAction::FailSource]);
 }
 
 #[test]
@@ -110,7 +112,7 @@ fn stop_cancels_recovery_without_source_failure() {
 
 The helper must construct real presentation and duration values. The initial run must fail because the API does not exist.
 
-- [ ] **Step 2: Verify RED.**
+- [x] **Step 2: Verify RED.**
 
 Run:
 
@@ -120,7 +122,7 @@ cargo test --manifest-path app/src-tauri/Cargo.toml system_audio_recovery -- --t
 
 Expected: failure caused by the missing recovery API, not a test typo. If the failure is only the known missing-resource build script, report that environment limitation and do not edit production resource configuration.
 
-- [ ] **Step 3: Implement the minimal deterministic state machine.**
+- [x] **Step 3: Implement the minimal deterministic state machine.**
 
 Use these concrete shapes:
 
@@ -155,7 +157,7 @@ pub(crate) struct SystemAudioRecovery {
 
 push validates timing, computes next_start minus last_end, converts only a non-negative gap to frames with checked arithmetic, and emits FailSource on overflow, invalid timing, non-monotonic timing, or a gap greater than 2,000ms. interrupt(now_ms) sets one deadline and returns RebuildStream; deadline_elapsed(now_ms) fails only after the deadline; stop returns StopCleanly without converting user stop into source failure. Do not add retries, wall-clock-derived silence, or frontend dependencies.
 
-- [ ] **Step 4: Verify GREEN and regression coverage.**
+- [x] **Step 4: Verify GREEN and regression coverage.**
 
 Run the focused test, then:
 
@@ -164,6 +166,11 @@ cargo test --manifest-path app/src-tauri/Cargo.toml audio_capture -- --test-thre
 ~~~
 
 Expected: all recovery and existing audio capture tests pass.
+
+The standalone recovery-module test passed 6/6. The full Cargo command remains
+blocked in this worktree by the pre-existing missing `resources/python/**/*`
+tree required by the Tauri build script; no production resource configuration
+was changed.
 
 - [ ] **Step 5: Commit.**
 
