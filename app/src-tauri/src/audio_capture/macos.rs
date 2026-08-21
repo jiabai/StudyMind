@@ -9,11 +9,10 @@ use super::wav_writer::{WavCaptureSummary, WaveFormat, WaveWriter};
 #[cfg(target_os = "macos")]
 use super::CaptureWorkspace;
 use super::{
-    CapturedRecording, RecordingCapabilities, RecordingError, RecordingMode, RecordingPlatform,
-    RecordingErrorCode, RecordingSourceCapability, RECORDING_MIC_ACCESS_DENIED,
-    RECORDING_MIC_INIT_FAILED,
-    RECORDING_MIX_FAILED, RECORDING_STREAM_ERROR, RECORDING_SYSTEM_AUDIO_UNAVAILABLE,
-    RECORDING_SYSTEM_LOOPBACK_INIT_FAILED,
+    CapturedRecording, RecordingCapabilities, RecordingError, RecordingErrorCode, RecordingMode,
+    RecordingPlatform, RecordingSourceCapability, RECORDING_MIC_ACCESS_DENIED,
+    RECORDING_MIC_INIT_FAILED, RECORDING_MIX_FAILED, RECORDING_STREAM_ERROR,
+    RECORDING_SYSTEM_AUDIO_UNAVAILABLE, RECORDING_SYSTEM_LOOPBACK_INIT_FAILED,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,12 +71,10 @@ fn system_capability_for(
             available: false,
             reason_code: Some(RECORDING_SYSTEM_AUDIO_UNAVAILABLE),
         },
-        Ok(SystemAudioAvailability::InitializationFailed) | Err(_) => {
-            RecordingSourceCapability {
-                available: false,
-                reason_code: Some(RECORDING_SYSTEM_LOOPBACK_INIT_FAILED),
-            }
-        }
+        Ok(SystemAudioAvailability::InitializationFailed) | Err(_) => RecordingSourceCapability {
+            available: false,
+            reason_code: Some(RECORDING_SYSTEM_LOOPBACK_INIT_FAILED),
+        },
     }
 }
 
@@ -142,7 +139,7 @@ fn authorize_start(
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct AudioBlock {
     bytes: Vec<u8>,
     frame_count: u64,
@@ -184,6 +181,7 @@ enum AudioSampleEncoding {
     U16,
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 fn accept_system_sample(
     output: SystemStreamOutput,
     block: Result<AudioBlock, RecordingError>,
@@ -204,7 +202,9 @@ fn system_audio_block_from_bytes(
             let mut samples = Vec::with_capacity(bytes.len() / 4);
             for chunk in bytes.chunks_exact(4) {
                 samples.push(f32::from_ne_bytes(
-                    chunk.try_into().expect("chunks_exact guarantees four bytes"),
+                    chunk
+                        .try_into()
+                        .expect("chunks_exact guarantees four bytes"),
                 ));
             }
             if !bytes.chunks_exact(4).remainder().is_empty() {
@@ -314,9 +314,7 @@ fn receive_startup_signal_with(
     receiver: &Receiver<Result<(), RecordingError>>,
     fallback: RecordingErrorCode,
 ) -> Result<(), RecordingError> {
-    receiver
-        .recv()
-        .map_err(|_| RecordingError::new(fallback))?
+    receiver.recv().map_err(|_| RecordingError::new(fallback))?
 }
 
 #[derive(Default)]
@@ -367,13 +365,13 @@ fn write_blocks(
     writer.finish()
 }
 
-struct WriterJoinGuard<T> {
+struct WriterJoinGuard<T, M = AudioBlock> {
     writer: Option<JoinHandle<T>>,
-    sender: Option<SyncSender<AudioBlock>>,
+    sender: Option<SyncSender<M>>,
 }
 
-impl<T> WriterJoinGuard<T> {
-    fn new(writer: JoinHandle<T>, sender: SyncSender<AudioBlock>) -> Self {
+impl<T, M> WriterJoinGuard<T, M> {
+    fn new(writer: JoinHandle<T>, sender: SyncSender<M>) -> Self {
         Self {
             writer: Some(writer),
             sender: Some(sender),
@@ -381,7 +379,7 @@ impl<T> WriterJoinGuard<T> {
     }
 
     #[cfg(target_os = "macos")]
-    fn sender(&self) -> SyncSender<AudioBlock> {
+    fn sender(&self) -> SyncSender<M> {
         self.sender
             .as_ref()
             .expect("writer join guard sender is present")
@@ -398,7 +396,7 @@ impl<T> WriterJoinGuard<T> {
     }
 }
 
-impl<T> Drop for WriterJoinGuard<T> {
+impl<T, M> Drop for WriterJoinGuard<T, M> {
     fn drop(&mut self) {
         drop(self.sender.take());
         if let Some(writer) = self.writer.take() {
@@ -447,7 +445,10 @@ mod platform {
     use screencapturekit::prelude::*;
 
     use super::*;
-    use crate::audio_capture::{ActiveCapture, RecordingBackend};
+    use crate::audio_capture::system_audio_recovery::{
+        AudioSampleTiming, SystemAudioRecovery, WriteAction,
+    };
+    use crate::audio_capture::{ActiveCapture, RecordingBackend, RecordingWarningReporter};
 
     const AUDIO_QUEUE_CAPACITY: usize = 32;
     const CONTROL_POLL_INTERVAL: Duration = Duration::from_millis(20);
@@ -567,35 +568,368 @@ mod platform {
         }
     }
 
-    fn configure_system_audio_stream(
-        filter: &SCContentFilter,
-        sender: SyncSender<AudioBlock>,
+    // ---- Task 3: native stream supervisor seam ----
+    //
+    // The display id is a ScreenCaptureKit *technical* anchor only: it never
+    // becomes a user-visible recording source and never appears in warning or
+    // error selection. The supervisor reconciles the stream by updating the
+    // content filter first and rebuilding an audio-only stream only when the
+    // update fails; rebuild failure maps to the stable RECORDING_STREAM_ERROR.
+
+    pub(crate) type DisplayAnchor = u32;
+
+    /// Messages flowing from the ScreenCaptureKit callbacks and the supervisor
+    /// into the single system writer thread. Audio blocks carry CoreMedia
+    /// timing so the recovery state machine can compute media-time gaps;
+    /// control events drive the 2s recovery window and user stop/cancel.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub(crate) enum SystemStreamEvent {
+        Audio {
+            block: AudioBlock,
+            timing: AudioSampleTiming,
+        },
+        Interrupt {
+            now_ms: u64,
+        },
+        DeadlineElapsed {
+            now_ms: u64,
+        },
+        Stop,
+        Cancel,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub(crate) enum ReconcileOutcome {
+        FilterUpdated,
+        StreamRebuilt,
+    }
+
+    /// A live capture stream the supervisor can reconcile. Updating the
+    /// content filter is always attempted first; only its failure falls back
+    /// to rebuilding the stream.
+    pub(crate) trait SystemStream: Send + Sync {
+        fn update_content_filter(&self, display: DisplayAnchor) -> Result<(), RecordingError>;
+        fn start_capture(&self) -> Result<(), RecordingError>;
+        fn stop_capture(&self) -> Result<(), RecordingError>;
+    }
+
+    /// Creates audio-only streams and probes the shareable display topology.
+    /// The display id is the filter entry point; the caller must not expose it
+    /// as a user source or embed it in warning/error selection.
+    pub(crate) trait SystemStreamFactory: Send + Sync {
+        fn probe_display_anchor(&self) -> Result<DisplayAnchor, RecordingError>;
+        fn create_stream(
+            &self,
+            display: DisplayAnchor,
+            events: SyncSender<SystemStreamEvent>,
+            interrupt: SyncSender<()>,
+            first_error: Arc<FirstStreamError>,
+        ) -> Result<Box<dyn SystemStream>, RecordingError>;
+    }
+
+    /// Owns the current stream and reconciles it on delegate interruption or
+    /// display-anchor change. Recovery is bounded: the writer thread runs the
+    /// portable SystemAudioRecovery state machine and either back-fills a gap
+    /// <= 2s with silence (reporting RECORDING_SYSTEM_AUDIO_RECOVERED) or fails
+    /// with RECORDING_STREAM_ERROR when the deadline elapses.
+    pub(crate) struct SystemStreamSupervisor<'a> {
+        factory: &'a dyn SystemStreamFactory,
+        stream: Option<Box<dyn SystemStream>>,
+        anchor: DisplayAnchor,
+        events: SyncSender<SystemStreamEvent>,
+        interrupt: SyncSender<()>,
         first_error: Arc<FirstStreamError>,
-    ) -> Result<SCStream, RecordingError> {
-        let config = native_system_stream_configuration();
-        let mut stream = SCStream::new(filter, &config);
-        let callback_error = Arc::clone(&first_error);
-        let registered = stream.add_output_handler(
-            move |sample: CMSampleBuffer, output: SCStreamOutputType| {
-                let output = native_system_stream_output(output);
-                let block = if output == SystemStreamOutput::Audio {
-                    pcm16_from_screen_capture_sample(sample)
-                } else {
-                    Err(RecordingError::new(RECORDING_STREAM_ERROR))
-                };
-                match accept_system_sample(output, block) {
-                    Ok(block) => {
-                        let _ = submit_block(&sender, block, &callback_error);
-                    }
-                    Err(_) => callback_error.store(),
-                }
-            },
-            SCStreamOutputType::Audio,
-        );
-        if registered.is_none() {
-            return Err(RecordingError::new(RECORDING_SYSTEM_LOOPBACK_INIT_FAILED));
+    }
+
+    impl SystemStreamSupervisor<'_> {
+        pub(crate) fn new(
+            factory: &dyn SystemStreamFactory,
+            stream: Option<Box<dyn SystemStream>>,
+            anchor: DisplayAnchor,
+            events: SyncSender<SystemStreamEvent>,
+            interrupt: SyncSender<()>,
+            first_error: Arc<FirstStreamError>,
+        ) -> SystemStreamSupervisor<'_> {
+            SystemStreamSupervisor {
+                factory,
+                stream,
+                anchor,
+                events,
+                interrupt,
+                first_error,
+            }
         }
-        Ok(stream)
+
+        fn anchor(&self) -> DisplayAnchor {
+            self.anchor
+        }
+
+        pub(crate) fn handle_stream_interrupted(
+            &mut self,
+            now_ms: u64,
+        ) -> Result<(), RecordingError> {
+            self.start_recovery_window(now_ms)?;
+            self.reconcile(now_ms).map(|_| ())
+        }
+
+        pub(crate) fn handle_display_anchor_changed(
+            &mut self,
+            new_anchor: DisplayAnchor,
+            now_ms: u64,
+        ) -> Result<(), RecordingError> {
+            self.anchor = new_anchor;
+            self.start_recovery_window(now_ms)?;
+            self.reconcile(now_ms).map(|_| ())
+        }
+
+        fn start_recovery_window(&self, now_ms: u64) -> Result<(), RecordingError> {
+            submit_system_event(
+                &self.events,
+                SystemStreamEvent::Interrupt { now_ms },
+                &self.first_error,
+            )
+        }
+
+        fn reconcile(&mut self, _now_ms: u64) -> Result<ReconcileOutcome, RecordingError> {
+            if let Some(stream) = self.stream.as_ref() {
+                if stream.update_content_filter(self.anchor).is_ok() {
+                    return Ok(ReconcileOutcome::FilterUpdated);
+                }
+            }
+            self.rebuild()
+        }
+
+        fn rebuild(&mut self) -> Result<ReconcileOutcome, RecordingError> {
+            if let Some(stream) = self.stream.take() {
+                let _ = stream.stop_capture();
+            }
+            let stream = self
+                .factory
+                .create_stream(
+                    self.anchor,
+                    self.events.clone(),
+                    self.interrupt.clone(),
+                    Arc::clone(&self.first_error),
+                )
+                .map_err(|_| RecordingError::new(RECORDING_STREAM_ERROR))?;
+            stream
+                .start_capture()
+                .map_err(|_| RecordingError::new(RECORDING_STREAM_ERROR))?;
+            self.stream = Some(stream);
+            Ok(ReconcileOutcome::StreamRebuilt)
+        }
+
+        fn check_recovery_deadline(&self, now_ms: u64) -> Result<(), RecordingError> {
+            submit_system_event(
+                &self.events,
+                SystemStreamEvent::DeadlineElapsed { now_ms },
+                &self.first_error,
+            )
+        }
+
+        fn shutdown(&mut self, control: CaptureControl) -> Result<(), RecordingError> {
+            let event = match control {
+                CaptureControl::Stop => SystemStreamEvent::Stop,
+                CaptureControl::Cancel => SystemStreamEvent::Cancel,
+            };
+            submit_system_event(&self.events, event, &self.first_error)?;
+            if let Some(stream) = self.stream.take() {
+                let _ = stream.stop_capture();
+            }
+            Ok(())
+        }
+    }
+
+    fn submit_system_event(
+        sender: &SyncSender<SystemStreamEvent>,
+        event: SystemStreamEvent,
+        first_error: &FirstStreamError,
+    ) -> Result<(), RecordingError> {
+        match sender.try_send(event) {
+            Ok(()) => Ok(()),
+            Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
+                first_error.store();
+                Err(RecordingError::new(RECORDING_STREAM_ERROR))
+            }
+        }
+    }
+
+    fn cm_time_to_ns(time: CMTime) -> Option<u64> {
+        if !time.is_valid() || time.timescale <= 0 || time.value < 0 {
+            return None;
+        }
+        let value = u128::try_from(time.value).ok()?;
+        let scale = u128::try_from(time.timescale).ok()?;
+        let ns = value.checked_mul(1_000_000_000)?.checked_div(scale)?;
+        u64::try_from(ns).ok()
+    }
+
+    fn timing_from_cm_sample(sample: &CMSampleBuffer) -> AudioSampleTiming {
+        let presentation_ns = cm_time_to_ns(sample.presentation_timestamp());
+        let duration_ns = cm_time_to_ns(sample.duration());
+        match (presentation_ns, duration_ns) {
+            (Some(presentation_ns), Some(duration_ns)) if duration_ns > 0 => AudioSampleTiming {
+                presentation_ns,
+                duration_ns,
+                valid: true,
+            },
+            _ => AudioSampleTiming::invalid(),
+        }
+    }
+
+    fn write_system_blocks(
+        mut writer: WaveWriter,
+        receiver: Receiver<SystemStreamEvent>,
+        rebuild_tx: SyncSender<()>,
+        reporter: RecordingWarningReporter,
+        sample_rate: u32,
+        channels: u16,
+    ) -> Result<WavCaptureSummary, RecordingError> {
+        let mut recovery = SystemAudioRecovery::new(sample_rate, channels);
+        while let Ok(event) = receiver.recv() {
+            match event {
+                SystemStreamEvent::Audio { block, timing } => {
+                    for action in recovery.push(timing) {
+                        match action {
+                            WriteAction::Audio => writer.write_frames(
+                                &block.bytes,
+                                block.frame_count,
+                                block.silent,
+                            )?,
+                            WriteAction::Silence { frames } => writer.write_silence(frames)?,
+                            WriteAction::Recovered { gap_ms } => reporter.record_recovery(gap_ms),
+                            WriteAction::RebuildStream => {
+                                let _ = rebuild_tx.try_send(());
+                            }
+                            WriteAction::FailSource => {
+                                return Err(RecordingError::new(RECORDING_STREAM_ERROR))
+                            }
+                            WriteAction::StopCleanly => {}
+                        }
+                    }
+                }
+                SystemStreamEvent::Interrupt { now_ms } => {
+                    for action in recovery.interrupt(now_ms) {
+                        if action == WriteAction::RebuildStream {
+                            let _ = rebuild_tx.try_send(());
+                        }
+                    }
+                }
+                SystemStreamEvent::DeadlineElapsed { now_ms } => {
+                    for action in recovery.deadline_elapsed(now_ms) {
+                        if action == WriteAction::FailSource {
+                            return Err(RecordingError::new(RECORDING_STREAM_ERROR));
+                        }
+                    }
+                }
+                SystemStreamEvent::Stop | SystemStreamEvent::Cancel => {
+                    recovery.stop();
+                    break;
+                }
+            }
+        }
+        writer.finish()
+    }
+
+    struct NativeSystemStream {
+        stream: SCStream,
+    }
+
+    impl SystemStream for NativeSystemStream {
+        fn update_content_filter(&self, display: DisplayAnchor) -> Result<(), RecordingError> {
+            let content = SCShareableContent::get()
+                .map_err(|_| RecordingError::new(RECORDING_STREAM_ERROR))?;
+            let sc_display = content
+                .displays()
+                .into_iter()
+                .find(|candidate| candidate.display_id() == display)
+                .ok_or_else(|| RecordingError::new(RECORDING_STREAM_ERROR))?;
+            let filter = SCContentFilter::create()
+                .with_display(&sc_display)
+                .with_excluding_windows(&[])
+                .build();
+            self.stream
+                .update_content_filter(&filter)
+                .map_err(|_| RecordingError::new(RECORDING_STREAM_ERROR))
+        }
+
+        fn start_capture(&self) -> Result<(), RecordingError> {
+            map_system_start_error(self.stream.start_capture())
+        }
+
+        fn stop_capture(&self) -> Result<(), RecordingError> {
+            self.stream
+                .stop_capture()
+                .map_err(|_| RecordingError::new(RECORDING_STREAM_ERROR))
+        }
+    }
+
+    struct NativeSystemStreamFactory;
+
+    impl SystemStreamFactory for NativeSystemStreamFactory {
+        fn probe_display_anchor(&self) -> Result<DisplayAnchor, RecordingError> {
+            let content = SCShareableContent::get()
+                .map_err(|_| RecordingError::new(RECORDING_SYSTEM_AUDIO_UNAVAILABLE))?;
+            content
+                .displays()
+                .into_iter()
+                .next()
+                .map(|display| display.display_id())
+                .ok_or_else(|| RecordingError::new(RECORDING_SYSTEM_AUDIO_UNAVAILABLE))
+        }
+
+        fn create_stream(
+            &self,
+            display: DisplayAnchor,
+            events: SyncSender<SystemStreamEvent>,
+            interrupt: SyncSender<()>,
+            first_error: Arc<FirstStreamError>,
+        ) -> Result<Box<dyn SystemStream>, RecordingError> {
+            let content = SCShareableContent::get()
+                .map_err(|_| RecordingError::new(RECORDING_SYSTEM_LOOPBACK_INIT_FAILED))?;
+            let sc_display = content
+                .displays()
+                .into_iter()
+                .find(|candidate| candidate.display_id() == display)
+                .ok_or_else(|| RecordingError::new(RECORDING_SYSTEM_LOOPBACK_INIT_FAILED))?;
+            let filter = SCContentFilter::create()
+                .with_display(&sc_display)
+                .with_excluding_windows(&[])
+                .build();
+            let config = native_system_stream_configuration();
+            let delegate = ErrorHandler::new(move |_error: SCError| {
+                let _ = interrupt.try_send(());
+            });
+            let mut stream = SCStream::new_with_delegate(&filter, &config, delegate);
+            let callback_events = events.clone();
+            let callback_error = Arc::clone(&first_error);
+            let registered = stream.add_output_handler(
+                move |sample: CMSampleBuffer, output: SCStreamOutputType| {
+                    let output = native_system_stream_output(output);
+                    let result = if output == SystemStreamOutput::Audio {
+                        let timing = timing_from_cm_sample(&sample);
+                        pcm16_from_screen_capture_sample(sample).map(|block| (block, timing))
+                    } else {
+                        Err(RecordingError::new(RECORDING_STREAM_ERROR))
+                    };
+                    match result {
+                        Ok((block, timing)) => {
+                            let _ = submit_system_event(
+                                &callback_events,
+                                SystemStreamEvent::Audio { block, timing },
+                                &callback_error,
+                            );
+                        }
+                        Err(_) => callback_error.store(),
+                    }
+                },
+                SCStreamOutputType::Audio,
+            );
+            if registered.is_none() {
+                return Err(RecordingError::new(RECORDING_SYSTEM_LOOPBACK_INIT_FAILED));
+            }
+            Ok(Box::new(NativeSystemStream { stream }))
+        }
     }
 
     // Compile-only seam for the native system-audio path. It intentionally registers
@@ -651,14 +985,14 @@ mod platform {
         fn start(
             &self,
             workspace: &CaptureWorkspace,
-            _reporter: super::RecordingWarningReporter,
+            reporter: RecordingWarningReporter,
         ) -> Result<Box<dyn ActiveCapture>, RecordingError> {
             let (control_tx, control_rx) = mpsc::channel();
             let (ready_tx, ready_rx) = mpsc::sync_channel(1);
             let path = workspace.temp_dir.join("system.wav");
             let worker = thread::Builder::new()
                 .name("studymind-macos-system-audio".to_string())
-                .spawn(move || run_system_capture_worker(path, control_rx, ready_tx))
+                .spawn(move || run_system_capture_worker(path, control_rx, ready_tx, reporter))
                 .map_err(|_| RecordingError::new(RECORDING_SYSTEM_LOOPBACK_INIT_FAILED))?;
 
             match receive_startup_signal_with(&ready_rx, RECORDING_SYSTEM_LOOPBACK_INIT_FAILED) {
@@ -684,7 +1018,7 @@ mod platform {
             &self,
             mode: RecordingMode,
             workspace: &CaptureWorkspace,
-            reporter: super::RecordingWarningReporter,
+            reporter: RecordingWarningReporter,
         ) -> Result<Box<dyn ActiveCapture>, RecordingError> {
             match mode {
                 RecordingMode::Mic => {
@@ -775,29 +1109,13 @@ mod platform {
         path: PathBuf,
         control_rx: mpsc::Receiver<CaptureControl>,
         ready_tx: SyncSender<Result<(), RecordingError>>,
+        reporter: RecordingWarningReporter,
     ) -> Result<Option<CapturedRecording>, RecordingError> {
-        let content = match SCShareableContent::get() {
-            Ok(content) => content,
-            Err(_) => {
-                return notify_setup_error(
-                    ready_tx,
-                    RecordingError::new(RECORDING_SYSTEM_AUDIO_UNAVAILABLE),
-                )
-            }
+        let factory = NativeSystemStreamFactory;
+        let anchor = match factory.probe_display_anchor() {
+            Ok(anchor) => anchor,
+            Err(error) => return notify_setup_error(ready_tx, error),
         };
-        let display = match content.displays().into_iter().next() {
-            Some(display) => display,
-            None => {
-                return notify_setup_error(
-                    ready_tx,
-                    RecordingError::new(RECORDING_SYSTEM_AUDIO_UNAVAILABLE),
-                )
-            }
-        };
-        let filter = SCContentFilter::create()
-            .with_display(&display)
-            .with_excluding_windows(&[])
-            .build();
         let spec = system_stream_config_spec();
         let format = match WaveFormat::pcm_s16le(spec.channel_count, spec.sample_rate) {
             Ok(format) => format,
@@ -808,8 +1126,12 @@ mod platform {
                 )
             }
         };
+        let sample_rate = format.sample_rate;
+        let channels = format.channels;
 
-        let (audio_tx, audio_rx) = mpsc::sync_channel(AUDIO_QUEUE_CAPACITY);
+        let (events_tx, events_rx) = mpsc::sync_channel(AUDIO_QUEUE_CAPACITY);
+        let (rebuild_tx, rebuild_rx) = mpsc::sync_channel(1);
+        let (interrupt_tx, interrupt_rx) = mpsc::sync_channel(1);
         let (writer_ready_tx, writer_ready_rx) = mpsc::sync_channel(1);
         let writer = thread::Builder::new()
             .name("studymind-macos-system-audio-writer".to_string())
@@ -820,7 +1142,14 @@ mod platform {
                         if writer_ready_tx.send(Ok(())).is_err() {
                             return Err(RecordingError::new(RECORDING_STREAM_ERROR));
                         }
-                        write_blocks(wave_writer, audio_rx)
+                        write_system_blocks(
+                            wave_writer,
+                            events_rx,
+                            rebuild_tx,
+                            reporter,
+                            sample_rate,
+                            channels,
+                        )
                     }
                     Err(error) => {
                         let _ = writer_ready_tx.send(Err(error.clone()));
@@ -833,17 +1162,17 @@ mod platform {
             Ok(writer) => writer,
             Err(error) => return notify_setup_error(ready_tx, error),
         };
-        let writer_guard = WriterJoinGuard::new(writer, audio_tx);
-        match receive_startup_signal_with(&writer_ready_rx, RECORDING_SYSTEM_LOOPBACK_INIT_FAILED)
-        {
+        let writer_guard = WriterJoinGuard::new(writer, events_tx);
+        match receive_startup_signal_with(&writer_ready_rx, RECORDING_SYSTEM_LOOPBACK_INIT_FAILED) {
             Ok(()) => {}
             Err(error) => return notify_setup_error(ready_tx, error),
         }
 
         let first_error = Arc::new(FirstStreamError::default());
-        let stream = match configure_system_audio_stream(
-            &filter,
+        let stream = match factory.create_stream(
+            anchor,
             writer_guard.sender(),
+            interrupt_tx.clone(),
             Arc::clone(&first_error),
         ) {
             Ok(stream) => stream,
@@ -853,27 +1182,88 @@ mod platform {
             drop(stream);
             return notify_setup_error(ready_tx, error);
         }
+        let mut supervisor = SystemStreamSupervisor::new(
+            &factory,
+            Some(stream),
+            anchor,
+            writer_guard.sender(),
+            interrupt_tx,
+            Arc::clone(&first_error),
+        );
         if ready_tx.send(Ok(())).is_err() {
-            let _ = stream.stop_capture();
-            drop(stream);
+            let _ = supervisor.shutdown(CaptureControl::Cancel);
             return Err(RecordingError::new(RECORDING_STREAM_ERROR));
         }
 
-        let control = loop {
+        let monotonic = std::time::Instant::now();
+        let now_ms = || monotonic.elapsed().as_millis() as u64;
+        let mut last_topology_poll = std::time::Instant::now();
+        const TOPOLOGY_POLL_INTERVAL: Duration = Duration::from_millis(250);
+
+        let mut control = None;
+        let mut run_error = None;
+        loop {
             match control_rx.recv_timeout(CONTROL_POLL_INTERVAL) {
-                Ok(control) => break control,
-                Err(mpsc::RecvTimeoutError::Timeout) if first_error.is_set() => {
-                    break CaptureControl::Stop
+                Ok(received) => {
+                    control = Some(received);
+                    break;
                 }
-                Err(mpsc::RecvTimeoutError::Timeout) => {}
-                Err(mpsc::RecvTimeoutError::Disconnected) => break CaptureControl::Cancel,
+                Err(mpsc::RecvTimeoutError::Timeout) if first_error.is_set() => {
+                    control = Some(CaptureControl::Stop);
+                    break;
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    if interrupt_rx.try_recv().is_ok() {
+                        if let Err(error) = supervisor.handle_stream_interrupted(now_ms()) {
+                            run_error = Some(error);
+                            break;
+                        }
+                    }
+                    if rebuild_rx.try_recv().is_ok() {
+                        if let Err(error) = supervisor.reconcile(now_ms()) {
+                            run_error = Some(error);
+                            break;
+                        }
+                    }
+                    if last_topology_poll.elapsed() >= TOPOLOGY_POLL_INTERVAL {
+                        last_topology_poll = std::time::Instant::now();
+                        match factory.probe_display_anchor() {
+                            Ok(new_anchor) if new_anchor != supervisor.anchor() => {
+                                if let Err(error) =
+                                    supervisor.handle_display_anchor_changed(new_anchor, now_ms())
+                                {
+                                    run_error = Some(error);
+                                    break;
+                                }
+                            }
+                            Ok(_) => {}
+                            // A transient topology probe failure must not kill an
+                            // otherwise healthy capture; the audio deadline still
+                            // protects the session if audio really stopped.
+                            Err(_) => {}
+                        }
+                        if let Err(error) = supervisor.check_recovery_deadline(now_ms()) {
+                            run_error = Some(error);
+                            break;
+                        }
+                    }
+                }
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    control = Some(CaptureControl::Cancel);
+                    break;
+                }
             }
+        }
+
+        let control = if run_error.is_some() {
+            control.unwrap_or(CaptureControl::Stop)
+        } else {
+            control.unwrap_or(CaptureControl::Cancel)
         };
-        if stream.stop_capture().is_err() {
+        if supervisor.shutdown(control).is_err() {
             first_error.store();
         }
-        drop(stream);
-        let source_failed = first_error.is_set();
+        let source_failed = run_error.is_some() || first_error.is_set();
         let writer_result = writer_guard
             .join()
             .map_err(|_| RecordingError::new(RECORDING_STREAM_ERROR))?;
@@ -1124,11 +1514,8 @@ mod tests {
             result: Ok(SystemAudioAvailability::Available),
             calls: AtomicUsize::new(0),
         };
-        let capabilities = capabilities_for_with_system(
-            PermissionStatus::NotDetermined,
-            || true,
-            &probe,
-        );
+        let capabilities =
+            capabilities_for_with_system(PermissionStatus::NotDetermined, || true, &probe);
 
         assert!(capabilities.system_audio.available);
         assert_eq!(probe.calls.load(Ordering::SeqCst), 1);
@@ -1140,11 +1527,8 @@ mod tests {
             result: Ok(SystemAudioAvailability::Denied),
             calls: AtomicUsize::new(0),
         };
-        let capabilities = capabilities_for_with_system(
-            PermissionStatus::Authorized,
-            || true,
-            &probe,
-        );
+        let capabilities =
+            capabilities_for_with_system(PermissionStatus::Authorized, || true, &probe);
 
         assert!(!capabilities.system_audio.available);
         assert_eq!(
@@ -1163,11 +1547,8 @@ mod tests {
                 result: Ok(availability),
                 calls: AtomicUsize::new(0),
             };
-            let capabilities = capabilities_for_with_system(
-                PermissionStatus::Authorized,
-                || true,
-                &probe,
-            );
+            let capabilities =
+                capabilities_for_with_system(PermissionStatus::Authorized, || true, &probe);
 
             assert!(!capabilities.system_audio.available);
             assert_eq!(
@@ -1230,11 +1611,8 @@ mod tests {
 
     #[test]
     fn video_buffer_is_fail_closed_and_never_reaches_writer() {
-        let error = accept_system_sample(
-            SystemStreamOutput::Screen,
-            Ok(AudioBlock::silence(1, 2)),
-        )
-        .expect_err("video sample must fail closed");
+        let error = accept_system_sample(SystemStreamOutput::Screen, Ok(AudioBlock::silence(1, 2)))
+            .expect_err("video sample must fail closed");
 
         assert_eq!(error.code, RECORDING_STREAM_ERROR);
     }
@@ -1407,9 +1785,7 @@ mod tests {
             let path = path.clone();
             move || run_writer(path, format, receiver)
         });
-        sender
-            .send(AudioBlock::silence(2, 2))
-            .expect("first block");
+        sender.send(AudioBlock::silence(2, 2)).expect("first block");
         sender
             .send(AudioBlock::silence(3, 2))
             .expect("second block");
@@ -1462,8 +1838,7 @@ mod tests {
     fn system_queue_overflow_maps_to_stream_error_without_blocking() {
         let first_error = FirstStreamError::default();
         let (sender, _receiver) = mpsc::sync_channel(1);
-        submit_block(&sender, AudioBlock::silence(1, 2), &first_error)
-            .expect("first block");
+        submit_block(&sender, AudioBlock::silence(1, 2), &first_error).expect("first block");
         let error = submit_block(&sender, AudioBlock::silence(1, 2), &first_error)
             .expect_err("queue overflow");
 
@@ -1507,6 +1882,279 @@ mod tests {
         std::fs::remove_dir_all(root).expect("cleanup");
     }
 
+    // ---- Task 3: native stream supervisor fake-driver tests ----
+    //
+    // The supervisor decisions (filter update first, rebuild on update
+    // failure, stable source error when no replacement stream survives) are
+    // driven here through fake stream/display drivers so the recovery
+    // behaviour is verified without a live ScreenCaptureKit stream.
+    #[cfg(target_os = "macos")]
+    mod supervisor {
+        use std::sync::mpsc::{self, SyncSender};
+        use std::sync::{Arc, Mutex};
+
+        use super::super::platform::{
+            DisplayAnchor, SystemStream, SystemStreamEvent, SystemStreamFactory,
+            SystemStreamSupervisor,
+        };
+        use super::super::{
+            FirstStreamError, RecordingError, SystemStreamOutput, RECORDING_STREAM_ERROR,
+        };
+
+        #[derive(Debug, Clone, PartialEq, Eq)]
+        enum FakeStreamCall {
+            UpdateFilter(DisplayAnchor),
+            Start,
+            Stop,
+        }
+
+        #[derive(Default)]
+        struct FakeSystemStreamInner {
+            update_error: Option<RecordingError>,
+            start_error: Option<RecordingError>,
+            calls: Vec<FakeStreamCall>,
+        }
+
+        struct FakeSystemStream {
+            inner: Arc<Mutex<FakeSystemStreamInner>>,
+        }
+
+        impl FakeSystemStream {
+            pub(crate) fn new() -> Self {
+                Self {
+                    inner: Arc::new(Mutex::new(FakeSystemStreamInner::default())),
+                }
+            }
+
+            fn with_update_error(error: RecordingError) -> Self {
+                let stream = Self::new();
+                stream.inner.lock().unwrap().update_error = Some(error);
+                stream
+            }
+        }
+
+        impl SystemStream for FakeSystemStream {
+            fn update_content_filter(&self, display: DisplayAnchor) -> Result<(), RecordingError> {
+                let mut inner = self.inner.lock().unwrap();
+                inner.calls.push(FakeStreamCall::UpdateFilter(display));
+                match &inner.update_error {
+                    Some(error) => Err(error.clone()),
+                    None => Ok(()),
+                }
+            }
+
+            fn start_capture(&self) -> Result<(), RecordingError> {
+                let mut inner = self.inner.lock().unwrap();
+                inner.calls.push(FakeStreamCall::Start);
+                match &inner.start_error {
+                    Some(error) => Err(error.clone()),
+                    None => Ok(()),
+                }
+            }
+
+            fn stop_capture(&self) -> Result<(), RecordingError> {
+                self.inner.lock().unwrap().calls.push(FakeStreamCall::Stop);
+                Ok(())
+            }
+        }
+
+        struct FakeSystemStreamFactory {
+            anchor: DisplayAnchor,
+            create_error: Option<RecordingError>,
+            created_anchors: Mutex<Vec<DisplayAnchor>>,
+            registered_outputs: Mutex<Vec<SystemStreamOutput>>,
+            streams: Mutex<Vec<Arc<Mutex<FakeSystemStreamInner>>>>,
+        }
+
+        impl FakeSystemStreamFactory {
+            pub(crate) fn new(anchor: DisplayAnchor) -> Self {
+                Self {
+                    anchor,
+                    create_error: None,
+                    created_anchors: Mutex::new(Vec::new()),
+                    registered_outputs: Mutex::new(Vec::new()),
+                    streams: Mutex::new(Vec::new()),
+                }
+            }
+
+            fn created_anchors(&self) -> Vec<DisplayAnchor> {
+                self.created_anchors.lock().unwrap().clone()
+            }
+
+            fn registered_outputs(&self) -> Vec<SystemStreamOutput> {
+                self.registered_outputs.lock().unwrap().clone()
+            }
+
+            fn last_stream(&self) -> Arc<Mutex<FakeSystemStreamInner>> {
+                self.streams
+                    .lock()
+                    .unwrap()
+                    .last()
+                    .expect("a stream was created")
+                    .clone()
+            }
+
+            fn stream_count(&self) -> usize {
+                self.streams.lock().unwrap().len()
+            }
+        }
+
+        impl SystemStreamFactory for FakeSystemStreamFactory {
+            fn probe_display_anchor(&self) -> Result<DisplayAnchor, RecordingError> {
+                Ok(self.anchor)
+            }
+
+            fn create_stream(
+                &self,
+                display: DisplayAnchor,
+                _events: SyncSender<SystemStreamEvent>,
+                _interrupt: SyncSender<()>,
+                _first_error: Arc<FirstStreamError>,
+            ) -> Result<Box<dyn SystemStream>, RecordingError> {
+                if let Some(error) = &self.create_error {
+                    return Err(error.clone());
+                }
+                self.created_anchors.lock().unwrap().push(display);
+                self.registered_outputs
+                    .lock()
+                    .unwrap()
+                    .push(SystemStreamOutput::Audio);
+                let inner = Arc::new(Mutex::new(FakeSystemStreamInner::default()));
+                self.streams.lock().unwrap().push(Arc::clone(&inner));
+                Ok(Box::new(FakeSystemStream { inner }))
+            }
+        }
+
+        fn supervisor_with(
+            factory: &FakeSystemStreamFactory,
+            stream: FakeSystemStream,
+            events: SyncSender<SystemStreamEvent>,
+        ) -> SystemStreamSupervisor<'_> {
+            let (interrupt_tx, _interrupt_rx) = mpsc::sync_channel(1);
+            SystemStreamSupervisor::new(
+                factory,
+                Some(Box::new(stream)),
+                factory.anchor,
+                events,
+                interrupt_tx,
+                Arc::new(FirstStreamError::default()),
+            )
+        }
+
+        #[test]
+        fn stream_delegate_error_starts_recovery() {
+            let factory = FakeSystemStreamFactory::new(1);
+            let stream = FakeSystemStream::new();
+            let stream_inner = Arc::clone(&stream.inner);
+            let (events_tx, events_rx) = mpsc::sync_channel(8);
+            let mut supervisor = supervisor_with(&factory, stream, events_tx);
+
+            supervisor
+                .handle_stream_interrupted(10_000)
+                .expect("delegate error starts recovery without failing");
+
+            assert_eq!(
+                events_rx.try_recv(),
+                Ok(SystemStreamEvent::Interrupt { now_ms: 10_000 })
+            );
+            assert_eq!(
+                stream_inner.lock().unwrap().calls,
+                vec![FakeStreamCall::UpdateFilter(1)]
+            );
+            assert_eq!(
+                factory.stream_count(),
+                0,
+                "filter update succeeds so no rebuild is requested"
+            );
+        }
+
+        #[test]
+        fn display_anchor_change_updates_filter_before_rebuild() {
+            let factory = FakeSystemStreamFactory::new(1);
+            let stream = FakeSystemStream::new();
+            let stream_inner = Arc::clone(&stream.inner);
+            let (events_tx, events_rx) = mpsc::sync_channel(8);
+            let mut supervisor = supervisor_with(&factory, stream, events_tx);
+
+            supervisor
+                .handle_display_anchor_changed(2, 10_000)
+                .expect("anchor change reconciles without failing");
+
+            assert_eq!(
+                events_rx.try_recv(),
+                Ok(SystemStreamEvent::Interrupt { now_ms: 10_000 })
+            );
+            assert_eq!(
+                stream_inner.lock().unwrap().calls,
+                vec![FakeStreamCall::UpdateFilter(2)]
+            );
+            assert_eq!(factory.created_anchors(), Vec::<DisplayAnchor>::new());
+        }
+
+        #[test]
+        fn filter_update_failure_rebuilds_audio_only_stream() {
+            let factory = FakeSystemStreamFactory::new(1);
+            let stream =
+                FakeSystemStream::with_update_error(RecordingError::new(RECORDING_STREAM_ERROR));
+            let old_inner = Arc::clone(&stream.inner);
+            let (events_tx, _events_rx) = mpsc::sync_channel(8);
+            let mut supervisor = supervisor_with(&factory, stream, events_tx);
+
+            supervisor
+                .handle_display_anchor_changed(2, 10_000)
+                .expect("update failure rebuilds instead of failing");
+
+            assert_eq!(
+                old_inner.lock().unwrap().calls,
+                vec![FakeStreamCall::UpdateFilter(2), FakeStreamCall::Stop]
+            );
+            assert_eq!(factory.created_anchors(), vec![2]);
+            assert_eq!(
+                factory.registered_outputs(),
+                vec![SystemStreamOutput::Audio]
+            );
+            let rebuilt = factory.last_stream();
+            assert_eq!(rebuilt.lock().unwrap().calls, vec![FakeStreamCall::Start]);
+        }
+
+        #[test]
+        fn rebuild_failure_maps_to_system_stream_error() {
+            let mut factory = FakeSystemStreamFactory::new(1);
+            factory.create_error = Some(RecordingError::new(RECORDING_STREAM_ERROR));
+            let stream =
+                FakeSystemStream::with_update_error(RecordingError::new(RECORDING_STREAM_ERROR));
+            let (events_tx, _events_rx) = mpsc::sync_channel(8);
+            let mut supervisor = supervisor_with(&factory, stream, events_tx);
+
+            let error = supervisor
+                .handle_display_anchor_changed(2, 10_000)
+                .expect_err("no replacement stream survives");
+            assert_eq!(error.code, RECORDING_STREAM_ERROR);
+        }
+
+        #[test]
+        fn display_anchor_change_does_not_change_user_source() {
+            let factory = FakeSystemStreamFactory::new(1);
+            let stream = FakeSystemStream::new();
+            let (events_tx, _events_rx) = mpsc::sync_channel(8);
+            let mut supervisor = supervisor_with(&factory, stream, events_tx);
+
+            supervisor
+                .handle_display_anchor_changed(2, 10_000)
+                .expect("anchor change keeps the user source");
+
+            let outputs = factory.registered_outputs();
+            assert!(
+                outputs
+                    .iter()
+                    .all(|output| *output != SystemStreamOutput::Screen
+                        && *output != SystemStreamOutput::Microphone),
+                "display ids never appear in source selection; only Audio is registered"
+            );
+            assert_eq!(factory.stream_count(), 0);
+        }
+    }
+
     fn decode_pcm16(bytes: &[u8]) -> Vec<i16> {
         bytes
             .chunks_exact(2)
@@ -1533,7 +2181,7 @@ mod tests {
 
     #[test]
     fn writer_join_guard_closes_sender_before_drop_joins_writer() {
-        let (sender, receiver) = mpsc::sync_channel(1);
+        let (sender, receiver) = mpsc::sync_channel::<AudioBlock>(1);
         let writer_exited = std::sync::Arc::new(AtomicBool::new(false));
         let writer_exited_in_thread = std::sync::Arc::clone(&writer_exited);
         let writer = std::thread::spawn(move || {
