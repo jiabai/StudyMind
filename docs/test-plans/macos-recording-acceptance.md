@@ -179,6 +179,31 @@ F-03/F-04/F-05 的 macOS native 验收：
 - 因此 R-01～R-05、F-03～F-05 仍保持 `Partial`/`Blocked`/`Planned` 原状态，不能标记
   为 macOS runtime `Pass`。
 
+## 3.5 macOS 实施交接清单
+
+下一阶段必须在 macOS + Xcode 环境完成 Task 3。Intel Mac 可以用于编码、native 编译和
+功能调试；E2 仍必须在 Apple Silicon 上单独补验。开始时记录 `sw_vers`、`uname -m`、
+`xcodebuild -version`、`rustc -Vv` 和 `cargo -V`，并确认 macOS 至少为 13.0（本项目
+system-audio 的当前基线；ScreenCaptureKit 整体从 12.3 引入）、Screen Recording 权限和
+测试音频源可用。
+
+Task 3 的实现要求：
+
+- 接入 `SCStreamDelegate` 和 `did_stop_with_error`，由 supervisor 管理 stream、output
+  handler、writer 和停止竞态；
+- 主显示器只作为 `SCContentFilter` 的技术入口，不成为用户可见的录音 source，也不改变
+  “系统声音”的产品语义；
+- 显示器或默认输出变化时优先 `update_content_filter`，失败后才重建 audio-only stream；
+  只有音频流无法恢复才报告 `systemAudio` source failure；
+- 使用 sample buffer 的 presentation timestamp/duration 驱动已有 recovery 状态机：不超过
+  2 秒补静音并继续且发送 warning，超过 2 秒失败；
+- 补齐 stop/cancel/error/rebuild 清理和 audio-only 无视频输出验证。
+
+完成编码后按 E1 Intel → E2 Apple Silicon → E3 外接显示器/默认输出 → 短/长中断恢复 →
+真实 `.app`、60 分钟录音、Developer ID 签名和公证的顺序回填证据。每项至少记录系统版本、
+架构、工具链、提交 SHA、命令输出、WAV/`ffprobe`、warning `count/totalGapMs` 和签名结果；
+在证据齐全前，F-03/F-04/F-05、E2/E3、恢复及发布项保持 `Partial`/`Blocked`/`Planned`。
+
 ## 4. 权限与能力探测
 
 | ID | 场景 | 预期结果 | 环境 | 状态 | Evidence |

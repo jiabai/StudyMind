@@ -87,6 +87,56 @@ APP_PATH="app/src-tauri/target/<target>/release/bundle/macos/StudyMind.app"
 codesign --verify --deep --strict "$APP_PATH"
 ```
 
+## 4.1 macOS 开发执行清单
+
+下一阶段应在 macOS + Xcode 环境继续。Intel Mac 可以承担 Task 3 的编码、编译和功能调试；
+但 E2 明确要求 Apple Silicon，不能用 Intel 结果替代。开始前记录：
+
+```bash
+sw_vers
+uname -m
+xcodebuild -version
+rustc -Vv
+cargo -V
+```
+
+确认 macOS 至少为 13.0（本项目 system-audio 的当前基线；ScreenCaptureKit 整体从 12.3
+引入）、Screen Recording 权限可用，并在独立终端准备两个会发声的应用、
+内置/外接输出设备和可连接/拔出的外接显示器。当前分支只实现 `RecordingMode::System`，
+不要在本任务中扩大到 #20 的 `Mixed`。
+
+### Task 3：native stream supervisor
+
+按以下顺序实现，完成一项就补对应 focused test 或运行证据：
+
+1. 将当前无 delegate 的 `SCStream` 创建路径接入 `SCStreamDelegate`，处理
+   `did_stop_with_error`，并把 stream 生命周期、输出 handler 和 writer join 收拢到 supervisor。
+2. 保持 `SCContentFilter` 的产品语义边界：主显示器只是 ScreenCaptureKit 的技术入口，不能
+   作为用户可见的录音 source，也不能因为显示器变化静默切换到麦克风或其他来源。
+3. 监听或重新探测显示器/输出环境变化。优先对现有 stream 调用
+   `update_content_filter`；更新失败、stream 被停止或 audio-only stream 无法继续时，才用
+   当前 filter 重建 stream，并重新挂接 Audio output。只有音频流确实无法恢复才报告
+   `systemAudio` source failure。
+4. 从 `CMSampleBuffer` 读取 presentation timestamp 和 duration，接入已有
+   `SystemAudioRecovery`：单次缺口不超过 2 秒时按媒体时间戳补零帧、继续录音并发送
+   `RECORDING_SYSTEM_AUDIO_RECOVERED` warning；超过 2 秒或恢复失败时返回稳定的 stream error。
+5. 覆盖 stop/cancel/error/rebuild 竞态：停止 supervisor、停止 stream、关闭 writer、join
+   worker，并保证正常/失败/取消都不残留临时 WAV。验证 audio-only stream 不产生视频数据。
+
+### macOS 上必须回填的验证顺序
+
+| 顺序 | 环境/场景 | 必须回填 |
+|---|---|---|
+| 1 | Intel E1 | Task 3 native 编译；两个应用同时发声；audio-only；start/stop/cancel；默认输出切换；warning 与 WAV 时间轴 |
+| 2 | Apple Silicon E2 | 重跑 F-01、F-02、F-06、F-07、F-08；记录 arm64 构建与运行证据 |
+| 3 | 外接显示器 E3 | 连接/拔出显示器、切换主显示器；确认“系统声音”语义不变；优先 filter 更新、必要时 stream 重建 |
+| 4 | 恢复场景 | 分别验证小于 2 秒中断补静音并继续，以及超过 2 秒中断失败；确认 R-01～R-05 |
+| 5 | 发布验收 | 真实 `.app` 的 TCC、重启/撤销权限、60 分钟录音、Developer ID 签名与公证 |
+
+每次回填至少记录 macOS 版本、架构、Xcode/SDK、提交 SHA、命令输出、场景时间线、WAV 的
+`ffprobe` 结果、warning 的 `count/totalGapMs`，以及 `codesign`/公证结果。没有这些证据时，
+不得把 F-03/F-04/F-05、E2/E3 或发布项改为 `Pass`。
+
 ## 5. 系统声音功能验收范围
 
 以下是已回填或仍需在 macOS native 环境继续回填的范围；本轮剩余项目暂缓：
