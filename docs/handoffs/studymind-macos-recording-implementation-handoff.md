@@ -1,15 +1,13 @@
 # Handoff — StudyMind macOS 系统声音 RecordingSession 实现
 
-> 更新时间：2026-08-20（GMT+8）
-> 当前状态：Issue #18 系统声音实现已落地到 ScreenCaptureKit audio-only adapter、bounded writer 和 RecordingSession lifecycle；Windows host 证据已完成，但本次产品实现尚未在 macOS native 环境重编译/运行。#17 麦克风 E1 已完成；mixed、E2/E3、打包签名与恢复验收未完成。
+> 更新时间：2026-08-21（GMT+8）
+> 当前状态：Issue #18 system audio 已在 E1 Intel macOS 完成产品代码 native 编译和当前范围内的真机验收；F-03 为 Partial，F-04/F-05 与 C-06 尚未完成。剩余验证已暂缓，mixed、E2/E3、Developer ID/公证和恢复场景待后续继续。
 
 ## 1. 交接结论
 
-Issue #18 已在隔离分支 `codex/issue-18-macos-system-audio` 完成实现切片，并接入既有
-`RecordingSession`。实现包含 ScreenCaptureKit audio-only stream、显式 system capability
-gate、当前进程音频排除、PCM16 conversion、有界 writer queue、启动握手、停止/取消/失败
-清理和稳定错误映射。Windows host 自动化证据已通过；macOS native compile、TCC、全局系统
-音频和真实 `.app` 仍待重验。
+Issue #18 已在分支 `codex/issue-18-macos-system-audio` 完成实现切片，并接入既有
+`RecordingSession`。E1 真机已验证 ScreenCaptureKit audio-only stream、TCC、全局系统音频、
+audio-only fail-closed、start/stop/cancel 和 ad-hoc bundle 基础内容；剩余验证按验收计划暂缓。
 
 本切片只开放 macOS `RecordingMode::System`；`RecordingMode::Mixed` 继续由 #20 负责：
 
@@ -51,16 +49,15 @@ Windows host 上已完成：
 - `git diff --check`、`Info.plist` XML 和 Screen Recording purpose string 检查：passed；
 - x64/arm64 GitHub Actions bundle smoke gate 已同步，但未在 Windows host 执行 macOS native job。
 
-E1 Intel macOS 的历史 feasibility probe 已证明 ScreenCaptureKit 8.0.1 的 audio-only
-选择、全局音频、自身音频排除和 Audio-only fail-closed 方向可行；该证据保存在
-`docs/handoffs/studymind-macos-recording-feasibility-result.md` 与验收计划 §3。它不是
-`codex/issue-18-macos-system-audio` 产品实现的 native compile/runtime 证据，因此必须
-对本次产品 bundle 重新执行 F-01/F-02/F-06/F-07/F-08。
+E1 Intel macOS 已补充本次产品实现的 native compile/runtime 证据，详见验收计划 §3.3：
+F-01/F-02/F-07、P-03、C-02 和 ad-hoc bundle 的基础检查已回填；F-06 的 runtime 排除仍由
+同一 API 的 feasibility 证据与产品配置单测共同支撑。F-03 发现 1.04 秒自然静音缺口，
+C-06 仅完成 16.5 分钟连续写入，均未达到最终 Pass。
 
 ## 4. 后续 macOS 原生与发布验证顺序
 
-先在 E1 Intel macOS 对本次 #18 产品实现重跑 system runtime，再在 E2 Apple Silicon、E3
-外接显示器和发布环境继续执行：
+本轮验证已暂缓。恢复时先实现并验证 F-05 恢复补静音与 F-04 filter/stream 恢复，再复核
+F-03；随后在 E2 Apple Silicon、E3 外接显示器和发布环境继续执行：
 
 ```bash
 cargo test --manifest-path app/src-tauri/Cargo.toml audio_capture -- --test-threads=1
@@ -83,7 +80,7 @@ codesign --verify --deep --strict "$APP_PATH"
 
 ## 5. 系统声音功能验收范围
 
-以下是 #18 实现后必须在 macOS native 环境回填的范围：
+以下是已回填或仍需在 macOS native 环境继续回填的范围；本轮剩余项目暂缓：
 
 - 首次进入录音入口不主动请求 Screen Recording；点击 system 开始时按系统权限流程处理；
 - 同时播放两个独立应用的音频，两者均进入 system audio output；
@@ -93,7 +90,7 @@ codesign --verify --deep --strict "$APP_PATH"
 - 显示器和默认输出变化不改变“系统声音”产品语义；只有音频流确实无法恢复才报告
   `RECORDING_STREAM_ERROR`/system source failure。
 
-以下不计入当前 Windows host 的 Pass，需在真实 macOS `.app`、E1/E2/E3 或后续验收环境中补验：
+以下仍不计入最终验收 Pass，待暂缓解除后在真实 macOS `.app`、E2/E3 或后续验收环境中补验：
 
 - 撤销 Screen Recording 权限、重启 app 后重新探测，能力和 UI 状态一致；
 - 初始化失败、运行中 stream 错误分别返回稳定错误码；
@@ -102,7 +99,7 @@ codesign --verify --deep --strict "$APP_PATH"
 
 ## 6. 明确的后续验收阻塞项
 
-以下项目尚未完成，不能标为 Pass：
+以下项目尚未完成，不能标为 Pass；本轮先暂缓：
 
 - F-03 默认输出路由变化：实现后补验/验收阻塞项；
 - F-04 主显示器切换、外接显示器连接/拔出：实现后补验/验收阻塞项；

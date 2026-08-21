@@ -1,8 +1,8 @@
 # macOS 录音验收计划
 
-> 状态：Issue #17 麦克风与 #18 system audio 的 E1 真机验收完成；混合录音、E2/E3 与发布验收未完成 · 决策来源：[ADR 0005](../adr/0005-macos-recording-backend.md)
+> 状态：Issue #17 麦克风与 #18 system audio 的 E1 真机验收完成；剩余验证已暂缓，待后续具备对应硬件、凭据或恢复实现后继续 · 决策来源：[ADR 0005](../adr/0005-macos-recording-backend.md)
 >
-> 当前结论：Issue #17 麦克风在 E1（Intel、macOS 15.7.7、ad-hoc CLI）已完成原生编译和真机验收；#18 的 system audio 已在 E1 完成产品级 native 编译、TCC、全局系统音频捕获、audio-only fail-closed 和 start/stop/cancel 真机验收。F-03/F-04/F-05 明确作为实现后的补验与验收阻塞项；E2、E3、打包签名及恢复场景属于后续验收任务。
+> 当前结论：Issue #17 麦克风与 #18 system audio 已在 E1（Intel、macOS 15.7.7）完成当前范围内的原生编译和真机验收。F-03 为 Partial，F-04/F-05 与 C-06 尚未完成；E2、E3、混合录音、打包签名、公证和恢复场景本轮统一暂缓，保留原状态并等待后续条件。
 
 ## 1. 使用规则
 
@@ -84,6 +84,10 @@ Windows 上的 `cargo check` 不会编译 `cfg(target_os = "macos")` 下的原�
 | 恢复场景 | 注入或观察短于/超过 2 秒的 stream 中断 | F-05 通过；短中断补静音并继续，长中断按约定失败，不静默换源 | Planned |
 | 打包与签名 | ad-hoc .app、Developer ID 与 notarized 包（E4/E5） | F-08、B-02、B-03、B-04 完成；权限请求、授权后重探测、重启和签名身份均可复核 | Planned |
 
+本轮收口决定：剩余验证暂缓，不继续执行。`Partial` 表示已有不完整证据，`Blocked` 表示缺少
+外接显示器、恢复注入等条件，`Planned` 表示待 Apple Silicon、mixed 或发布凭据等后续条件；
+这些状态均不代表通过，也不改变“所有适用项目 Pass 后才能宣称 macOS 录音验收完成”的规则。
+
 E1 x86_64 CLI 的原生编译与麦克风（#17）及 system audio（#18）验收已完成，不再列为阻塞项。以下项目仍为**实现后补验/验收阻塞项**，当前不得标记为 `Pass`：
 
 - F-03、F-04、F-05；E2 与 E3。
@@ -149,6 +153,10 @@ macOS E1/E2/E3 上重新执行 native compile、TCC、两类应用全局音频�
 >
 > 对应 P-03/C-02 在 E1 标记为 Pass（CLI 形态；真实 `.app` 的 Info.plist/TCC 仍见 §3.2 打包项）。
 > F-03/F-04/F-05 仍为 Blocked（需默认输出切换/外接显示器/中断注入）。
+
+> 本轮验证至此暂缓。后续恢复时，优先处理 F-05 恢复补静音与 F-04 filter/stream 恢复，再复核
+> F-03；随后按 §3.2 继续 E2、E3、60 分钟 C-06、Developer ID 签名和公证。当前文档中的
+> `Partial`、`Blocked`、`Planned` 状态保持不变。
 
 ## 4. 权限与能力探测
 
@@ -228,3 +236,5 @@ macOS E1/E2/E3 上重新执行 native compile、TCC、两类应用全局音频�
 - Issue #17 麦克风与 #18 system audio 的 E1 原生编译与 CLI 真机验收已有证据；E2、E3、
   混合录音相关补验、打包签名、默认输出变化和恢复场景仍为后续验收任务。本文档不代表
   整个 macOS 录音能力已完成。
+- 本轮已明确将剩余验收暂缓；恢复工作时应从现有 Evidence 继续，不得将暂缓自动解释为
+  `Pass`。
