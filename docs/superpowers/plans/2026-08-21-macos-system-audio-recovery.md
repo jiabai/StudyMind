@@ -186,7 +186,7 @@ git commit -m "feat(recording): add system audio recovery state machine"
 - Modify: app/src-tauri/src/audio_capture/mod.rs
 - Test: app/src-tauri/src/audio_capture/mod.rs
 
-- [ ] **Step 1: Write failing tests.**
+- [x] **Step 1: Write failing tests.**
 
 Add tests named:
 
@@ -209,7 +209,7 @@ fn state_and_stop_return_recovery_warnings() {
 
 Use a fake sink and the real RecordingController/fake capture path. Assert exact values: warningCode is RECORDING_SYSTEM_AUDIO_RECOVERED, source is systemAudio, and count/totalGapMs are correct.
 
-- [ ] **Step 2: Verify RED.**
+- [x] **Step 2: Verify RED.**
 
 ~~~powershell
 cargo test --manifest-path app/src-tauri/Cargo.toml audio_capture::tests::warnings_ -- --test-threads=1
@@ -217,7 +217,7 @@ cargo test --manifest-path app/src-tauri/Cargo.toml audio_capture::tests::warnin
 
 Expected: failure because the warning view, accumulator, and state/result fields do not exist.
 
-- [ ] **Step 3: Implement the closed warning contract.**
+- [x] **Step 3: Implement the closed warning contract.**
 
 Add SystemAudioRecovered to RecordingErrorCode and these serializable types:
 
@@ -240,13 +240,18 @@ pub(crate) struct RecordingWarningView {
 
 Implement WarningAccumulator::record with a mutex-protected vector keyed by warning code and source. Implement a no-op test sink and a RecordingWarningReporter containing session id, accumulator, and sink. Add warnings to RecordingStateView and RecordingResult. Preserve StartRecordingResponse.warnings as the existing startup disk-warning code list. Pass the reporter through RecordingBackend::start; Windows may ignore it and macOS will use it.
 
-- [ ] **Step 4: Verify GREEN.**
+- [x] **Step 4: Verify GREEN.**
 
 ~~~powershell
 cargo test --manifest-path app/src-tauri/Cargo.toml audio_capture -- --test-threads=1
 ~~~
 
 Expected: warning tests and existing Rust audio tests pass.
+
+The focused Cargo command is currently blocked before test compilation by the
+pre-existing missing `resources/python/**/*` tree required by the Tauri build
+script; no production resource configuration was changed. Rustfmt parsing and
+`git diff --check` pass for the changed files.
 
 - [ ] **Step 5: Commit.**
 

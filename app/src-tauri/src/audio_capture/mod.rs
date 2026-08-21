@@ -26,6 +26,8 @@ pub(crate) const RECORDING_SYSTEM_LOOPBACK_INIT_FAILED: RecordingErrorCode =
     RecordingErrorCode::SystemLoopbackInitFailed;
 pub(crate) const RECORDING_SYSTEM_AUDIO_UNAVAILABLE: RecordingErrorCode =
     RecordingErrorCode::SystemAudioUnavailable;
+pub(crate) const RECORDING_SYSTEM_AUDIO_RECOVERED: RecordingErrorCode =
+    RecordingErrorCode::SystemAudioRecovered;
 pub(crate) const RECORDING_STREAM_ERROR: RecordingErrorCode = RecordingErrorCode::StreamError;
 pub(crate) const RECORDING_MIX_FAILED: RecordingErrorCode = RecordingErrorCode::MixFailed;
 pub(crate) const RECORDING_WRITE_FAILED: RecordingErrorCode = RecordingErrorCode::WriteFailed;
@@ -52,6 +54,8 @@ pub(crate) enum RecordingErrorCode {
     SystemLoopbackInitFailed,
     #[serde(rename = "RECORDING_SYSTEM_AUDIO_UNAVAILABLE")]
     SystemAudioUnavailable,
+    #[serde(rename = "RECORDING_SYSTEM_AUDIO_RECOVERED")]
+    SystemAudioRecovered,
     #[serde(rename = "RECORDING_STREAM_ERROR")]
     StreamError,
     #[serde(rename = "RECORDING_MIX_FAILED")]
@@ -80,6 +84,7 @@ impl RecordingErrorCode {
             Self::MicAccessDenied => "Microphone access was denied.",
             Self::SystemLoopbackInitFailed => "System audio could not be initialized.",
             Self::SystemAudioUnavailable => "System audio is unavailable.",
+            Self::SystemAudioRecovered => "System audio recording recovered.",
             Self::StreamError => "The recording stream was interrupted.",
             Self::MixFailed => "The recording sources could not be mixed.",
             Self::WriteFailed => "The recording could not be written.",
@@ -114,6 +119,114 @@ impl fmt::Display for RecordingError {
 }
 
 impl std::error::Error for RecordingError {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum RecordingWarningSource {
+    SystemAudio,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RecordingWarningView {
+    pub(crate) warning_code: RecordingErrorCode,
+    pub(crate) source: Option<RecordingWarningSource>,
+    pub(crate) count: u32,
+    pub(crate) total_gap_ms: u64,
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct WarningAccumulator {
+    warnings: Arc<Mutex<Vec<RecordingWarningView>>>,
+}
+
+impl WarningAccumulator {
+    pub(crate) fn record(
+        &self,
+        warning_code: RecordingErrorCode,
+        source: Option<RecordingWarningSource>,
+        gap_ms: u64,
+    ) -> RecordingWarningView {
+        let mut warnings = self
+            .warnings
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(existing) = warnings
+            .iter_mut()
+            .find(|warning| warning.warning_code == warning_code && warning.source == source)
+        {
+            existing.count = existing.count.saturating_add(1);
+            existing.total_gap_ms = existing.total_gap_ms.saturating_add(gap_ms);
+            return existing.clone();
+        }
+
+        let warning = RecordingWarningView {
+            warning_code,
+            source,
+            count: 1,
+            total_gap_ms: gap_ms,
+        };
+        warnings.push(warning.clone());
+        warning
+    }
+
+    pub(crate) fn snapshot(&self) -> Vec<RecordingWarningView> {
+        self.warnings
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+}
+
+pub(crate) trait RecordingWarningSink: Send + Sync {
+    fn emit(
+        &self,
+        session_id: &str,
+        warning: &RecordingWarningView,
+    ) -> Result<(), RecordingError>;
+}
+
+struct NoopRecordingWarningSink;
+
+impl RecordingWarningSink for NoopRecordingWarningSink {
+    fn emit(
+        &self,
+        _session_id: &str,
+        _warning: &RecordingWarningView,
+    ) -> Result<(), RecordingError> {
+        Ok(())
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct RecordingWarningReporter {
+    session_id: String,
+    accumulator: WarningAccumulator,
+    sink: Arc<dyn RecordingWarningSink>,
+}
+
+impl RecordingWarningReporter {
+    fn new(
+        session_id: String,
+        accumulator: WarningAccumulator,
+        sink: Arc<dyn RecordingWarningSink>,
+    ) -> Self {
+        Self {
+            session_id,
+            accumulator,
+            sink,
+        }
+    }
+
+    pub(crate) fn record_recovery(&self, gap_ms: u64) {
+        let warning = self.accumulator.record(
+            RECORDING_SYSTEM_AUDIO_RECOVERED,
+            Some(RecordingWarningSource::SystemAudio),
+            gap_ms,
+        );
+        let _ = self.sink.emit(&self.session_id, &warning);
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -172,6 +285,7 @@ pub(crate) struct RecordingStateView {
     pub(crate) session_id: String,
     pub(crate) mode: RecordingMode,
     pub(crate) elapsed_ms: u64,
+    pub(crate) warnings: Vec<RecordingWarningView>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -181,6 +295,7 @@ pub(crate) struct RecordingResult {
     pub(crate) display_name: String,
     pub(crate) duration_ms: u64,
     pub(crate) size_bytes: u64,
+    pub(crate) warnings: Vec<RecordingWarningView>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -269,6 +384,7 @@ pub(crate) trait RecordingBackend: Send + Sync {
         &self,
         mode: RecordingMode,
         workspace: &CaptureWorkspace,
+        reporter: RecordingWarningReporter,
     ) -> Result<Box<dyn ActiveCapture>, RecordingError>;
 }
 
@@ -287,6 +403,7 @@ struct RecordingSession {
     started_at_ms: u64,
     workspace: CaptureWorkspace,
     capture: Box<dyn ActiveCapture>,
+    warnings: WarningAccumulator,
 }
 
 enum ControllerState {
@@ -303,6 +420,7 @@ pub(crate) struct RecordingController {
     file_store: Arc<dyn RecordingFileStore>,
     clock: Arc<dyn RecordingClock>,
     disk_space: Arc<dyn RecordingDiskSpace>,
+    warning_sink: Arc<dyn RecordingWarningSink>,
     state: Mutex<ControllerState>,
 }
 
@@ -356,12 +474,19 @@ impl RecordingController {
             file_store,
             clock,
             disk_space: Arc::new(NoDiskSpaceProbe),
+            warning_sink: Arc::new(NoopRecordingWarningSink),
             state: Mutex::new(ControllerState::Idle),
         }
     }
 
     pub(crate) fn with_disk_space(mut self, disk_space: Arc<dyn RecordingDiskSpace>) -> Self {
         self.disk_space = disk_space;
+        self
+    }
+
+    #[cfg(test)]
+    fn with_warning_sink(mut self, warning_sink: Arc<dyn RecordingWarningSink>) -> Self {
+        self.warning_sink = warning_sink;
         self
     }
 
@@ -405,7 +530,13 @@ impl RecordingController {
             }
         };
 
-        let capture = match self.backend.start(mode, &workspace) {
+        let warnings = WarningAccumulator::default();
+        let reporter = RecordingWarningReporter::new(
+            session_id.clone(),
+            warnings.clone(),
+            self.warning_sink.clone(),
+        );
+        let capture = match self.backend.start(mode, &workspace, reporter) {
             Ok(capture) => capture,
             Err(error) => {
                 let _ = self.file_store.cleanup(&workspace);
@@ -420,6 +551,7 @@ impl RecordingController {
             started_at_ms: self.clock.now_ms(),
             workspace,
             capture,
+            warnings,
         });
 
         let mut warnings = Vec::new();
@@ -442,6 +574,7 @@ impl RecordingController {
                 session_id: session.session_id.clone(),
                 mode: session.mode,
                 elapsed_ms: self.clock.now_ms().saturating_sub(session.started_at_ms),
+                warnings: session.warnings.snapshot(),
             }),
             ControllerState::Idle
             | ControllerState::Starting
@@ -456,6 +589,7 @@ impl RecordingController {
             mode,
             workspace,
             capture,
+            warnings,
             ..
         } = active;
 
@@ -467,9 +601,14 @@ impl RecordingController {
             self.finalizer.finalize(&workspace, captured, mode)
         });
         let cleanup_result = self.file_store.cleanup(&workspace);
+        let warning_snapshot = warnings.snapshot();
         let result = match operation_result {
             Err(error) => Err(error),
-            Ok(finalized) => cleanup_result.map(|()| finalized.into()),
+            Ok(finalized) => cleanup_result.map(|()| {
+                let mut result: RecordingResult = finalized.into();
+                result.warnings = warning_snapshot;
+                result
+            }),
         };
 
         match result {
@@ -605,6 +744,7 @@ impl From<FinalizedRecording> for RecordingResult {
             display_name: finalized.display_name,
             duration_ms: finalized.duration_ms,
             size_bytes: finalized.size_bytes,
+            warnings: Vec::new(),
         }
     }
 }
@@ -657,6 +797,7 @@ impl RecordingBackend for UnavailableRecordingBackend {
         &self,
         _mode: RecordingMode,
         _workspace: &CaptureWorkspace,
+        _reporter: RecordingWarningReporter,
     ) -> Result<Box<dyn ActiveCapture>, RecordingError> {
         Err(RecordingError::new(RECORDING_PLATFORM_UNSUPPORTED))
     }
@@ -830,6 +971,7 @@ mod tests {
         stop_error: Option<RecordingError>,
         cancel_error: Option<RecordingError>,
         captured: CapturedRecording,
+        warning_gaps_ms: Vec<u64>,
     }
 
     impl FakeBackend {
@@ -854,6 +996,7 @@ mod tests {
                 stop_error: None,
                 cancel_error: None,
                 captured,
+                warning_gaps_ms: Vec::new(),
             }
         }
     }
@@ -867,9 +1010,14 @@ mod tests {
             &self,
             _mode: RecordingMode,
             _workspace: &CaptureWorkspace,
+            reporter: RecordingWarningReporter,
         ) -> Result<Box<dyn ActiveCapture>, RecordingError> {
             if let Some(error) = &self.start_error {
                 return Err(error.clone());
+            }
+
+            for gap_ms in &self.warning_gaps_ms {
+                reporter.record_recovery(*gap_ms);
             }
 
             Ok(Box::new(FakeCapture {
@@ -925,6 +1073,108 @@ mod tests {
             Arc::new(FakeFileStore),
             Arc::new(FakeClock::new(1_000)),
         )
+    }
+
+    struct FailingWarningSink;
+
+    impl RecordingWarningSink for FailingWarningSink {
+        fn emit(
+            &self,
+            _session_id: &str,
+            _warning: &RecordingWarningView,
+        ) -> Result<(), RecordingError> {
+            Err(RecordingError::new(RECORDING_STREAM_ERROR))
+        }
+    }
+
+    fn warning_controller(
+        gaps_ms: &[u64],
+        sink: Arc<dyn RecordingWarningSink>,
+    ) -> RecordingController {
+        let mut backend = FakeBackend::available(CapturedRecording {
+            source_paths: Vec::new(),
+            valid_frame_count: 1,
+            silent: false,
+            duration_ms: 100,
+        });
+        backend.warning_gaps_ms = gaps_ms.to_vec();
+        RecordingController::new(
+            Arc::new(backend),
+            Arc::new(FakeFinalizer),
+            Arc::new(FakeFileStore),
+            Arc::new(FakeClock::new(1_000)),
+        )
+        .with_warning_sink(sink)
+    }
+
+    #[test]
+    fn warnings_accumulate_by_code_and_source() {
+        let accumulator = WarningAccumulator::default();
+
+        accumulator.record(
+            RECORDING_SYSTEM_AUDIO_RECOVERED,
+            Some(RecordingWarningSource::SystemAudio),
+            400,
+        );
+        accumulator.record(
+            RECORDING_SYSTEM_AUDIO_RECOVERED,
+            Some(RecordingWarningSource::SystemAudio),
+            400,
+        );
+
+        assert_eq!(
+            accumulator.snapshot(),
+            vec![RecordingWarningView {
+                warning_code: RECORDING_SYSTEM_AUDIO_RECOVERED,
+                source: Some(RecordingWarningSource::SystemAudio),
+                count: 2,
+                total_gap_ms: 800,
+            }]
+        );
+        let json = serde_json::to_value(accumulator.snapshot()[0].clone()).expect("serialize warning");
+        assert_eq!(json["warningCode"], "RECORDING_SYSTEM_AUDIO_RECOVERED");
+        assert_eq!(json["source"], "systemAudio");
+        assert_eq!(json["count"], 2);
+        assert_eq!(json["totalGapMs"], 800);
+    }
+
+    #[test]
+    fn warning_emitter_failure_does_not_drop_accumulator() {
+        let controller = warning_controller(&[400], Arc::new(FailingWarningSink));
+        let started = controller
+            .start(RecordingMode::System)
+            .expect("warning sink failure must not fail start");
+
+        let state = controller
+            .state()
+            .expect("read recording state")
+            .expect("active recording state");
+        assert_eq!(state.warnings.len(), 1);
+        assert_eq!(state.warnings[0].count, 1);
+        assert_eq!(state.warnings[0].total_gap_ms, 400);
+
+        let result = controller.stop(&started.session_id).expect("stop recording");
+        assert_eq!(result.warnings, state.warnings);
+    }
+
+    #[test]
+    fn state_and_stop_return_recovery_warnings() {
+        let controller = warning_controller(&[400, 400], Arc::new(NoopRecordingWarningSink));
+        let started = controller
+            .start(RecordingMode::System)
+            .expect("start recording");
+
+        let state = controller
+            .state()
+            .expect("read recording state")
+            .expect("active recording state");
+        let result = controller.stop(&started.session_id).expect("stop recording");
+
+        assert_eq!(state.warnings, result.warnings);
+        assert_eq!(result.warnings[0].warning_code, RECORDING_SYSTEM_AUDIO_RECOVERED);
+        assert_eq!(result.warnings[0].source, Some(RecordingWarningSource::SystemAudio));
+        assert_eq!(result.warnings[0].count, 2);
+        assert_eq!(result.warnings[0].total_gap_ms, 800);
     }
 
     struct TrackingFileStore {

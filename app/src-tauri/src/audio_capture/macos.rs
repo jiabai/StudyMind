@@ -43,6 +43,7 @@ trait SystemAudioRuntime: Send + Sync {
     fn start(
         &self,
         workspace: &super::CaptureWorkspace,
+        reporter: super::RecordingWarningReporter,
     ) -> Result<Box<dyn super::ActiveCapture>, RecordingError>;
 }
 
@@ -650,6 +651,7 @@ mod platform {
         fn start(
             &self,
             workspace: &CaptureWorkspace,
+            _reporter: super::RecordingWarningReporter,
         ) -> Result<Box<dyn ActiveCapture>, RecordingError> {
             let (control_tx, control_rx) = mpsc::channel();
             let (ready_tx, ready_rx) = mpsc::sync_channel(1);
@@ -682,6 +684,7 @@ mod platform {
             &self,
             mode: RecordingMode,
             workspace: &CaptureWorkspace,
+            reporter: super::RecordingWarningReporter,
         ) -> Result<Box<dyn ActiveCapture>, RecordingError> {
             match mode {
                 RecordingMode::Mic => {
@@ -706,7 +709,7 @@ mod platform {
                         }
                     }
                 }
-                RecordingMode::System => self.system_runtime.start(workspace),
+                RecordingMode::System => self.system_runtime.start(workspace, reporter),
                 RecordingMode::Mixed => Err(RecordingError::new(RECORDING_MIX_FAILED)),
             }
         }

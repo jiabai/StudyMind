@@ -22,6 +22,7 @@ use super::wav_writer::{WavCaptureSummary, WaveFormat, WaveWriter};
 use super::{
     ActiveCapture, CaptureWorkspace, CapturedRecording, RecordingBackend, RecordingCapabilities,
     RecordingError, RecordingMode, RecordingPlatform, RecordingSourceCapability,
+    RecordingWarningReporter,
     RECORDING_MIC_ACCESS_DENIED, RECORDING_MIC_INIT_FAILED, RECORDING_MIX_FAILED,
     RECORDING_STREAM_ERROR, RECORDING_SYSTEM_AUDIO_UNAVAILABLE,
     RECORDING_SYSTEM_LOOPBACK_INIT_FAILED,
@@ -122,6 +123,7 @@ impl RecordingBackend for WasapiRecordingBackend {
         &self,
         mode: RecordingMode,
         workspace: &CaptureWorkspace,
+        _reporter: RecordingWarningReporter,
     ) -> Result<Box<dyn ActiveCapture>, RecordingError> {
         let stop = Arc::new(AtomicBool::new(false));
         let mut workers: Vec<(
