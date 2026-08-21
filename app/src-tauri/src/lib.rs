@@ -87,6 +87,7 @@ pub fn run() {
             register_desktop_logger(app.handle(), &runtime_paths)?;
             app.manage(audio_capture::RecordingController::from_runtime_paths(
                 &runtime_paths,
+                app.handle().clone(),
             ));
             #[cfg(any(windows, target_os = "linux"))]
             if let Err(error) = app.deep_link().register_all() {

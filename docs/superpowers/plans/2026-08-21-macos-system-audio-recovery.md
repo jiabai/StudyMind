@@ -358,7 +358,7 @@ git commit -m "feat(recording): recover macOS system audio streams"
 - Modify: app/src-tauri/src/lib.rs
 - Test: app/src-tauri/src/audio_capture/mod.rs
 
-- [ ] **Step 1: Write a failing event payload test.**
+- [x] **Step 1: Write a failing event payload test.**
 
 Record one event with a fake sink and assert:
 
@@ -372,7 +372,7 @@ assert_eq!(event.total_gap_ms, 1_040);
 
 Also assert a sink error does not change the accumulator or fail active capture.
 
-- [ ] **Step 2: Verify RED.**
+- [x] **Step 2: Verify RED.**
 
 ~~~powershell
 cargo test --manifest-path app/src-tauri/Cargo.toml audio_capture::tests::warning_ -- --test-threads=1
@@ -380,17 +380,21 @@ cargo test --manifest-path app/src-tauri/Cargo.toml audio_capture::tests::warnin
 
 Expected: failure because the Tauri sink/event adapter does not exist.
 
-- [ ] **Step 3: Implement the Tauri sink and setup injection.**
+- [x] **Step 3: Implement the Tauri sink and setup injection.**
 
 Use Tauri's Emitter trait and fixed event name recording-warning. Serialize only RecordingWarningEvent; never include OSStatus, error text, device name, display id, paths, or audio data. Change setup to inject app.handle().clone() through RecordingController::from_runtime_paths. Unit tests use NoopWarningSink.
 
-- [ ] **Step 4: Verify GREEN and commit.**
+- [x] **Step 4: Verify GREEN and commit.**
 
 ~~~powershell
 cargo test --manifest-path app/src-tauri/Cargo.toml audio_capture -- --test-threads=1
 git add app/src-tauri/src/audio_capture/mod.rs app/src-tauri/src/lib.rs
 git commit -m "feat(recording): emit system audio recovery warnings"
 ~~~
+
+The focused Cargo command is blocked before test compilation by the same
+pre-existing missing `resources/python/**/*` tree required by the Tauri build
+script; rustfmt parsing and `git diff --check` pass.
 
 ## Task 5: Extend the TypeScript contract and controller hydration
 

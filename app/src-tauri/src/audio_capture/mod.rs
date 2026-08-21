@@ -3,7 +3,7 @@ use std::fmt;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
-use tauri::State;
+use tauri::{Emitter, State};
 use uuid::Uuid;
 
 mod mixer;
@@ -135,6 +135,28 @@ pub(crate) struct RecordingWarningView {
     pub(crate) total_gap_ms: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RecordingWarningEvent {
+    pub(crate) session_id: String,
+    pub(crate) warning_code: RecordingErrorCode,
+    pub(crate) source: Option<RecordingWarningSource>,
+    pub(crate) count: u32,
+    pub(crate) total_gap_ms: u64,
+}
+
+impl RecordingWarningEvent {
+    fn from_warning(session_id: &str, warning: &RecordingWarningView) -> Self {
+        Self {
+            session_id: session_id.to_string(),
+            warning_code: warning.warning_code,
+            source: warning.source,
+            count: warning.count,
+            total_gap_ms: warning.total_gap_ms,
+        }
+    }
+}
+
 #[derive(Clone, Default)]
 pub(crate) struct WarningAccumulator {
     warnings: Arc<Mutex<Vec<RecordingWarningView>>>,
@@ -195,6 +217,31 @@ impl RecordingWarningSink for NoopRecordingWarningSink {
         _warning: &RecordingWarningView,
     ) -> Result<(), RecordingError> {
         Ok(())
+    }
+}
+
+struct TauriRecordingWarningSink {
+    app: tauri::AppHandle,
+}
+
+impl TauriRecordingWarningSink {
+    fn new(app: tauri::AppHandle) -> Self {
+        Self { app }
+    }
+}
+
+impl RecordingWarningSink for TauriRecordingWarningSink {
+    fn emit(
+        &self,
+        session_id: &str,
+        warning: &RecordingWarningView,
+    ) -> Result<(), RecordingError> {
+        self.app
+            .emit(
+                "recording-warning",
+                RecordingWarningEvent::from_warning(session_id, warning),
+            )
+            .map_err(|_| RecordingError::new(RECORDING_STREAM_ERROR))
     }
 }
 
@@ -425,7 +472,10 @@ pub(crate) struct RecordingController {
 }
 
 impl RecordingController {
-    pub(crate) fn from_runtime_paths(paths: &crate::RuntimePaths) -> Self {
+    pub(crate) fn from_runtime_paths(
+        paths: &crate::RuntimePaths,
+        app: tauri::AppHandle,
+    ) -> Self {
         #[cfg(windows)]
         {
             let recordings_dir = paths.user_data_dir.join(crate::RECORDINGS_DIR_NAME);
@@ -438,7 +488,8 @@ impl RecordingController {
                 Arc::new(LocalRecordingFileStore::new(recordings_dir.clone())),
                 Arc::new(SystemRecordingClock::new()),
             )
-            .with_disk_space(Arc::new(WindowsDiskSpaceProbe { path: recordings_dir }));
+            .with_disk_space(Arc::new(WindowsDiskSpaceProbe { path: recordings_dir }))
+            .with_warning_sink(Arc::new(TauriRecordingWarningSink::new(app)));
         }
 
         #[cfg(target_os = "macos")]
@@ -452,13 +503,14 @@ impl RecordingController {
                 )),
                 Arc::new(LocalRecordingFileStore::new(recordings_dir)),
                 Arc::new(SystemRecordingClock::new()),
-            );
+            )
+            .with_warning_sink(Arc::new(TauriRecordingWarningSink::new(app)));
         }
 
         #[cfg(not(any(windows, target_os = "macos")))]
         {
             let _ = paths;
-            Self::default()
+            Self::default().with_warning_sink(Arc::new(TauriRecordingWarningSink::new(app)))
         }
     }
 
@@ -484,8 +536,10 @@ impl RecordingController {
         self
     }
 
-    #[cfg(test)]
-    fn with_warning_sink(mut self, warning_sink: Arc<dyn RecordingWarningSink>) -> Self {
+    pub(crate) fn with_warning_sink(
+        mut self,
+        warning_sink: Arc<dyn RecordingWarningSink>,
+    ) -> Self {
         self.warning_sink = warning_sink;
         self
     }
@@ -1087,6 +1141,24 @@ mod tests {
         }
     }
 
+    struct CapturingWarningSink {
+        events: Arc<Mutex<Vec<RecordingWarningEvent>>>,
+    }
+
+    impl RecordingWarningSink for CapturingWarningSink {
+        fn emit(
+            &self,
+            session_id: &str,
+            warning: &RecordingWarningView,
+        ) -> Result<(), RecordingError> {
+            self.events
+                .lock()
+                .expect("warning event lock")
+                .push(RecordingWarningEvent::from_warning(session_id, warning));
+            Ok(())
+        }
+    }
+
     fn warning_controller(
         gaps_ms: &[u64],
         sink: Arc<dyn RecordingWarningSink>,
@@ -1136,6 +1208,38 @@ mod tests {
         assert_eq!(json["source"], "systemAudio");
         assert_eq!(json["count"], 2);
         assert_eq!(json["totalGapMs"], 800);
+    }
+
+    #[test]
+    fn warning_event_payload_is_stable() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let controller = warning_controller(
+            &[1_040],
+            Arc::new(CapturingWarningSink {
+                events: Arc::clone(&events),
+            }),
+        );
+        controller
+            .start(RecordingMode::System)
+            .expect("start recording");
+
+        let event = events
+            .lock()
+            .expect("warning event lock")
+            .first()
+            .cloned()
+            .expect("one warning event");
+        assert!(!event.session_id.is_empty());
+        assert_eq!(event.warning_code, RecordingErrorCode::SystemAudioRecovered);
+        assert_eq!(event.source, Some(RecordingWarningSource::SystemAudio));
+        assert_eq!(event.count, 1);
+        assert_eq!(event.total_gap_ms, 1_040);
+        let payload = serde_json::to_value(event).expect("serialize warning event");
+        assert!(payload["sessionId"].is_string());
+        assert_eq!(payload["warningCode"], "RECORDING_SYSTEM_AUDIO_RECOVERED");
+        assert_eq!(payload["source"], "systemAudio");
+        assert_eq!(payload["count"], 1);
+        assert_eq!(payload["totalGapMs"], 1_040);
     }
 
     #[test]
