@@ -2197,6 +2197,8 @@ mod tests {
         // ScreenCaptureKit stream uses across rebuilds.
         struct WorkerFakeFactory {
             anchor: DisplayAnchor,
+            second_anchor: DisplayAnchor,
+            anchor_probe_count: Arc<AtomicUsize>,
             create_stream_count: Arc<AtomicUsize>,
             update_failures_remaining: Arc<AtomicUsize>,
             interrupt_sender: Arc<Mutex<Option<SyncSender<()>>>>,
@@ -2207,7 +2209,15 @@ mod tests {
 
         impl SystemStreamFactory for WorkerFakeFactory {
             fn probe_display_anchor(&self) -> Result<DisplayAnchor, RecordingError> {
-                Ok(self.anchor)
+                // The first probe seeds the initial anchor; every subsequent
+                // probe reports a different display, simulating a display swap
+                // so the supervisor's anchor-change handler is exercised.
+                let call = self.anchor_probe_count.fetch_add(1, Ordering::SeqCst);
+                if call == 0 {
+                    Ok(self.anchor)
+                } else {
+                    Ok(self.second_anchor)
+                }
             }
 
             fn create_stream(
@@ -2375,7 +2385,8 @@ mod tests {
         /// Build a WorkerFakeFactory with the given knobs. `interrupt_seen` is
         /// shared so the pump thread can stop after the worker consumes an
         /// interrupt (used to simulate a stream that goes permanently silent so
-        /// the recovery deadline elapses).
+        /// the recovery deadline elapses). The factory reports `anchor` on the
+        /// first probe and `second_anchor` thereafter, simulating a display swap.
         fn build_factory(
             create_stream_count: Arc<AtomicUsize>,
             update_failures_remaining: Arc<AtomicUsize>,
@@ -2385,6 +2396,8 @@ mod tests {
         ) -> Arc<WorkerFakeFactory> {
             Arc::new(WorkerFakeFactory {
                 anchor: 1,
+                second_anchor: 2,
+                anchor_probe_count: Arc::new(AtomicUsize::new(0)),
                 create_stream_count,
                 update_failures_remaining,
                 interrupt_sender,
@@ -2505,6 +2518,72 @@ mod tests {
                 matches!(result, Err(ref e) if e.code == RECORDING_STREAM_ERROR),
                 "deadline elapsed with no audio must fail the source: {:?}",
                 result
+            );
+        }
+
+        #[test]
+        fn worker_recovers_from_display_anchor_change_without_rebuilding() {
+            // A routine display swap that the content filter can absorb must NOT
+            // rebuild the stream: probe_display_anchor reports a new anchor on
+            // the 250ms topology poll, the supervisor retargets the filter, and
+            // audio keeps flowing. The stream is created exactly once.
+            let create_stream_count = Arc::new(AtomicUsize::new(0));
+            let update_failures_remaining = Arc::new(AtomicUsize::new(0));
+            let interrupt_sender = Arc::new(Mutex::new(None));
+            let interrupt_seen = Arc::new(AtomicBool::new(false));
+            let factory = build_factory(
+                Arc::clone(&create_stream_count),
+                Arc::clone(&update_failures_remaining),
+                Arc::clone(&interrupt_sender),
+                false,
+                Arc::clone(&interrupt_seen),
+            );
+
+            // No interrupt; let the topology poll (250ms) fire the anchor change.
+            let recording = run_worker(factory, interrupt_sender, None, None, true, 400)
+                .expect("capture completes after display anchor change")
+                .expect("capture produced a recording");
+
+            assert!(recording.valid_frame_count > 0, "audio was written");
+            assert_eq!(
+                create_stream_count.load(Ordering::SeqCst),
+                1,
+                "filter update absorbed the anchor change so no rebuild happened"
+            );
+        }
+
+        #[test]
+        fn worker_rebuilds_stream_when_anchor_change_filter_update_fails() {
+            // When the content filter cannot retarget to the new display, the
+            // supervisor must rebuild the stream. The first topology poll after
+            // the swap reports a new anchor and the filter update fails once,
+            // triggering exactly one rebuild.
+            let create_stream_count = Arc::new(AtomicUsize::new(0));
+            let update_failures_remaining = Arc::new(AtomicUsize::new(1));
+            let interrupt_sender = Arc::new(Mutex::new(None));
+            let interrupt_seen = Arc::new(AtomicBool::new(false));
+            let factory = build_factory(
+                Arc::clone(&create_stream_count),
+                Arc::clone(&update_failures_remaining),
+                Arc::clone(&interrupt_sender),
+                false,
+                Arc::clone(&interrupt_seen),
+            );
+
+            let recording = run_worker(factory, interrupt_sender, None, None, true, 400)
+                .expect("capture completes after anchor-change rebuild")
+                .expect("capture produced a recording");
+
+            assert!(recording.valid_frame_count > 0, "audio was written");
+            assert_eq!(
+                create_stream_count.load(Ordering::SeqCst),
+                2,
+                "anchor-change filter update failed so the stream was rebuilt once"
+            );
+            assert_eq!(
+                update_failures_remaining.load(Ordering::SeqCst),
+                0,
+                "the failed update was consumed by reconcile"
             );
         }
     }
