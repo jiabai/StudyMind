@@ -2,7 +2,7 @@
 
 > 状态：Issue #17 麦克风与 #18 system audio 的 E1 真机验收完成；剩余验证已暂缓，待后续具备对应硬件、凭据或恢复实现后继续 · 决策来源：[ADR 0005](../adr/0005-macos-recording-backend.md)
 >
-> 当前结论：Issue #17 麦克风与 #18 system audio 已在 E1（Intel、macOS 15.7.7）完成当前范围内的原生编译和真机验收。F-03 为 Partial，F-04/F-05 与 C-06 尚未完成；E2、E3、混合录音、打包签名、公证和恢复场景本轮统一暂缓，保留原状态并等待后续条件。
+> 当前结论：Issue #17 麦克风与 #18 system audio 已在 E1（Intel、macOS 15.7.7）完成当前范围内的原生编译和真机验收；本分支又补齐了 recovery 状态机、warning contract/event 和前端 hydration 的 host-side 实现证据。原生 stream supervisor、filter 更新/重建与真实恢复尚未实现，F-03 为 Partial，F-04/F-05 与 C-06 尚未完成；E2、E3、混合录音、打包签名、公证和恢复场景本轮继续暂缓，保留原状态并等待后续条件。
 
 ## 1. 使用规则
 
@@ -157,6 +157,27 @@ macOS E1/E2/E3 上重新执行 native compile、TCC、两类应用全局音频�
 > 本轮验证至此暂缓。后续恢复时，优先处理 F-05 恢复补静音与 F-04 filter/stream 恢复，再复核
 > F-03；随后按 §3.2 继续 E2、E3、60 分钟 C-06、Developer ID 签名和公证。当前文档中的
 > `Partial`、`Blocked`、`Planned` 状态保持不变。
+
+## 3.4 Recovery warning host-side implementation evidence
+
+2026-08-21 在 Windows host 完成了不依赖 macOS 原生运行时的实现切片；这些证据不替代
+F-03/F-04/F-05 的 macOS native 验收：
+
+| Commit | 范围 | Evidence | 结论 |
+|---|---|---|---|
+| `c1bdc58` | `SystemAudioRecovery` 时间轴与 2 秒 bounded state machine | 独立 `rustc --test`：6/6 通过；duration-aware gap、checked arithmetic、deadline、stop 语义 | Host-side Pass；native stream 未接入 |
+| `7624ee1` | warning code/source 聚合、session state/result、best-effort reporter | warning 聚合、sink 失败不丢事实、state/stop 回传测试已加入；完整 Cargo 被 `resources/python/**/*` 缺失阻塞 | Host-side implementation evidence |
+| `a7f2f79` | Tauri `recording-warning` event sink | 固定 payload 只含 session/warning/source/count/totalGapMs；rustfmt 解析与 diff check 通过；Cargo 仍受同一资源缺失阻塞 | Host-side contract evidence |
+| `1d54944` | TypeScript parser、事件过滤、state hydration | frontend 75 个 test files / 778 tests 通过；TypeScript/Vite build 通过 | Host-side Pass |
+
+当前尚未完成的 Task 3 native supervisor 不得用上述证据替代：
+
+- `SCStream::new_with_delegate`、`did_stop_with_error`、`update_content_filter` 优先路径、
+  audio-only stream rebuild 尚未落地；
+- 默认输出/显示器变化时的全局系统声音连续捕获、媒体时间戳补静音和超过 2 秒失败尚未
+  在 macOS 上执行；
+- 因此 R-01～R-05、F-03～F-05 仍保持 `Partial`/`Blocked`/`Planned` 原状态，不能标记
+  为 macOS runtime `Pass`。
 
 ## 4. 权限与能力探测
 
