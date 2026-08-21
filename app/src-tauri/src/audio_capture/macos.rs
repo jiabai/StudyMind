@@ -668,7 +668,15 @@ mod platform {
             &mut self,
             now_ms: u64,
         ) -> Result<(), RecordingError> {
-            self.start_recovery_window(now_ms)?;
+            // Best-effort: open the writer's 2s media-recovery window so a fully
+            // dead stream (no samples at all) still fails within the window. A
+            // full or disconnected writer channel here must NOT abort the
+            // authoritative OS-stream rebuild below; a dead writer is
+            // independently detected when the writer thread joins at finish.
+            self.open_recovery_window(now_ms);
+            // Authoritative recovery: filter-update first, then rebuild. This is
+            // what actually restores audio and must never be skipped by transient
+            // writer backpressure. Its error means the rebuild genuinely failed.
             self.reconcile().map(|_| ())
         }
 
@@ -678,16 +686,16 @@ mod platform {
             now_ms: u64,
         ) -> Result<(), RecordingError> {
             self.anchor = new_anchor;
-            self.start_recovery_window(now_ms)?;
+            self.open_recovery_window(now_ms);
             self.reconcile().map(|_| ())
         }
 
-        fn start_recovery_window(&self, now_ms: u64) -> Result<(), RecordingError> {
-            submit_system_event(
-                &self.events,
-                SystemStreamEvent::Interrupt { now_ms },
-                &self.first_error,
-            )
+        fn open_recovery_window(&self, now_ms: u64) {
+            // Best-effort mirror of the old start_recovery_window: signal the
+            // writer to open its media-recovery window without touching
+            // first_error, so a busy or gone writer channel cannot fail the
+            // capture during an interrupt.
+            let _ = self.events.try_send(SystemStreamEvent::Interrupt { now_ms });
         }
 
         fn reconcile(&mut self) -> Result<ReconcileOutcome, RecordingError> {
@@ -719,12 +727,14 @@ mod platform {
             Ok(ReconcileOutcome::StreamRebuilt)
         }
 
-        fn check_recovery_deadline(&self, now_ms: u64) -> Result<(), RecordingError> {
-            submit_system_event(
-                &self.events,
-                SystemStreamEvent::DeadlineElapsed { now_ms },
-                &self.first_error,
-            )
+        fn check_recovery_deadline(&self, now_ms: u64) {
+            // Best-effort mirror of open_recovery_window: the deadline event only
+            // tells the writer to fail the source if recovery genuinely exceeded
+            // 2s. A busy or gone writer channel must not abort the capture here;
+            // the next topology poll re-sends it, and a healthy writer enforces
+            // the deadline when it catches up. (Mirrors the point-B fix that made
+            // the interrupt-path recovery-window open best-effort.)
+            let _ = self.events.try_send(SystemStreamEvent::DeadlineElapsed { now_ms });
         }
 
         fn shutdown(&mut self, control: CaptureControl) -> Result<(), RecordingError> {
@@ -993,7 +1003,15 @@ mod platform {
             let path = workspace.temp_dir.join("system.wav");
             let worker = thread::Builder::new()
                 .name("studymind-macos-system-audio".to_string())
-                .spawn(move || run_system_capture_worker(path, control_rx, ready_tx, reporter))
+                .spawn(move || {
+                    run_system_capture_worker(
+                        Arc::new(NativeSystemStreamFactory),
+                        path,
+                        control_rx,
+                        ready_tx,
+                        reporter,
+                    )
+                })
                 .map_err(|_| RecordingError::new(RECORDING_SYSTEM_LOOPBACK_INIT_FAILED))?;
 
             match receive_startup_signal_with(&ready_rx, RECORDING_SYSTEM_LOOPBACK_INIT_FAILED) {
@@ -1106,13 +1124,14 @@ mod platform {
             .is_some()
     }
 
-    fn run_system_capture_worker(
+    pub(crate) fn run_system_capture_worker(
+        factory: Arc<dyn SystemStreamFactory>,
         path: PathBuf,
         control_rx: mpsc::Receiver<CaptureControl>,
         ready_tx: SyncSender<Result<(), RecordingError>>,
         reporter: RecordingWarningReporter,
     ) -> Result<Option<CapturedRecording>, RecordingError> {
-        let factory = NativeSystemStreamFactory;
+        let factory = factory.as_ref();
         let anchor = match factory.probe_display_anchor() {
             Ok(anchor) => anchor,
             Err(error) => return notify_setup_error(ready_tx, error),
@@ -1182,7 +1201,7 @@ mod platform {
             return notify_setup_error(ready_tx, error);
         }
         let mut supervisor = SystemStreamSupervisor::new(
-            &factory,
+            factory,
             Some(stream),
             anchor,
             writer_guard.sender(),
@@ -1235,10 +1254,7 @@ mod platform {
                             // protects the session if audio really stopped.
                             Err(_) => {}
                         }
-                        if let Err(error) = supervisor.check_recovery_deadline(now_ms()) {
-                            run_error = Some(error);
-                            break;
-                        }
+                        supervisor.check_recovery_deadline(now_ms());
                     }
                 }
                 Err(mpsc::RecvTimeoutError::Disconnected) => {
@@ -2145,6 +2161,224 @@ mod tests {
                 "display ids never appear in source selection; only Audio is registered"
             );
             assert_eq!(factory.stream_count(), 0);
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    mod worker_capture {
+        use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+        use std::sync::mpsc::{self, SyncSender};
+        use std::sync::{Arc, Mutex};
+        use std::thread;
+        use std::time::Duration;
+
+        use super::super::platform::{
+            DisplayAnchor, SystemStream, SystemStreamEvent, SystemStreamFactory,
+            run_system_capture_worker,
+        };
+        use super::super::{
+            AudioBlock, CaptureControl, FirstStreamError, RecordingError, RECORDING_STREAM_ERROR,
+        };
+        use crate::audio_capture::RecordingWarningReporter;
+        use crate::audio_capture::system_audio_recovery::AudioSampleTiming;
+
+        // A fake system-audio driver that actually pumps Audio blocks onto the
+        // worker's event channel, so the real system-capture worker loop
+        // (interrupt consumption, supervisor reconcile, recovery window,
+        // shutdown, WAV finalize) is exercised end-to-end without ScreenCaptureKit.
+        // The sample counter is shared across rebuilt streams so presentation
+        // timestamps stay monotonic, mirroring the device clock the real
+        // ScreenCaptureKit stream uses across rebuilds.
+        struct WorkerFakeFactory {
+            anchor: DisplayAnchor,
+            create_stream_count: Arc<AtomicUsize>,
+            update_failures_remaining: Arc<AtomicUsize>,
+            interrupt_sender: Arc<Mutex<Option<SyncSender<()>>>>,
+            counter: Arc<AtomicU64>,
+        }
+
+        impl SystemStreamFactory for WorkerFakeFactory {
+            fn probe_display_anchor(&self) -> Result<DisplayAnchor, RecordingError> {
+                Ok(self.anchor)
+            }
+
+            fn create_stream(
+                &self,
+                _display: DisplayAnchor,
+                events: SyncSender<SystemStreamEvent>,
+                interrupt: SyncSender<()>,
+                _first_error: Arc<FirstStreamError>,
+            ) -> Result<Box<dyn SystemStream>, RecordingError> {
+                self.create_stream_count.fetch_add(1, Ordering::SeqCst);
+                *self.interrupt_sender.lock().unwrap() = Some(interrupt);
+                Ok(Box::new(WorkerFakeStream {
+                    stop: Arc::new(AtomicBool::new(false)),
+                    events,
+                    update_failures_remaining: Arc::clone(&self.update_failures_remaining),
+                    counter: Arc::clone(&self.counter),
+                    pump: Arc::new(Mutex::new(None)),
+                }))
+            }
+        }
+
+        struct WorkerFakeStream {
+            stop: Arc<AtomicBool>,
+            events: SyncSender<SystemStreamEvent>,
+            update_failures_remaining: Arc<AtomicUsize>,
+            counter: Arc<AtomicU64>,
+            pump: Arc<Mutex<Option<thread::JoinHandle<()>>>>,
+        }
+
+        impl SystemStream for WorkerFakeStream {
+            fn update_content_filter(
+                &self,
+                _display: DisplayAnchor,
+            ) -> Result<(), RecordingError> {
+                // Fail the first `update_failures_remaining` calls, then succeed.
+                let remaining = self.update_failures_remaining.load(Ordering::SeqCst);
+                if remaining > 0 {
+                    self.update_failures_remaining.fetch_sub(1, Ordering::SeqCst);
+                    return Err(RecordingError::new(RECORDING_STREAM_ERROR));
+                }
+                Ok(())
+            }
+
+            fn start_capture(&self) -> Result<(), RecordingError> {
+                let stop = Arc::clone(&self.stop);
+                let events = self.events.clone();
+                let counter = Arc::clone(&self.counter);
+                let handle = thread::spawn(move || {
+                    while !stop.load(Ordering::SeqCst) {
+                        let i = counter.fetch_add(1, Ordering::SeqCst);
+                        let timing = AudioSampleTiming {
+                            presentation_ns: i * 10_000_000,
+                            duration_ns: 10_000_000,
+                            valid: true,
+                        };
+                        let block = AudioBlock {
+                            bytes: vec![0u8; 480 * 2 * 2],
+                            frame_count: 480,
+                            silent: false,
+                        };
+                        if events
+                            .try_send(SystemStreamEvent::Audio { block, timing })
+                            .is_err()
+                        {
+                            break;
+                        }
+                        thread::sleep(Duration::from_millis(5));
+                    }
+                });
+                *self.pump.lock().unwrap() = Some(handle);
+                Ok(())
+            }
+
+            fn stop_capture(&self) -> Result<(), RecordingError> {
+                self.stop.store(true, Ordering::SeqCst);
+                // Join the pump thread so the rebuild hands off cleanly: the old
+                // stream's samples finish flushing before the new stream starts,
+                // keeping presentation timestamps monotonic in the channel. The
+                // real ScreenCaptureKit device clock continues across rebuilds;
+                // a naive independent-thread model would interleave the two
+                // streams and trip the writer's non-monotonic guard.
+                if let Some(handle) = self.pump.lock().unwrap().take() {
+                    let _ = handle.join();
+                }
+                Ok(())
+            }
+        }
+
+        fn run_worker(
+            factory: Arc<WorkerFakeFactory>,
+            interrupt_sender: Arc<Mutex<Option<SyncSender<()>>>>,
+            fire_interrupt: bool,
+        ) -> Result<Option<crate::audio_capture::CapturedRecording>, RecordingError> {
+            let path = std::env::temp_dir().join(format!(
+                "studymind-worker-test-{}-{}.wav",
+                std::process::id(),
+                uuid::Uuid::new_v4()
+            ));
+            let (control_tx, control_rx) = mpsc::channel();
+            let (ready_tx, ready_rx) = mpsc::sync_channel(1);
+            let reporter = RecordingWarningReporter::no_op();
+            let worker = thread::Builder::new()
+                .name("studymind-worker-test".to_string())
+                .spawn(move || {
+                    run_system_capture_worker(factory, path.clone(), control_rx, ready_tx, reporter)
+                })
+                .expect("spawn worker");
+            ready_rx
+                .recv_timeout(Duration::from_secs(2))
+                .expect("worker becomes ready")
+                .expect("worker reports ready without error");
+            if fire_interrupt {
+                // Let some audio flow, then simulate the SCStream delegate
+                // firing did_stop_with_error by signalling the interrupt channel.
+                thread::sleep(Duration::from_millis(60));
+                if let Some(sender) = interrupt_sender.lock().unwrap().clone() {
+                    let _ = sender.try_send(());
+                }
+            }
+            thread::sleep(Duration::from_millis(60));
+            control_tx
+                .send(CaptureControl::Stop)
+                .expect("send stop control");
+            worker.join().expect("worker thread joins")
+        }
+
+        #[test]
+        fn worker_recovers_from_interrupt_without_rebuilding_stream() {
+            let create_stream_count = Arc::new(AtomicUsize::new(0));
+            let update_failures_remaining = Arc::new(AtomicUsize::new(0));
+            let interrupt_sender = Arc::new(Mutex::new(None));
+            let factory = Arc::new(WorkerFakeFactory {
+                anchor: 1,
+                create_stream_count: Arc::clone(&create_stream_count),
+                update_failures_remaining: Arc::clone(&update_failures_remaining),
+                interrupt_sender: Arc::clone(&interrupt_sender),
+                counter: Arc::new(AtomicU64::new(0)),
+            });
+
+            let recording = run_worker(factory, interrupt_sender, true)
+                .expect("capture completes after interrupt")
+                .expect("capture produced a recording");
+
+            assert!(recording.valid_frame_count > 0, "audio was written");
+            assert_eq!(
+                create_stream_count.load(Ordering::SeqCst),
+                1,
+                "filter update succeeded so no rebuild happened"
+            );
+        }
+
+        #[test]
+        fn worker_rebuilds_stream_when_filter_update_fails() {
+            let create_stream_count = Arc::new(AtomicUsize::new(0));
+            let update_failures_remaining = Arc::new(AtomicUsize::new(1));
+            let interrupt_sender = Arc::new(Mutex::new(None));
+            let factory = Arc::new(WorkerFakeFactory {
+                anchor: 1,
+                create_stream_count: Arc::clone(&create_stream_count),
+                update_failures_remaining: Arc::clone(&update_failures_remaining),
+                interrupt_sender: Arc::clone(&interrupt_sender),
+                counter: Arc::new(AtomicU64::new(0)),
+            });
+
+            let recording = run_worker(factory, interrupt_sender, true)
+                .expect("capture completes after rebuild")
+                .expect("capture produced a recording");
+
+            assert!(recording.valid_frame_count > 0, "audio was written");
+            assert_eq!(
+                create_stream_count.load(Ordering::SeqCst),
+                2,
+                "filter update failed so the stream was rebuilt once"
+            );
+            assert_eq!(
+                update_failures_remaining.load(Ordering::SeqCst),
+                0,
+                "the failed update was consumed by reconcile"
+            );
         }
     }
 

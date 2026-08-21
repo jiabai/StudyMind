@@ -265,6 +265,14 @@ impl RecordingWarningReporter {
         }
     }
 
+    pub(crate) fn no_op() -> Self {
+        Self {
+            session_id: String::new(),
+            accumulator: WarningAccumulator::default(),
+            sink: Arc::new(NoopRecordingWarningSink),
+        }
+    }
+
     pub(crate) fn record_recovery(&self, gap_ms: u64) {
         let warning = self.accumulator.record(
             RECORDING_SYSTEM_AUDIO_RECOVERED,
