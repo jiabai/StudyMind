@@ -38,12 +38,14 @@ const VALID_STOP = {
   displayName: "lecture.wav",
   durationMs: 12_345,
   sizeBytes: 98_765,
+  warnings: [],
 } as const;
 
 const VALID_STATE = {
   sessionId: "session-123",
   mode: "mixed",
   elapsedMs: 4_321,
+  warnings: [],
 } as const;
 
 class CapabilityResponse {
@@ -80,6 +82,56 @@ afterEach(() => {
 });
 
 describe("recording client", () => {
+  test("parses bounded recovery warnings in state and stop responses", async () => {
+    const warning = {
+      warningCode: "RECORDING_SYSTEM_AUDIO_RECOVERED",
+      source: "systemAudio",
+      count: 2,
+      totalGapMs: 800,
+    };
+    const runner: RecordingCommandRunner = async (command) =>
+      command === "stop_recording"
+        ? { ...VALID_STOP, warnings: [warning] }
+        : { ...VALID_STATE, warnings: [warning] };
+
+    await expect(stopRecording("session-123", runner)).resolves.toMatchObject({
+      warnings: [warning],
+    });
+    await expect(getRecordingState(runner)).resolves.toMatchObject({
+      warnings: [warning],
+    });
+  });
+
+  test.each([
+    { source: "display-1", count: 1, totalGapMs: 10 },
+    { source: "systemAudio", count: -1, totalGapMs: 10 },
+    {
+      source: "systemAudio",
+      count: Number.MAX_SAFE_INTEGER + 1,
+      totalGapMs: 10,
+    },
+    {
+      source: "systemAudio",
+      count: 1,
+      totalGapMs: Number.MAX_SAFE_INTEGER + 1,
+    },
+  ])(
+    "rejects unknown warning sources and unsafe warning counters",
+    async (warning) => {
+      await expect(
+        stopRecording("session-123", async () => ({
+          ...VALID_STOP,
+          warnings: [
+            {
+              warningCode: "RECORDING_SYSTEM_AUDIO_RECOVERED",
+              ...warning,
+            },
+          ],
+        })),
+      ).rejects.toMatchObject({ code: "RECORDING_IPC_RESPONSE_INVALID" });
+    },
+  );
+
   test("uses the default invoke runner for every public API", async () => {
     invokeMock
       .mockResolvedValueOnce(VALID_CAPABILITIES)
@@ -173,11 +225,13 @@ describe("recording client", () => {
       displayName: "lecture.wav",
       durationMs: 12_345,
       sizeBytes: 98_765,
+      warnings: [],
     });
     await expect(getRecordingState(runner)).resolves.toEqual({
       sessionId: "session-123",
       mode: "mixed",
       elapsedMs: 4_321,
+      warnings: [],
     });
     expect(calls).toEqual([
       { command: "get_recording_capabilities", args: {} },
@@ -514,17 +568,20 @@ describe("recording client", () => {
       displayName: maxLength,
       durationMs: 0,
       sizeBytes: 0,
+      warnings: [],
     });
     await expect(
       getRecordingState(async () => ({
         sessionId: maxLength,
         mode: "mic",
         elapsedMs: 0,
+        warnings: [],
       })),
     ).resolves.toEqual({
       sessionId: maxLength,
       mode: "mic",
       elapsedMs: 0,
+      warnings: [],
     });
   });
 

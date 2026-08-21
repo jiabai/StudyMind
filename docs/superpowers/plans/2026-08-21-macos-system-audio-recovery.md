@@ -406,7 +406,7 @@ script; rustfmt parsing and `git diff --check` pass.
 - Test: app/src/features/workflow/useRecordingController.test.ts
 - Test: app/src/features/workflow/RecordingCard.test.tsx if presentation needs coverage
 
-- [ ] **Step 1: Write failing parser and controller tests.**
+- [x] **Step 1: Write failing parser and controller tests.**
 
 Add tests named:
 
@@ -434,7 +434,7 @@ it("keeps recording active after a recovery warning", async () => {
 
 The initial run must fail because warning view/state/result parsing and the event dependency do not exist.
 
-- [ ] **Step 2: Verify RED.**
+- [x] **Step 2: Verify RED.**
 
 ~~~powershell
 npm --prefix app test -- --run src/recordingClient.test.ts src/features/workflow/useRecordingController.test.ts
@@ -442,7 +442,7 @@ npm --prefix app test -- --run src/recordingClient.test.ts src/features/workflow
 
 Expected: failures only for the new warning contract/event behaviours.
 
-- [ ] **Step 3: Implement closed parsing and event hydration.**
+- [x] **Step 3: Implement closed parsing and event hydration.**
 
 Add:
 
@@ -461,7 +461,7 @@ Extend RecordingStateView and RecordingResult with warnings. Update the closed c
 
 On mount, call getRecordingState when provided and hydrate only an active session. On event, filter by activeSessionId, update RecordingSessionView.warnings and warningCode without changing status, and unlisten on unmount/session end. On stop, use result warnings as the final snapshot before handoff.
 
-- [ ] **Step 4: Verify GREEN.**
+- [x] **Step 4: Verify GREEN.**
 
 ~~~powershell
 npm --prefix app test -- --run src/recordingClient.test.ts src/features/workflow/useRecordingController.test.ts src/features/workflow/RecordingCard.test.tsx
@@ -469,12 +469,16 @@ npm --prefix app test -- --run src/recordingClient.test.ts src/features/workflow
 
 Expected: all new and existing recording tests pass.
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ~~~powershell
 git add app/src/recordingClient.ts app/src/recordingClient.test.ts app/src/features/workflow/useRecordingController.ts app/src/features/workflow/useRecordingController.test.ts app/src/features/workflow/RecordingCard.test.tsx
 git commit -m "feat(recording): surface system audio recovery warnings"
 ~~~
+
+Focused and full frontend tests pass (75 files / 777 tests after the warning
+coverage additions), and the TypeScript/Vite build passes. Native Rust/macOS
+recovery remains deferred to Task 3.
 
 ## Task 6: Update acceptance documentation
 

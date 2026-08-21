@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   cancelRecording as defaultCancelRecording,
   getRecordingCapabilities as defaultGetRecordingCapabilities,
+  getRecordingState as defaultGetRecordingState,
+  listenRecordingWarnings as defaultListenRecordingWarnings,
   startRecording as defaultStartRecording,
   stopRecording as defaultStopRecording,
   type RecordingCapabilities,
@@ -10,6 +12,8 @@ import {
   type RecordingMode,
   type RecordingResult,
   type RecordingStateView,
+  type RecordingWarningEvent,
+  type RecordingWarningView,
   type StartRecordingWarning,
 } from "../../recordingClient";
 import {
@@ -53,6 +57,7 @@ export type RecordingSessionView = {
   status: RecordingSessionStatus;
   errorCode?: RecordingControllerErrorCode;
   warningCode?: RecordingControllerErrorCode;
+  warnings?: RecordingWarningView[];
 };
 
 export type RecordingHandoffView = {
@@ -68,6 +73,9 @@ export type RecordingTimer = {
 export type RecordingClientDependencies = {
   getRecordingCapabilities: () => Promise<RecordingCapabilities>;
   getRecordingState?: () => Promise<RecordingStateView | null>;
+  listenRecordingWarnings?: (
+    handler: (event: RecordingWarningEvent) => void,
+  ) => Promise<() => void>;
   startRecording: (
     mode: RecordingMode,
   ) => Promise<{ sessionId: string; warnings: StartRecordingWarning[] }>;
@@ -123,6 +131,7 @@ const RECORDING_CLIENT_ERROR_CODES = new Set<string>([
   "RECORDING_MIC_ACCESS_DENIED",
   "RECORDING_SYSTEM_LOOPBACK_INIT_FAILED",
   "RECORDING_SYSTEM_AUDIO_UNAVAILABLE",
+  "RECORDING_SYSTEM_AUDIO_RECOVERED",
   "RECORDING_STREAM_ERROR",
   "RECORDING_MIX_FAILED",
   "RECORDING_WRITE_FAILED",
@@ -197,10 +206,31 @@ function preferenceMode(value: unknown): RecordingMode {
   return isRecordingMode(value) ? value : "mic";
 }
 
+function warningIdentity(warning: RecordingWarningView): string {
+  return `${warning.warningCode}:${warning.source ?? ""}`;
+}
+
+function mergeWarning(
+  warnings: RecordingWarningView[],
+  incoming: RecordingWarningView,
+): RecordingWarningView[] {
+  const next = [...warnings];
+  const index = next.findIndex(
+    (warning) => warningIdentity(warning) === warningIdentity(incoming),
+  );
+  if (index === -1) {
+    next.push(incoming);
+  } else {
+    next[index] = incoming;
+  }
+  return next;
+}
+
 export function useRecordingController({
   recordingClient = {
     getRecordingCapabilities: defaultGetRecordingCapabilities,
-    getRecordingState: undefined,
+    getRecordingState: defaultGetRecordingState,
+    listenRecordingWarnings: defaultListenRecordingWarnings,
     startRecording: defaultStartRecording,
     stopRecording: defaultStopRecording,
     cancelRecording: defaultCancelRecording,
@@ -276,6 +306,70 @@ export function useRecordingController({
   const updateCapability = (next: RecordingCapabilityView) => {
     capabilityRef.current = next;
     setCapability(next);
+  };
+
+  const updateSessionWarnings = (warnings: RecordingWarningView[]) => {
+    const next: RecordingSessionView = { ...sessionRef.current };
+    if (warnings.length > 0) {
+      next.warnings = warnings;
+      next.warningCode = warnings[0].warningCode;
+    } else {
+      delete next.warnings;
+    }
+    updateSession(next);
+  };
+
+  const handleRecordingWarning = (event: RecordingWarningEvent) => {
+    if (
+      !activeSessionIdRef.current ||
+      event.sessionId !== activeSessionIdRef.current
+    ) {
+      return;
+    }
+    const warning: RecordingWarningView = {
+      warningCode: event.warningCode,
+      source: event.source,
+      count: event.count,
+      totalGapMs: event.totalGapMs,
+    };
+    updateSessionWarnings(
+      mergeWarning(sessionRef.current.warnings ?? [], warning),
+    );
+  };
+
+  const hydrateRecordingState = async () => {
+    const getState = recordingClientRef.current.getRecordingState;
+    if (!getState) return;
+    try {
+      const state = await getState();
+      if (
+        !mountedRef.current ||
+        !state ||
+        operationRef.current ||
+        sessionRef.current.status === "recording" ||
+        sessionRef.current.status === "stopping"
+      ) {
+        return;
+      }
+      const startedAtValue = clockRef.current() - state.elapsedMs;
+      modeRef.current = state.mode;
+      setModeState(state.mode);
+      setActiveSessionId(state.sessionId);
+      activeSessionIdRef.current = state.sessionId;
+      setStartedAt(startedAtValue);
+      startedAtRef.current = startedAtValue;
+      setElapsedMs(state.elapsedMs);
+      const nextSession: RecordingSessionView = {
+        status: "recording",
+      };
+      if (state.warnings.length > 0) {
+        nextSession.warnings = state.warnings;
+        nextSession.warningCode = state.warnings[0].warningCode;
+      }
+      updateSession(nextSession);
+    } catch {
+      // State hydration is best-effort; capability loading remains authoritative.
+    }
   };
 
   const invalidatePreferenceLoad = () => {
@@ -611,8 +705,25 @@ export function useRecordingController({
 
   useEffect(() => {
     mountedRef.current = true;
+    let disposed = false;
+    let unlistenWarnings: (() => void) | undefined;
+    const subscribeToWarnings = async () => {
+      const listenWarnings = recordingClientRef.current.listenRecordingWarnings;
+      if (!listenWarnings) return;
+      try {
+        const cleanup = await listenWarnings(handleRecordingWarning);
+        if (disposed) {
+          cleanup();
+        } else {
+          unlistenWarnings = cleanup;
+        }
+      } catch {
+        // Event subscription is advisory; IPC polling remains available.
+      }
+    };
     const onFocus = () => {
       void refreshCapabilities();
+      void hydrateRecordingState();
     };
     const onKeyDown = (event: Event) => {
       if ((event as KeyboardEvent).key !== "Escape") return;
@@ -631,7 +742,11 @@ export function useRecordingController({
     window.addEventListener("keydown", onKeyDown);
     void refreshCapabilities();
     void loadPreferences();
+    void hydrateRecordingState();
+    void subscribeToWarnings();
     return () => {
+      disposed = true;
+      unlistenWarnings?.();
       mountedRef.current = false;
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("keydown", onKeyDown);

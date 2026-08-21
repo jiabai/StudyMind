@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { InvokeArgs } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 
 export type RecordingMode = "mic" | "system" | "mixed";
 
@@ -11,6 +12,7 @@ export type RecordingErrorCode =
   | "RECORDING_MIC_ACCESS_DENIED"
   | "RECORDING_SYSTEM_LOOPBACK_INIT_FAILED"
   | "RECORDING_SYSTEM_AUDIO_UNAVAILABLE"
+  | "RECORDING_SYSTEM_AUDIO_RECOVERED"
   | "RECORDING_STREAM_ERROR"
   | "RECORDING_MIX_FAILED"
   | "RECORDING_WRITE_FAILED"
@@ -37,18 +39,37 @@ export type RecordingCapabilities = {
   mixed: RecordingSourceCapability;
 };
 
+export type RecordingWarningSource = "systemAudio";
+
+export type RecordingWarningView = {
+  warningCode: "RECORDING_SYSTEM_AUDIO_RECOVERED";
+  source: RecordingWarningSource;
+  count: number;
+  totalGapMs: number;
+};
+
+export type RecordingWarningEvent = RecordingWarningView & {
+  sessionId: string;
+};
+
 export type RecordingResult = {
   path: string;
   displayName: string;
   durationMs: number;
   sizeBytes: number;
+  warnings: RecordingWarningView[];
 };
 
 export type RecordingStateView = {
   sessionId: string;
   mode: RecordingMode;
   elapsedMs: number;
+  warnings: RecordingWarningView[];
 };
+
+export type RecordingWarningListener = (
+  handler: (event: RecordingWarningEvent) => void,
+) => Promise<() => void>;
 
 export type RecordingCommandRunner = (
   command: string,
@@ -79,6 +100,7 @@ const RECORDING_ERROR_CODES: readonly RecordingErrorCode[] = [
   "RECORDING_MIC_ACCESS_DENIED",
   "RECORDING_SYSTEM_LOOPBACK_INIT_FAILED",
   "RECORDING_SYSTEM_AUDIO_UNAVAILABLE",
+  "RECORDING_SYSTEM_AUDIO_RECOVERED",
   "RECORDING_STREAM_ERROR",
   "RECORDING_MIX_FAILED",
   "RECORDING_WRITE_FAILED",
@@ -91,6 +113,18 @@ const RECORDING_ERROR_CODES: readonly RecordingErrorCode[] = [
 
 const defaultRecordingRunner: RecordingCommandRunner = (command, args) =>
   invoke(command, args);
+
+export const listenRecordingWarnings: RecordingWarningListener = async (
+  handler,
+) => {
+  return listen<unknown>("recording-warning", (event) => {
+    try {
+      handler(parseRecordingWarningEvent(event.payload));
+    } catch {
+      // Warning events are advisory. A malformed event must not disrupt the UI.
+    }
+  });
+};
 
 export async function getRecordingCapabilities(
   runner: RecordingCommandRunner = defaultRecordingRunner,
@@ -235,7 +269,7 @@ function parseRecordingResult(value: unknown): RecordingResult {
   const response = readRecordingObject(
     value,
     ["path", "displayName", "durationMs", "sizeBytes"],
-    [],
+    ["warnings"],
   );
   if (
     !isBoundedString(response.path, MAX_STRING_LENGTH) ||
@@ -250,6 +284,7 @@ function parseRecordingResult(value: unknown): RecordingResult {
     displayName: response.displayName,
     durationMs: response.durationMs,
     sizeBytes: response.sizeBytes,
+    warnings: parseRecordingWarnings(response.warnings),
   };
 }
 
@@ -257,7 +292,7 @@ function parseRecordingState(value: unknown): RecordingStateView {
   const response = readRecordingObject(
     value,
     ["sessionId", "mode", "elapsedMs"],
-    [],
+    ["warnings"],
   );
   if (
     !isBoundedString(response.sessionId, MAX_STRING_LENGTH) ||
@@ -270,7 +305,54 @@ function parseRecordingState(value: unknown): RecordingStateView {
     sessionId: response.sessionId,
     mode: response.mode,
     elapsedMs: response.elapsedMs,
+    warnings: parseRecordingWarnings(response.warnings),
   };
+}
+
+function parseRecordingWarnings(value: unknown): RecordingWarningView[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throwInvalidResponse();
+  return value.map(parseRecordingWarning);
+}
+
+function parseRecordingWarning(value: unknown): RecordingWarningView {
+  const response = readRecordingObject(
+    value,
+    ["warningCode", "source", "count", "totalGapMs"],
+    [],
+  );
+  if (
+    response.warningCode !== "RECORDING_SYSTEM_AUDIO_RECOVERED" ||
+    response.source !== "systemAudio" ||
+    !isSafeWarningCount(response.count) ||
+    !isSafeUnsignedInteger(response.totalGapMs)
+  ) {
+    throwInvalidResponse();
+  }
+  return {
+    warningCode: response.warningCode,
+    source: response.source,
+    count: response.count,
+    totalGapMs: response.totalGapMs,
+  };
+}
+
+function parseRecordingWarningEvent(value: unknown): RecordingWarningEvent {
+  const response = readRecordingObject(
+    value,
+    ["sessionId", "warningCode", "source", "count", "totalGapMs"],
+    [],
+  );
+  const warning = parseRecordingWarning({
+    warningCode: response.warningCode,
+    source: response.source,
+    count: response.count,
+    totalGapMs: response.totalGapMs,
+  });
+  if (!isBoundedString(response.sessionId, MAX_STRING_LENGTH)) {
+    throwInvalidResponse();
+  }
+  return { sessionId: response.sessionId, ...warning };
 }
 
 function assertSessionId(value: unknown): asserts value is string {
@@ -368,6 +450,14 @@ function isRecordingErrorCode(value: unknown): value is RecordingErrorCode {
     typeof value === "string" &&
     value.length <= MAX_REASON_CODE_LENGTH &&
     RECORDING_ERROR_CODES.includes(value as RecordingErrorCode)
+  );
+}
+
+function isSafeWarningCount(value: unknown): value is number {
+  return (
+    isSafeUnsignedInteger(value) &&
+    value > 0 &&
+    value <= 0xffff_ffff
   );
 }
 

@@ -5,6 +5,9 @@ import type {
   RecordingClientErrorCode,
   RecordingMode,
   RecordingResult,
+  RecordingStateView,
+  RecordingWarningEvent,
+  RecordingWarningView,
   StartRecordingWarning,
 } from "../../recordingClient";
 import type { LocalMediaSelectionView } from "../../localMediaContract";
@@ -61,6 +64,7 @@ type RecordingController = {
   session: {
     status: "idle" | "starting" | "recording" | "stopping" | "error";
     errorCode?: string;
+    warnings?: RecordingWarningView[];
   };
   activeSessionId: string | null;
   elapsedMs: number;
@@ -80,6 +84,10 @@ type RecordingController = {
 type ControllerDependencies = {
   recordingClient: {
     getRecordingCapabilities: () => Promise<RecordingCapabilities>;
+    getRecordingState?: () => Promise<RecordingStateView | null>;
+    listenRecordingWarnings?: (
+      handler: (event: RecordingWarningEvent) => void,
+    ) => Promise<() => void>;
     startRecording: (mode: RecordingMode) => Promise<{
       sessionId: string;
       warnings: StartRecordingWarning[];
@@ -175,6 +183,7 @@ const RESULT: RecordingResult = {
   displayName: "lecture.wav",
   durationMs: 3_500,
   sizeBytes: 90_000,
+  warnings: [],
 };
 
 const SELECTION: LocalMediaSelectionView = {
@@ -437,6 +446,77 @@ function recordingBlocksUploadAndNavigation(
 describe("useRecordingController", () => {
   beforeEach(() => {
     vi.resetModules();
+  });
+
+  test("accepts only recovery events for the active session", async () => {
+    let warningHandler: ((event: RecordingWarningEvent) => void) | undefined;
+    const created = await createController();
+    created.deps.recordingClient.listenRecordingWarnings = async (handler) => {
+      warningHandler = handler;
+      return () => undefined;
+    };
+
+    let controller = created.render();
+    await settle();
+    controller = created.render();
+    await controller.start();
+    await settle();
+    controller = created.render();
+
+    warningHandler?.({
+      sessionId: "other-session",
+      warningCode: "RECORDING_SYSTEM_AUDIO_RECOVERED",
+      source: "systemAudio",
+      count: 1,
+      totalGapMs: 400,
+    });
+    controller = created.render();
+    expect(controller.session.warnings).toBeUndefined();
+
+    warningHandler?.({
+      sessionId: "session-1",
+      warningCode: "RECORDING_SYSTEM_AUDIO_RECOVERED",
+      source: "systemAudio",
+      count: 1,
+      totalGapMs: 400,
+    });
+    controller = created.render();
+    expect(controller.session.warnings).toEqual([
+      {
+        warningCode: "RECORDING_SYSTEM_AUDIO_RECOVERED",
+        source: "systemAudio",
+        count: 1,
+        totalGapMs: 400,
+      },
+    ]);
+    expect(controller.session.status).toBe("recording");
+  });
+
+  test("hydrates missed recovery warnings from getRecordingState", async () => {
+    const created = await createController();
+    created.deps.recordingClient.getRecordingState = vi.fn().mockResolvedValue({
+      sessionId: "restored-session",
+      mode: "system",
+      elapsedMs: 1_500,
+      warnings: [
+        {
+          warningCode: "RECORDING_SYSTEM_AUDIO_RECOVERED",
+          source: "systemAudio",
+          count: 2,
+          totalGapMs: 800,
+        },
+      ],
+    });
+
+    let controller = created.render();
+    await settle();
+    controller = created.render();
+
+    expect(controller.session.status).toBe("recording");
+    expect(controller.activeSessionId).toBe("restored-session");
+    expect(controller.mode).toBe("system");
+    expect(controller.elapsedMs).toBe(1_500);
+    expect(controller.session.warnings?.[0].totalGapMs).toBe(800);
   });
 
   afterEach(() => {
