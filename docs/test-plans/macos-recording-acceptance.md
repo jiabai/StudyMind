@@ -173,7 +173,7 @@ macOS E1/E2/E3 上重新执行 native compile、TCC、两类应用全局音频�
 | C-03 | SilentRecording | 有有效零振幅帧时允许提交 | E1, E2 | **E1: Pass** / E2: Planned | E1: 单测确定性覆盖（`empty_capture_is_rejected_but_valid_silent_capture_is_finalized`、`stop_drains_blocks_and_returns_valid_silent_or_non_silent_summary` 静音分支）；真机后端实测环境有底噪 `silent=false`（`valid_frame_count=95744`），静音帧允许提交逻辑已由单测证明 |
 | C-04 | EmptyRecording | 没有有效音频帧时拒绝提交 | E1, E2 | **E1: Pass** / E2: Planned | E1: 单测 `empty_capture_is_rejected_but_valid_silent_capture_is_finalized`（`valid_frame_count=0` → `RECORDING_EMPTY`）；真机 CoreAudio 持续送帧，空录音不可自然复现 |
 | C-05 | 输出格式 | 最终文件为 16 kHz、单声道、16-bit PCM WAV | E1, E2 | **E1: Pass** / E2: Planned | E1: ffprobe 验证 `pcm_s16le / 16000Hz / 1ch / 16bit / 2.976s / 95310B`，header 含 `Lavf63.1`（真实 ffmpeg finalizer 产物） |
-| C-06 | 60 分钟录音 | 无明显错位、截断、写入中断或不可解释残留 | E1, E2 | Planned | — |
+| C-06 | 60 分钟录音 | 无明显错位、截断、写入中断或不可解释残留 | E1, E2 | **E1: Partial** / E2: Planned | E1(2026-08-21): 60 分钟录音进行到 16.5 分钟时进程被外部终止（WorkBuddy 会话关闭/系统休眠），残留 `system.wav` 190MB/989.6s **连续写入无截断错误**；非正常 stop 导致 `.tmp` 残留（符合崩溃残留预期）。正式 60 分钟验收未完成，留作后续（建议在独立终端跑，避免会话回收） |
 | C-07 | 低磁盘空间 | 低于 500 MB 时发出既有 warning，写入边界保持一致 | E1, E2 | Planned | — |
 
 ## 6. mixed 原子性与竞态
