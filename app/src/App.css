@@ -3402,7 +3402,10 @@ h3 {
   min-height: 22px;
 }
 
-.recording-capability-notice-warning,
+.recording-capability-notice-warning {
+  color: var(--warning);
+}
+
 .recording-error {
   color: var(--danger);
 }

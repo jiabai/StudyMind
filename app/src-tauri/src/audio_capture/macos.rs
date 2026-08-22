@@ -23,6 +23,12 @@ enum PermissionStatus {
     Restricted,
 }
 
+// Variants other than `Available`/`NoShareableDisplay` are reserved domain
+// states (macOS 13 gate, Screen Recording permission, init failure) that the
+// native probe will construct as those checks land. They are matched by the
+// production `system_capability_for`, so they must stay, but are not all
+// constructed yet in the current implementation or test suite.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SystemAudioAvailability {
     Available,
@@ -46,8 +52,10 @@ trait SystemAudioRuntime: Send + Sync {
     ) -> Result<Box<dyn super::ActiveCapture>, RecordingError>;
 }
 
+#[cfg(test)]
 struct UnavailableSystemAudioProbe;
 
+#[cfg(test)]
 impl SystemAudioProbe for UnavailableSystemAudioProbe {
     fn probe(&self) -> Result<SystemAudioAvailability, RecordingError> {
         Ok(SystemAudioAvailability::PermissionNotDetermined)
@@ -78,6 +86,7 @@ fn system_capability_for(
     }
 }
 
+#[cfg(test)]
 fn capabilities_for(
     permission: PermissionStatus,
     probe_input: impl FnOnce() -> bool,
@@ -346,6 +355,7 @@ fn submit_block(
     }
 }
 
+#[cfg(test)]
 fn run_writer(
     path: PathBuf,
     format: WaveFormat,
@@ -417,6 +427,7 @@ fn finish_capture(
     writer_result: Result<WavCaptureSummary, RecordingError>,
 ) -> Result<Option<CapturedRecording>, RecordingError> {
     if source_failed {
+        log::error!("[SYSDBG] capture finished with source failure");
         return Err(RecordingError::new(RECORDING_STREAM_ERROR));
     }
     let summary = writer_result?;
@@ -682,7 +693,13 @@ mod platform {
             // Authoritative recovery: filter-update first, then rebuild. This is
             // what actually restores audio and must never be skipped by transient
             // writer backpressure. Its error means the rebuild genuinely failed.
-            self.reconcile().map(|_| ())
+            match self.reconcile() {
+                Ok(_) => Ok(()),
+                Err(error) => {
+                    log::error!("[SYSDBG] system stream reconcile failed: {error:?}");
+                    Err(error)
+                }
+            }
         }
 
         pub(crate) fn handle_display_anchor_changed(
@@ -762,8 +779,14 @@ mod platform {
     ) -> Result<(), RecordingError> {
         match sender.try_send(event) {
             Ok(()) => Ok(()),
-            Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
+            Err(TrySendError::Full(_)) => {
                 first_error.store();
+                log::error!("[SYSDBG] system audio event queue FULL (capacity exceeded)");
+                Err(RecordingError::new(RECORDING_STREAM_ERROR))
+            }
+            Err(TrySendError::Disconnected(_)) => {
+                first_error.store();
+                log::error!("[SYSDBG] system audio event queue DISCONNECTED (writer exited)");
                 Err(RecordingError::new(RECORDING_STREAM_ERROR))
             }
         }
@@ -803,16 +826,36 @@ mod platform {
         while let Ok(event) = receiver.recv() {
             match event {
                 SystemStreamEvent::Audio { block, timing } => {
+                    log::debug!(
+                        "[SYSDBG] writer got Audio frames={} bytes={} valid={} pts={} dur={}",
+                        block.frame_count,
+                        block.bytes.len(),
+                        timing.valid,
+                        timing.presentation_ns,
+                        timing.duration_ns,
+                    );
                     for action in recovery.push(timing) {
                         match action {
-                            WriteAction::Audio => writer.write_frames(
-                                &block.bytes,
-                                block.frame_count,
-                                block.silent,
-                            )?,
+                            WriteAction::Audio => {
+                                let frames = block.frame_count;
+                                let bytes_len = block.bytes.len();
+                                if let Err(error) = writer.write_frames(
+                                    &block.bytes,
+                                    frames,
+                                    block.silent,
+                                ) {
+                                    log::error!(
+                                        "[SYSDBG] write_frames FAILED frames={} bytes={} => {error:?}",
+                                        frames,
+                                        bytes_len,
+                                    );
+                                    return Err(error);
+                                }
+                            }
                             WriteAction::Silence { frames } => writer.write_silence(frames)?,
                             WriteAction::Recovered { gap_ms } => reporter.record_recovery(gap_ms),
                             WriteAction::FailSource => {
+                                log::error!("[SYSDBG] writer recovery FailSource");
                                 return Err(RecordingError::new(RECORDING_STREAM_ERROR))
                             }
                             WriteAction::StopCleanly => {}
@@ -853,8 +896,10 @@ mod platform {
 
     impl SystemStream for NativeSystemStream {
         fn update_content_filter(&self, display: DisplayAnchor) -> Result<(), RecordingError> {
-            let content = SCShareableContent::get()
-                .map_err(|_| RecordingError::new(RECORDING_STREAM_ERROR))?;
+            let content = SCShareableContent::get().map_err(|error| {
+                log::error!("[SYSDBG] update_content_filter SCShareableContent::get failed: {error:?}");
+                RecordingError::new(RECORDING_STREAM_ERROR)
+            })?;
             let sc_display = content
                 .displays()
                 .into_iter()
@@ -884,8 +929,10 @@ mod platform {
 
     impl SystemStreamFactory for NativeSystemStreamFactory {
         fn probe_display_anchor(&self) -> Result<DisplayAnchor, RecordingError> {
-            let content = SCShareableContent::get()
-                .map_err(|_| RecordingError::new(RECORDING_SYSTEM_AUDIO_UNAVAILABLE))?;
+            let content = SCShareableContent::get().map_err(|error| {
+                log::error!("[SYSDBG] probe_display_anchor SCShareableContent::get failed: {error:?}");
+                RecordingError::new(RECORDING_SYSTEM_AUDIO_UNAVAILABLE)
+            })?;
             content
                 .displays()
                 .into_iter()
@@ -901,8 +948,10 @@ mod platform {
             interrupt: SyncSender<()>,
             first_error: Arc<FirstStreamError>,
         ) -> Result<Box<dyn SystemStream>, RecordingError> {
-            let content = SCShareableContent::get()
-                .map_err(|_| RecordingError::new(RECORDING_SYSTEM_LOOPBACK_INIT_FAILED))?;
+            let content = SCShareableContent::get().map_err(|error| {
+                log::error!("[SYSDBG] create_stream SCShareableContent::get failed: {error:?}");
+                RecordingError::new(RECORDING_SYSTEM_LOOPBACK_INIT_FAILED)
+            })?;
             let sc_display = content
                 .displays()
                 .into_iter()
@@ -919,13 +968,41 @@ mod platform {
             let mut stream = SCStream::new_with_delegate(&filter, &config, delegate);
             let callback_events = events.clone();
             let callback_error = Arc::clone(&first_error);
+            let format_logged = Arc::new(AtomicBool::new(false));
             let registered = stream.add_output_handler(
                 move |sample: CMSampleBuffer, output: SCStreamOutputType| {
                     let output = native_system_stream_output(output);
                     let result = if output == SystemStreamOutput::Audio {
+                        if !format_logged.swap(true, Ordering::SeqCst) {
+                            match sample.format_description() {
+                                Some(format) => log::debug!(
+                                    "[SYSDBG] first system audio sample format bits={:?} flags={:?} float={} big_endian={} channels={:?}",
+                                    format.audio_bits_per_channel(),
+                                    format.audio_format_flags(),
+                                    format.audio_is_float(),
+                                    format.audio_is_big_endian(),
+                                    format.audio_channel_count(),
+                                ),
+                                None => log::error!(
+                                    "[SYSDBG] first system audio sample format_description() is None"
+                                ),
+                            }
+                            let pts = sample.presentation_timestamp();
+                            let dur = sample.duration();
+                            let timing = timing_from_cm_sample(&sample);
+                            log::debug!(
+                                "[SYSDBG] first sample timing pts={:?} dur={:?} => valid={} presentation_ns={} duration_ns={}",
+                                pts,
+                                dur,
+                                timing.valid,
+                                timing.presentation_ns,
+                                timing.duration_ns,
+                            );
+                        }
                         let timing = timing_from_cm_sample(&sample);
                         pcm16_from_screen_capture_sample(sample).map(|block| (block, timing))
                     } else {
+                        log::error!("[SYSDBG] unexpected SCK output type: {output:?}");
                         Err(RecordingError::new(RECORDING_STREAM_ERROR))
                     };
                     match result {
@@ -936,7 +1013,10 @@ mod platform {
                                 &callback_error,
                             );
                         }
-                        Err(_) => callback_error.store(),
+                        Err(error) => {
+                            log::error!("[SYSDBG] system audio sample rejected: {error:?}");
+                            callback_error.store();
+                        }
                     }
                 },
                 SCStreamOutputType::Audio,
@@ -985,9 +1065,18 @@ mod platform {
 
     impl SystemAudioProbe for NativeSystemAudioProbe {
         fn probe(&self) -> Result<SystemAudioAvailability, RecordingError> {
-            let content = SCShareableContent::get()
-                .map_err(|_| RecordingError::new(RECORDING_SYSTEM_AUDIO_UNAVAILABLE))?;
-            if content.displays().is_empty() {
+            let content = SCShareableContent::get().map_err(|error| {
+                log::error!(
+                    "[SYSDBG] system audio probe SCShareableContent::get failed: {error:?}"
+                );
+                RecordingError::new(RECORDING_SYSTEM_AUDIO_UNAVAILABLE)
+            })?;
+            let displays = content.displays();
+            log::debug!(
+                "[SYSDBG] system audio probe ok displays_count={}",
+                displays.len()
+            );
+            if displays.is_empty() {
                 Ok(SystemAudioAvailability::NoShareableDisplay)
             } else {
                 Ok(SystemAudioAvailability::Available)
@@ -1202,6 +1291,7 @@ mod platform {
             Err(error) => return notify_setup_error(ready_tx, error),
         };
         if let Err(error) = map_system_start_error(stream.start_capture()) {
+            log::error!("[SYSDBG] system stream start_capture failed: {error:?}");
             drop(stream);
             return notify_setup_error(ready_tx, error);
         }
@@ -1213,6 +1303,7 @@ mod platform {
             interrupt_tx,
             Arc::clone(&first_error),
         );
+        log::debug!("[SYSDBG] system audio stream started (anchor={anchor})");
         if ready_tx.send(Ok(())).is_err() {
             let _ = supervisor.shutdown(CaptureControl::Cancel);
             return Err(RecordingError::new(RECORDING_STREAM_ERROR));

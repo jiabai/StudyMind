@@ -127,6 +127,33 @@ describe("RecordingCard", () => {
     expect(source).toMatch(/startButtonRef\.current\?\.focus/);
   });
 
+  test("shows system-audio-recovered warning in amber instead of red during active recording", () => {
+    const markup = renderCard(
+      createController({
+        session: {
+          status: "recording",
+          warnings: [
+            {
+              warningCode: "RECORDING_SYSTEM_AUDIO_RECOVERED",
+              source: "systemAudio",
+              count: 1,
+              totalGapMs: 800,
+            },
+          ],
+          warningCode: "RECORDING_SYSTEM_AUDIO_RECOVERED",
+        },
+        activeSessionId: "session-1",
+        elapsedMs: 5_000,
+      }),
+    );
+
+    expect(markup).toContain("recovered");
+    expect(markup).not.toContain("Try again");
+    expect(markup).not.toContain("cannot continue right now");
+    expect(markup).toContain("recording-capability-notice-warning");
+    expect(markup).not.toContain("recording-error");
+  });
+
   test("traps focus inside the discard confirmation with the shared modal hook", () => {
     const source = readFileSync(new URL("./RecordingCard.tsx", import.meta.url), "utf8");
 

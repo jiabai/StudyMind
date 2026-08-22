@@ -108,6 +108,9 @@ export const workflowResources = {
           alreadyActive: "已有录音正在进行。",
           openPrivacySettings: "打开 Windows 麦克风设置",
         },
+        warning: {
+          systemAudioRecovered: "系统音频短暂中断后已恢复，录音继续。",
+        },
       },
       attachment: {
         openAria: "添加本地媒体",
@@ -246,6 +249,9 @@ export const workflowResources = {
           alreadyActive: "已有錄音正在進行。",
           openPrivacySettings: "開啟 Windows 麥克風設定",
         },
+        warning: {
+          systemAudioRecovered: "系統音訊短暫中斷後已恢復，錄音繼續。",
+        },
       },
       attachment: {
         openAria: "加入本機媒體",
@@ -383,6 +389,9 @@ export const workflowResources = {
           stream: "The recording stream encountered an error. Try again.",
           alreadyActive: "A recording is already in progress.",
           openPrivacySettings: "Open Windows microphone settings",
+        },
+        warning: {
+          systemAudioRecovered: "System audio recovered after a brief interruption. Recording continued.",
         },
       },
       attachment: {

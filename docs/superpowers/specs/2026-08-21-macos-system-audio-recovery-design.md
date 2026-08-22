@@ -33,6 +33,10 @@
 4. 下一帧到达后若可可靠计算缺口且缺口不超过 2 秒，则向 writer 先写与缺口等长的零振幅
    PCM16，再写真实音频帧，并累计一个 `RECORDING_SYSTEM_AUDIO_RECOVERED` warning。
    若 timestamp 缺失/不单调，或缺口超过 2 秒，则 fail-closed，不伪造时间轴。
+   E1 实测补充：ScreenCaptureKit 的 presentation timestamp 来自 host clock，与样本时长
+   时钟不同源，批量投递时存在小于一个样本时长的微小倒退抖动。小于单样本时长的倒退视为
+   gap=0 的连续帧（不 fail-closed、不补静音、不产生 warning）；达到或超过一个样本时长的
+   倒退才判定为不单调并 fail-closed。
 5. warning 是非阻塞的即时事件，同时必须持久在当前 `RecordingSession` 的内存状态中，供
    `get_recording_state` 和 `stop_recording` 返回；事件漏收不能丢失 warning 事实。
 
@@ -150,7 +154,8 @@ error，并通过同一恢复路径处理，确保产品仍捕获全局系统音
 ### Rust red-green tests
 
 - `system_audio_recovery.rs`：首帧/time zero、连续帧、1.04 秒 gap 补静音、2 秒边界、
-  超时失败、timestamp 不可用失败、stop/cancel 竞态、warning 聚合；
+  超时失败、timestamp 不可用失败、倒退容差边界（小于一个样本时长视为连续、达到则失败）、
+  stop/cancel 竞态、warning 聚合；
 - `macos.rs`：delegate stream error 进入恢复、filter update 优先、rebuild 重新注册 Audio
   only、display id 变化不改变 source、重建失败映射稳定错误、队列溢出 fail-closed；
 - `mod.rs`：warning accumulator 通过 `get_recording_state`/`stop_recording` 保留，emit 失败

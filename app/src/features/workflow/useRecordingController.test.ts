@@ -492,6 +492,41 @@ describe("useRecordingController", () => {
     expect(controller.session.status).toBe("recording");
   });
 
+  test("filters system-audio-recovered from startup warnings", async () => {
+    const created = await createController({
+      recordingClient: {
+        getRecordingCapabilities: vi
+          .fn<() => Promise<RecordingCapabilities>>()
+          .mockResolvedValue(CAPABILITIES),
+        startRecording: vi
+          .fn<
+            (
+              mode: RecordingMode,
+            ) => Promise<{ sessionId: string; warnings: StartRecordingWarning[] }>
+          >()
+          .mockResolvedValue({
+            sessionId: "session-1",
+            warnings: ["RECORDING_SYSTEM_AUDIO_RECOVERED"],
+          }),
+        stopRecording: vi
+          .fn<(sessionId: string) => Promise<RecordingResult>>()
+          .mockResolvedValue(RESULT),
+        cancelRecording: vi
+          .fn<(sessionId: string) => Promise<void>>()
+          .mockResolvedValue(undefined),
+      },
+    });
+    let controller = created.render();
+    await settle();
+    controller = created.render();
+    await controller.start();
+    await settle();
+    controller = created.render();
+
+    expect(controller.session.status).toBe("recording");
+    expect(controller.session.warnings).toBeUndefined();
+  });
+
   test("hydrates missed recovery warnings from getRecordingState", async () => {
     const created = await createController();
     created.deps.recordingClient.getRecordingState = vi.fn().mockResolvedValue({

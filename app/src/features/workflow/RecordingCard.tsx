@@ -46,6 +46,20 @@ type RecordingErrorCopyKey =
   | "input.recording.error.stream"
   | "input.recording.error.alreadyActive";
 
+type RecordingWarningCopyKey =
+  | "input.recording.warning.systemAudioRecovered";
+
+function warningCopyKey(
+  warningCode: RecordingControllerErrorCode,
+): RecordingWarningCopyKey | null {
+  switch (warningCode) {
+    case "RECORDING_SYSTEM_AUDIO_RECOVERED":
+      return "input.recording.warning.systemAudioRecovered";
+    default:
+      return null;
+  }
+}
+
 function isRecordingMode(value: string): value is RecordingMode {
   return value === "mic" || value === "system" || value === "mixed";
 }
@@ -297,14 +311,20 @@ export function RecordingCard({ controller, startDisabled = false }: RecordingCa
           </button>
         ) : null}
 
-        {recording && controller.session.warningCode ? (
-          <p
-            className="recording-capability-notice recording-capability-notice-warning"
-            role="status"
-          >
-            {t(errorCopyKey(controller.session.warningCode))}
-          </p>
-        ) : null}
+        {recording && controller.session.warningCode
+          ? (() => {
+              const warningKey = warningCopyKey(controller.session.warningCode);
+              if (!warningKey) return null;
+              return (
+                <p
+                  className="recording-capability-notice recording-capability-notice-warning"
+                  role="status"
+                >
+                  {t(warningKey)}
+                </p>
+              );
+            })()
+          : null}
 
         <div className="recording-card-actions">
           {recording ? (

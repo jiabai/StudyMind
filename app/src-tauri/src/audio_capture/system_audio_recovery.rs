@@ -75,10 +75,16 @@ impl SystemAudioRecovery {
         };
 
         if timing.presentation_ns < last_end_ns {
-            return self.fail_source();
+            let backward_ns = last_end_ns - timing.presentation_ns;
+            // SCK 音频样本的 presentation timestamp 来自 host clock，与样本
+            // 时长时钟不同源，存在微小抖动/批量投递导致的倒退。容忍小于一个
+            // 样本时长的倒退（视为 gap=0），更大的倒退才是真正的数据损坏。
+            if backward_ns >= timing.duration_ns {
+                return self.fail_source();
+            }
         }
 
-        let gap_ns = timing.presentation_ns - last_end_ns;
+        let gap_ns = timing.presentation_ns.saturating_sub(last_end_ns);
         let Some(recovery_window_ns) =
             SYSTEM_RECOVERY_WINDOW_MS.checked_mul(NANOSECONDS_PER_MILLISECOND)
         else {
@@ -234,6 +240,30 @@ mod tests {
         );
         assert_eq!(
             recovery.push(sample(900_000, 20_000_000)),
+            vec![WriteAction::FailSource]
+        );
+    }
+
+    #[test]
+    fn recovery_tolerates_sub_sample_backward_jitter() {
+        // SCK 的 presentation timestamp 存在小于一个样本时长的倒退抖动：
+        // 视为 gap=0 的连续帧，不失败、不补静音、不产生 warning。
+        let mut recovery = SystemAudioRecovery::new(48_000, 2);
+        recovery.push(sample(1_000_000, 20_000_000));
+        // last_end_ns = 21_000_000，倒退 120ns，远小于 20ms 样本时长。
+        assert_eq!(
+            recovery.push(sample(20_999_880, 20_000_000)),
+            vec![WriteAction::Audio]
+        );
+    }
+
+    #[test]
+    fn recovery_fails_when_backward_jump_reaches_one_sample() {
+        let mut recovery = SystemAudioRecovery::new(48_000, 2);
+        recovery.push(sample(1_000_000, 20_000_000));
+        // presentation 与上一帧相同：倒退恰好等于一个样本时长（20ms），判定不单调。
+        assert_eq!(
+            recovery.push(sample(1_000_000, 20_000_000)),
             vec![WriteAction::FailSource]
         );
     }

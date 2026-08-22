@@ -560,12 +560,15 @@ export function useRecordingController({
       setStartedAt(startedAtValue);
       startedAtRef.current = startedAtValue;
       setElapsedMs(0);
+      const startupWarnings = started.warnings.filter(
+        (w) => w !== "RECORDING_SYSTEM_AUDIO_RECOVERED",
+      );
       updateSession({
         status: "recording",
-        warningCode: started.warnings[0],
+        warningCode: startupWarnings[0],
       });
-      if (started.warnings[0]) {
-        reportError(started.warnings[0]);
+      if (startupWarnings[0]) {
+        reportError(startupWarnings[0]);
       }
       saveAudioSourceModeBestEffort(actualMode);
     } catch (error) {
