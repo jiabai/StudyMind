@@ -189,6 +189,29 @@ impl ActiveCapture for MixedActiveCapture {
         failures.snapshot().map_or(Ok(()), Err)
     }
 
+    fn cancel_for_cleanup(self: Box<Self>) -> Result<(), RecordingError> {
+        let MixedActiveCapture { sources, failures } = *self;
+        let failure_confirmed = failures.snapshot().is_some();
+        request_all(&sources, CaptureCommand::Cancel);
+        let mut cleanup_error = None;
+        for prepared in sources {
+            let source = prepared.source;
+            match prepared.worker.join() {
+                Ok(Ok(_)) => {}
+                Ok(Err(_)) if failure_confirmed => {}
+                Ok(Err(error)) => {
+                    cleanup_error.get_or_insert_with(|| error.for_source(source));
+                }
+                Err(_) => {
+                    cleanup_error.get_or_insert_with(|| {
+                        RecordingError::new(RECORDING_STREAM_ERROR).for_source(source)
+                    });
+                }
+            }
+        }
+        cleanup_error.map_or(Ok(()), Err)
+    }
+
     fn cancel_handle(&self) -> Option<CaptureCancelHandle> {
         let signals = self
             .sources
@@ -728,6 +751,51 @@ mod tests {
 
         assert_eq!(error.code, super::RECORDING_EMPTY);
         assert_eq!(error.source, Some(RecordingSource::Microphone));
+    }
+
+    #[test]
+    fn mixed_cleanup_joins_all_workers_after_a_join_panic() {
+        let observation = Arc::new(WorkerObservation::default());
+        let panicking_worker = |source| {
+            let signal = CaptureSignal::default();
+            let worker_signal = signal.clone();
+            let worker = thread::spawn(move || -> Result<WavCaptureSummary, RecordingError> {
+                loop {
+                    if worker_signal.current().is_some() {
+                        panic!("simulated cleanup join failure");
+                    }
+                    thread::yield_now();
+                }
+            });
+            PreparedSource {
+                source,
+                signal,
+                worker,
+            }
+        };
+        let sources = [
+            panicking_worker(RecordingSource::Microphone),
+            prepared_summary_worker(
+                RecordingSource::SystemAudio,
+                Ok(summary_for(RecordingSource::SystemAudio)),
+                None,
+                false,
+                Some(observation.clone()),
+            ),
+        ];
+        let failures = FirstSourceFailure::default();
+        failures.record(
+            RecordingError::new(RECORDING_STREAM_ERROR),
+            RecordingSource::Microphone,
+        );
+
+        let error = Box::new(MixedActiveCapture { sources, failures })
+            .cancel_for_cleanup()
+            .expect_err("join panic must remain a cleanup error");
+
+        assert_eq!(error.code, RECORDING_STREAM_ERROR);
+        assert_eq!(error.source, Some(RecordingSource::Microphone));
+        assert_eq!(observation.joined.load(Ordering::SeqCst), 1);
     }
 
     #[test]

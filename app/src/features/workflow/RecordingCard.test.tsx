@@ -32,6 +32,7 @@ function createController(
     stop: vi.fn(async () => undefined),
     requestDiscard: vi.fn(),
     confirmDiscard: vi.fn(async () => undefined),
+    dismissFailure: vi.fn(async () => undefined),
     closeDiscard: vi.fn(),
     retryHandoff: vi.fn(async () => undefined),
     isModeAvailable: vi.fn(() => true),

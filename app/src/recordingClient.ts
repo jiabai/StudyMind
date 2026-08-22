@@ -20,7 +20,8 @@ export type RecordingErrorCode =
   | "RECORDING_EMPTY"
   | "RECORDING_SESSION_INVALID"
   | "RECORDING_FINALIZE_FAILED"
-  | "RECORDING_STATE_UNAVAILABLE";
+  | "RECORDING_STATE_UNAVAILABLE"
+  | "RECORDING_CLEANUP_IN_PROGRESS";
 
 export type RecordingClientErrorCode =
   | RecordingErrorCode
@@ -52,6 +53,8 @@ export type RecordingWarningEvent = RecordingWarningView & {
   sessionId: string;
 };
 
+export type RecordingSource = "microphone" | "systemAudio";
+
 export type RecordingResult = {
   path: string;
   displayName: string;
@@ -60,15 +63,33 @@ export type RecordingResult = {
   warnings: RecordingWarningView[];
 };
 
-export type RecordingStateView = {
+export type RecordingActiveStateView = {
   sessionId: string;
   mode: RecordingMode;
   elapsedMs: number;
   warnings: RecordingWarningView[];
 };
 
+export type RecordingFailureView = {
+  sessionId: string;
+  mode: RecordingMode;
+  elapsedMs: number;
+  errorCode: RecordingErrorCode;
+  source?: RecordingSource;
+  cleanupPending: boolean;
+  warnings: RecordingWarningView[];
+};
+
+export type RecordingStateView =
+  | ({ status: "recording" } & RecordingActiveStateView)
+  | ({ status: "failed" } & RecordingFailureView);
+
 export type RecordingWarningListener = (
   handler: (event: RecordingWarningEvent) => void,
+) => Promise<() => void>;
+
+export type RecordingFailureListener = (
+  handler: (failure: RecordingFailureView) => void,
 ) => Promise<() => void>;
 
 export type RecordingCommandRunner = (
@@ -78,11 +99,13 @@ export type RecordingCommandRunner = (
 
 export class RecordingClientError extends Error {
   readonly code: RecordingClientErrorCode;
+  readonly source?: RecordingSource;
 
-  constructor(code: RecordingClientErrorCode) {
+  constructor(code: RecordingClientErrorCode, source?: RecordingSource) {
     super(code);
     this.name = "RecordingClientError";
     this.code = code;
+    this.source = source;
   }
 }
 
@@ -109,6 +132,7 @@ const RECORDING_ERROR_CODES: readonly RecordingErrorCode[] = [
   "RECORDING_SESSION_INVALID",
   "RECORDING_FINALIZE_FAILED",
   "RECORDING_STATE_UNAVAILABLE",
+  "RECORDING_CLEANUP_IN_PROGRESS",
 ];
 
 const defaultRecordingRunner: RecordingCommandRunner = (command, args) =>
@@ -122,6 +146,18 @@ export const listenRecordingWarnings: RecordingWarningListener = async (
       handler(parseRecordingWarningEvent(event.payload));
     } catch {
       // Warning events are advisory. A malformed event must not disrupt the UI.
+    }
+  });
+};
+
+export const listenRecordingFailures: RecordingFailureListener = async (
+  handler,
+) => {
+  return listen<unknown>("recording-failed", (event) => {
+    try {
+      handler(parseRecordingFailureView(event.payload));
+    } catch {
+      // Failure events are untrusted IPC input. Malformed events never enter UI state.
     }
   });
 };
@@ -166,6 +202,21 @@ export async function cancelRecording(
   const response = await runRecordingCommand(
     runner,
     "cancel_recording",
+    { sessionId },
+  );
+  if (response !== null && response !== undefined) {
+    throwInvalidResponse();
+  }
+}
+
+export async function acknowledgeRecordingFailure(
+  sessionId: string,
+  runner: RecordingCommandRunner = defaultRecordingRunner,
+): Promise<void> {
+  assertSessionId(sessionId);
+  const response = await runRecordingCommand(
+    runner,
+    "acknowledge_recording_failure",
     { sessionId },
   );
   if (response !== null && response !== undefined) {
@@ -289,12 +340,32 @@ function parseRecordingResult(value: unknown): RecordingResult {
 }
 
 function parseRecordingState(value: unknown): RecordingStateView {
-  const response = readRecordingObject(
-    value,
-    ["sessionId", "mode", "elapsedMs"],
-    ["warnings"],
-  );
+  const response = readRecordingObject(value, ["status"], [
+    "sessionId",
+    "mode",
+    "elapsedMs",
+    "errorCode",
+    "source",
+    "cleanupPending",
+    "warnings",
+  ]);
+  if (response.status === "recording") {
+    const active = parseRecordingActiveState(response);
+    return { status: "recording", ...active };
+  }
+  if (response.status === "failed") {
+    const failure = parseRecordingFailureView(response);
+    return { status: "failed", ...failure };
+  }
+  throwInvalidResponse();
+}
+
+function parseRecordingActiveState(
+  value: Record<string, unknown>,
+): RecordingActiveStateView {
+  const response = readRecordingObject(value, ["status", "sessionId", "mode", "elapsedMs"], ["warnings"]);
   if (
+    response.status !== "recording" ||
     !isBoundedString(response.sessionId, MAX_STRING_LENGTH) ||
     !isRecordingMode(response.mode) ||
     !isSafeUnsignedInteger(response.elapsedMs)
@@ -305,6 +376,39 @@ function parseRecordingState(value: unknown): RecordingStateView {
     sessionId: response.sessionId,
     mode: response.mode,
     elapsedMs: response.elapsedMs,
+    warnings: parseRecordingWarnings(response.warnings),
+  };
+}
+
+function parseRecordingFailureView(value: unknown): RecordingFailureView {
+  const response = readRecordingObject(
+    value,
+    ["sessionId", "mode", "elapsedMs", "errorCode", "cleanupPending"],
+    ["source", "warnings", "status"],
+  );
+  if (
+    !isBoundedString(response.sessionId, MAX_STRING_LENGTH) ||
+    !isRecordingMode(response.mode) ||
+    !isSafeUnsignedInteger(response.elapsedMs) ||
+    !isRecordingErrorCode(response.errorCode) ||
+    typeof response.cleanupPending !== "boolean"
+  ) {
+    throwInvalidResponse();
+  }
+  let source: RecordingSource | undefined;
+  if (Object.prototype.hasOwnProperty.call(response, "source")) {
+    if (!isRecordingSource(response.source)) {
+      throwInvalidResponse();
+    }
+    source = response.source;
+  }
+  return {
+    sessionId: response.sessionId,
+    mode: response.mode,
+    elapsedMs: response.elapsedMs,
+    errorCode: response.errorCode,
+    ...(source ? { source } : {}),
+    cleanupPending: response.cleanupPending,
     warnings: parseRecordingWarnings(response.warnings),
   };
 }
@@ -415,8 +519,13 @@ function mapRecordingCommandError(error: unknown): RecordingClientError {
   try {
     if (error instanceof RecordingClientError) {
       const code = error.code;
+      const source = error.source;
+      if (source !== undefined && !isRecordingSource(source)) {
+        return new RecordingClientError(RECORDING_UNKNOWN_ERROR);
+      }
       return new RecordingClientError(
         isRecordingClientErrorCode(code) ? code : RECORDING_UNKNOWN_ERROR,
+        source,
       );
     }
   } catch {
@@ -424,12 +533,19 @@ function mapRecordingCommandError(error: unknown): RecordingClientError {
   }
 
   try {
-    const response = readRecordingObject(error, ["code", "message"], []);
+    const response = readRecordingObject(error, ["code", "message"], ["source"]);
     if (
       isBoundedString(response.message, MAX_STRING_LENGTH) &&
       isRecordingErrorCode(response.code)
     ) {
-      return new RecordingClientError(response.code);
+      let source: RecordingSource | undefined;
+      if (Object.prototype.hasOwnProperty.call(response, "source")) {
+        if (!isRecordingSource(response.source)) {
+          return new RecordingClientError(RECORDING_UNKNOWN_ERROR);
+        }
+        source = response.source;
+      }
+      return new RecordingClientError(response.code, source);
     }
   } catch {
     // All malformed or non-structured runner errors intentionally collapse below.
@@ -443,6 +559,10 @@ function throwInvalidResponse(): never {
 
 function isRecordingMode(value: unknown): value is RecordingMode {
   return value === "mic" || value === "system" || value === "mixed";
+}
+
+function isRecordingSource(value: unknown): value is RecordingSource {
+  return value === "microphone" || value === "systemAudio";
 }
 
 function isRecordingErrorCode(value: unknown): value is RecordingErrorCode {

@@ -4,16 +4,21 @@ import {
   cancelRecording as defaultCancelRecording,
   getRecordingCapabilities as defaultGetRecordingCapabilities,
   getRecordingState as defaultGetRecordingState,
+  acknowledgeRecordingFailure as defaultAcknowledgeRecordingFailure,
+  listenRecordingFailures as defaultListenRecordingFailures,
   listenRecordingWarnings as defaultListenRecordingWarnings,
   startRecording as defaultStartRecording,
   stopRecording as defaultStopRecording,
   type RecordingCapabilities,
   type RecordingClientErrorCode,
+  type RecordingFailureListener,
+  type RecordingFailureView,
   type RecordingMode,
   type RecordingResult,
   type RecordingStateView,
   type RecordingWarningEvent,
   type RecordingWarningView,
+  type RecordingSource,
   type StartRecordingWarning,
 } from "../../recordingClient";
 import {
@@ -56,6 +61,8 @@ export type RecordingCapabilityView = {
 export type RecordingSessionView = {
   status: RecordingSessionStatus;
   errorCode?: RecordingControllerErrorCode;
+  errorSource?: RecordingSource;
+  cleanupPending?: boolean;
   warningCode?: RecordingControllerErrorCode;
   warnings?: RecordingWarningView[];
 };
@@ -73,6 +80,8 @@ export type RecordingTimer = {
 export type RecordingClientDependencies = {
   getRecordingCapabilities: () => Promise<RecordingCapabilities>;
   getRecordingState?: () => Promise<RecordingStateView | null>;
+  acknowledgeRecordingFailure?: (sessionId: string) => Promise<void>;
+  listenRecordingFailures?: RecordingFailureListener;
   listenRecordingWarnings?: (
     handler: (event: RecordingWarningEvent) => void,
   ) => Promise<() => void>;
@@ -111,6 +120,7 @@ export type RecordingController = {
   stop: () => Promise<void>;
   requestDiscard: () => void;
   confirmDiscard: () => Promise<void>;
+  dismissFailure: () => Promise<void>;
   closeDiscard: () => void;
   retryHandoff: () => Promise<void>;
   isModeAvailable: (mode: RecordingMode) => boolean;
@@ -140,6 +150,7 @@ const RECORDING_CLIENT_ERROR_CODES = new Set<string>([
   "RECORDING_SESSION_INVALID",
   "RECORDING_FINALIZE_FAILED",
   "RECORDING_STATE_UNAVAILABLE",
+  "RECORDING_CLEANUP_IN_PROGRESS",
   "RECORDING_UNKNOWN_ERROR",
   "RECORDING_IPC_RESPONSE_INVALID",
 ]);
@@ -210,6 +221,20 @@ function warningIdentity(warning: RecordingWarningView): string {
   return `${warning.warningCode}:${warning.source ?? ""}`;
 }
 
+type RecordingFailureIdentity = {
+  sessionId: string;
+  errorCode: RecordingControllerErrorCode;
+  source?: RecordingSource;
+};
+
+function failureIdentity(failure: RecordingFailureView): RecordingFailureIdentity {
+  return {
+    sessionId: failure.sessionId,
+    errorCode: failure.errorCode,
+    source: failure.source,
+  };
+}
+
 function mergeWarning(
   warnings: RecordingWarningView[],
   incoming: RecordingWarningView,
@@ -230,6 +255,8 @@ export function useRecordingController({
   recordingClient = {
     getRecordingCapabilities: defaultGetRecordingCapabilities,
     getRecordingState: defaultGetRecordingState,
+    acknowledgeRecordingFailure: defaultAcknowledgeRecordingFailure,
+    listenRecordingFailures: defaultListenRecordingFailures,
     listenRecordingWarnings: defaultListenRecordingWarnings,
     startRecording: defaultStartRecording,
     stopRecording: defaultStopRecording,
@@ -267,6 +294,9 @@ export function useRecordingController({
   const discardConfirmationRef = useRef(discardConfirmationOpen);
   const preferenceModeRef = useRef<RecordingMode>("mic");
   const handoffResultRef = useRef<RecordingResult | null>(null);
+  const pendingFailureEventsRef = useRef(new Map<string, RecordingFailureView>());
+  const failureIdentityRef = useRef<RecordingFailureIdentity | null>(null);
+  const failedSessionIdRef = useRef<string | null>(null);
   const capabilityRequestRef = useRef(0);
   const startCapabilityRequestRef = useRef(0);
   const preferenceRequestRef = useRef(0);
@@ -337,20 +367,102 @@ export function useRecordingController({
     );
   };
 
+  const applyRecordingFailure = (
+    failure: RecordingFailureView,
+    allowOrphan = false,
+  ): boolean => {
+    const activeId = activeSessionIdRef.current;
+    const retainedId = failedSessionIdRef.current;
+    const isStartRace = operationRef.current === "start" && activeId === null;
+    if (isStartRace && !allowOrphan) {
+      pendingFailureEventsRef.current.set(failure.sessionId, failure);
+      return false;
+    }
+    if (
+      !allowOrphan &&
+      failure.sessionId !== activeId &&
+      failure.sessionId !== retainedId
+    ) {
+      return false;
+    }
+    if (
+      allowOrphan &&
+      activeId !== null &&
+      failure.sessionId !== activeId &&
+      failure.sessionId !== retainedId
+    ) {
+      return false;
+    }
+    if (
+      allowOrphan &&
+      activeId === null &&
+      retainedId === null &&
+      operationRef.current
+    ) {
+      return false;
+    }
+
+    const identity = failureIdentity(failure);
+    const retainedIdentity = failureIdentityRef.current;
+    if (retainedIdentity && retainedIdentity.sessionId !== identity.sessionId) {
+      return false;
+    }
+    const firstIdentity = retainedIdentity === null;
+    const effectiveIdentity = retainedIdentity ?? identity;
+    if (firstIdentity) {
+      failureIdentityRef.current = identity;
+    }
+    failedSessionIdRef.current = failure.sessionId;
+    modeRef.current = failure.mode;
+    setModeState(failure.mode);
+    setActiveSessionId(null);
+    activeSessionIdRef.current = null;
+    setStartedAt(null);
+    startedAtRef.current = null;
+    setElapsedMs(0);
+    discardConfirmationRef.current = false;
+    setDiscardConfirmationOpen(false);
+    handoffResultRef.current = null;
+    setHandoff({ status: "idle" });
+    updateSession({
+      status: "error",
+      errorCode: effectiveIdentity.errorCode,
+      errorSource: effectiveIdentity.source,
+      cleanupPending: failure.cleanupPending,
+      warnings: failure.warnings,
+      warningCode: failure.warnings[0]?.warningCode,
+    });
+    if (firstIdentity) {
+      reportError(effectiveIdentity.errorCode);
+    }
+    return true;
+  };
+
+  const handleRecordingFailure = (failure: RecordingFailureView) => {
+    if (operationRef.current === "start" && activeSessionIdRef.current === null) {
+      pendingFailureEventsRef.current.set(failure.sessionId, failure);
+      return;
+    }
+    applyRecordingFailure(failure);
+  };
+
   const hydrateRecordingState = async () => {
     const getState = recordingClientRef.current.getRecordingState;
     if (!getState) return;
     try {
       const state = await getState();
+      if (!mountedRef.current || !state) {
+        return;
+      }
+      if (state.status === "failed") {
+        applyRecordingFailure(state, true);
+        return;
+      }
       if (
-        !mountedRef.current ||
-        !state ||
         operationRef.current ||
         sessionRef.current.status === "recording" ||
         sessionRef.current.status === "stopping"
-      ) {
-        return;
-      }
+      ) return;
       const startedAtValue = clockRef.current() - state.elapsedMs;
       modeRef.current = state.mode;
       setModeState(state.mode);
@@ -510,12 +622,18 @@ export function useRecordingController({
       operationRef.current ||
       (sessionRef.current.status !== "idle" &&
         sessionRef.current.status !== "error") ||
+      sessionRef.current.cleanupPending ||
+      (sessionRef.current.status === "error" &&
+        sessionRef.current.cleanupPending) ||
       !mountedRef.current
     ) {
       return;
     }
     invalidatePreferenceLoad();
     operationRef.current = "start";
+    failureIdentityRef.current = null;
+    failedSessionIdRef.current = null;
+    pendingFailureEventsRef.current.clear();
     handoffResultRef.current = null;
     setHandoff({ status: "idle" });
     updateSession({ status: "starting" });
@@ -567,6 +685,24 @@ export function useRecordingController({
         status: "recording",
         warningCode: startupWarnings[0],
       });
+      const bufferedFailure = pendingFailureEventsRef.current.get(
+        started.sessionId,
+      );
+      pendingFailureEventsRef.current.delete(started.sessionId);
+      if (bufferedFailure) {
+        applyRecordingFailure(bufferedFailure);
+      }
+      const getState = recordingClientRef.current.getRecordingState;
+      if (getState) {
+        try {
+          const hydrated = await getState();
+          if (mountedRef.current && hydrated?.status === "failed") {
+            applyRecordingFailure(hydrated);
+          }
+        } catch {
+          // The start response remains authoritative when post-start hydration is unavailable.
+        }
+      }
       if (startupWarnings[0]) {
         reportError(startupWarnings[0]);
       }
@@ -625,13 +761,91 @@ export function useRecordingController({
       await completeHandoff(result);
     } catch (error) {
       if (mountedRef.current) {
+    const currentSessionStatus = sessionRef.current.status as RecordingSessionStatus;
+        if (
+          currentSessionStatus === "error" &&
+          failedSessionIdRef.current === sessionId
+        ) {
+          return;
+        }
         const errorCode = stableErrorCode(error, "RECORDING_UNKNOWN_ERROR");
         setActiveSessionId(null);
         activeSessionIdRef.current = null;
         setStartedAt(null);
         startedAtRef.current = null;
         setElapsedMs(0);
-        updateSession({ status: "error", errorCode });
+        const source =
+          typeof error === "object" && error !== null &&
+          ((error as { source?: unknown }).source === "microphone" ||
+            (error as { source?: unknown }).source === "systemAudio")
+            ? (error as { source: RecordingSource }).source
+            : undefined;
+        failedSessionIdRef.current = sessionId;
+        failureIdentityRef.current = { sessionId, errorCode, source };
+        updateSession({
+          status: "error",
+          errorCode,
+          errorSource: source,
+          cleanupPending: true,
+          warnings: sessionRef.current.warnings,
+        });
+        reportError(errorCode);
+        const getState = recordingClientRef.current.getRecordingState;
+        if (getState) {
+          try {
+            const hydrated = await getState();
+            if (
+              mountedRef.current &&
+              hydrated?.status === "failed" &&
+              hydrated.sessionId === sessionId
+            ) {
+              applyRecordingFailure(hydrated);
+            }
+          } catch {
+            // The command error remains authoritative when failed-state hydration is unavailable.
+          }
+        }
+      }
+    } finally {
+      operationRef.current = null;
+    }
+  }, []);
+
+  const dismissFailure = useCallback(async () => {
+    const sessionId = failedSessionIdRef.current;
+    if (
+      operationRef.current ||
+      sessionRef.current.status !== "error" ||
+      !sessionId ||
+      sessionRef.current.cleanupPending ||
+      !mountedRef.current
+    ) {
+      return;
+    }
+    const acknowledge = recordingClientRef.current.acknowledgeRecordingFailure;
+    if (!acknowledge) return;
+    operationRef.current = "cancel";
+    try {
+      await acknowledge(sessionId);
+      if (!mountedRef.current || failedSessionIdRef.current !== sessionId) {
+        return;
+      }
+      failureIdentityRef.current = null;
+      failedSessionIdRef.current = null;
+      updateSession({ status: "idle" });
+      setActiveSessionId(null);
+      activeSessionIdRef.current = null;
+      setStartedAt(null);
+      startedAtRef.current = null;
+      setElapsedMs(0);
+    } catch (error) {
+      const errorCode = stableErrorCode(error, "RECORDING_UNKNOWN_ERROR");
+      if (errorCode === "RECORDING_CLEANUP_IN_PROGRESS") {
+        updateSession({
+          ...sessionRef.current,
+          cleanupPending: true,
+        });
+      } else {
         reportError(errorCode);
       }
     } finally {
@@ -710,6 +924,7 @@ export function useRecordingController({
     mountedRef.current = true;
     let disposed = false;
     let unlistenWarnings: (() => void) | undefined;
+    let unlistenFailures: (() => void) | undefined;
     const subscribeToWarnings = async () => {
       const listenWarnings = recordingClientRef.current.listenRecordingWarnings;
       if (!listenWarnings) return;
@@ -722,6 +937,20 @@ export function useRecordingController({
         }
       } catch {
         // Event subscription is advisory; IPC polling remains available.
+      }
+    };
+    const subscribeToFailures = async () => {
+      const listenFailures = recordingClientRef.current.listenRecordingFailures;
+      if (!listenFailures) return;
+      try {
+        const cleanup = await listenFailures(handleRecordingFailure);
+        if (disposed) {
+          cleanup();
+        } else {
+          unlistenFailures = cleanup;
+        }
+      } catch {
+        // Hydration remains authoritative if event subscription is unavailable.
       }
     };
     const onFocus = () => {
@@ -747,9 +976,11 @@ export function useRecordingController({
     void loadPreferences();
     void hydrateRecordingState();
     void subscribeToWarnings();
+    void subscribeToFailures();
     return () => {
       disposed = true;
       unlistenWarnings?.();
+      unlistenFailures?.();
       mountedRef.current = false;
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("keydown", onKeyDown);
@@ -784,6 +1015,7 @@ export function useRecordingController({
     stop,
     requestDiscard,
     confirmDiscard,
+    dismissFailure,
     closeDiscard,
     retryHandoff,
     isModeAvailable,
@@ -791,6 +1023,7 @@ export function useRecordingController({
       capability.status !== "ready" ||
       session.status === "starting" ||
       session.status === "recording" ||
-      session.status === "stopping",
+      session.status === "stopping" ||
+      Boolean(session.cleanupPending),
   };
 }

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type {
   RecordingCapabilities,
   RecordingClientErrorCode,
+  RecordingFailureView,
   RecordingMode,
   RecordingResult,
   RecordingStateView,
@@ -59,11 +60,15 @@ type RecordingController = {
     status: "loading" | "unknown" | "ready" | "unsupported" | "unavailable";
     details?: RecordingCapabilities;
     errorCode?: string;
+    errorSource?: "microphone" | "systemAudio";
+    cleanupPending?: boolean;
   };
   mode: RecordingMode;
   session: {
     status: "idle" | "starting" | "recording" | "stopping" | "error";
     errorCode?: string;
+    errorSource?: "microphone" | "systemAudio";
+    cleanupPending?: boolean;
     warnings?: RecordingWarningView[];
   };
   activeSessionId: string | null;
@@ -75,6 +80,7 @@ type RecordingController = {
   stop: () => Promise<void>;
   requestDiscard: () => void;
   confirmDiscard: () => Promise<void>;
+  dismissFailure: () => Promise<void>;
   closeDiscard: () => void;
   retryHandoff: () => Promise<void>;
   isModeAvailable: (mode: RecordingMode) => boolean;
@@ -85,6 +91,10 @@ type ControllerDependencies = {
   recordingClient: {
     getRecordingCapabilities: () => Promise<RecordingCapabilities>;
     getRecordingState?: () => Promise<RecordingStateView | null>;
+    acknowledgeRecordingFailure?: (sessionId: string) => Promise<void>;
+    listenRecordingFailures?: (
+      handler: (failure: RecordingFailureView) => void,
+    ) => Promise<() => void>;
     listenRecordingWarnings?: (
       handler: (event: RecordingWarningEvent) => void,
     ) => Promise<() => void>;
@@ -102,6 +112,13 @@ type ControllerDependencies = {
   onError: (errorCode: string) => void;
   clock: () => number;
   timer: TimerHarness["timer"];
+};
+
+type ControllerDependencyOverrides = Omit<
+  Partial<ControllerDependencies>,
+  "recordingClient"
+> & {
+  recordingClient?: Partial<ControllerDependencies["recordingClient"]>;
 };
 
 const CAPABILITIES: RecordingCapabilities = {
@@ -309,7 +326,7 @@ async function settle(): Promise<void> {
 }
 
 async function createController(
-  overrides: Partial<ControllerDependencies> = {},
+  overrides: ControllerDependencyOverrides = {},
 ): Promise<{
   deps: ControllerDependencies;
   harness: HookHarness;
@@ -322,6 +339,20 @@ async function createController(
   vi.stubGlobal("window", fakeWindow.window);
 
   const deps: ControllerDependencies = {
+    readPreferences: vi
+      .fn<() => Promise<UiPreferencesView>>()
+      .mockResolvedValue(PREFERENCES),
+    saveAudioSourceMode: vi
+      .fn<(mode: RecordingMode) => Promise<UiPreferencesView>>()
+      .mockResolvedValue(PREFERENCES),
+    selectLocalMediaByPath: vi
+      .fn<(path: string) => Promise<LocalMediaSelectionView>>()
+      .mockResolvedValue(SELECTION),
+    onLocalMediaSelected: vi.fn<(selection: LocalMediaSelectionView) => void>(),
+    onError: vi.fn<(errorCode: string) => void>(),
+    clock: () => 1_000,
+    timer: timer.timer,
+    ...overrides,
     recordingClient: {
       getRecordingCapabilities: vi
         .fn<() => Promise<RecordingCapabilities>>()
@@ -339,21 +370,8 @@ async function createController(
       cancelRecording: vi
         .fn<(sessionId: string) => Promise<void>>()
         .mockResolvedValue(undefined),
+      ...overrides.recordingClient,
     },
-    readPreferences: vi
-      .fn<() => Promise<UiPreferencesView>>()
-      .mockResolvedValue(PREFERENCES),
-    saveAudioSourceMode: vi
-      .fn<(mode: RecordingMode) => Promise<UiPreferencesView>>()
-      .mockResolvedValue(PREFERENCES),
-    selectLocalMediaByPath: vi
-      .fn<(path: string) => Promise<LocalMediaSelectionView>>()
-      .mockResolvedValue(SELECTION),
-    onLocalMediaSelected: vi.fn<(selection: LocalMediaSelectionView) => void>(),
-    onError: vi.fn<(errorCode: string) => void>(),
-    clock: () => 1_000,
-    timer: timer.timer,
-    ...overrides,
   };
 
   vi.doMock("react", () => ({
@@ -384,7 +402,7 @@ async function createController(
 }
 
 async function startRecordingSession(
-  overrides: Partial<ControllerDependencies> = {},
+  overrides: ControllerDependencyOverrides = {},
 ): Promise<{
   deps: ControllerDependencies;
   harness: HookHarness;
@@ -490,6 +508,195 @@ describe("useRecordingController", () => {
       },
     ]);
     expect(controller.session.status).toBe("recording");
+  });
+
+  test("enters error from an accepted runtime failure and deduplicates repeats", async () => {
+    let failureHandler: ((failure: RecordingFailureView) => void) | undefined;
+    const created = await createController();
+    created.deps.recordingClient.listenRecordingFailures = async (handler) => {
+      failureHandler = handler;
+      return () => undefined;
+    };
+    let controller = created.render();
+    await settle();
+    controller = created.render();
+    await controller.start();
+    await settle();
+    controller = created.render();
+
+    failureHandler?.({
+      sessionId: "session-1",
+      mode: "mixed",
+      elapsedMs: 500,
+      errorCode: "RECORDING_STREAM_ERROR",
+      source: "systemAudio",
+      cleanupPending: true,
+      warnings: [],
+    });
+    controller = created.render();
+    expect(controller.session).toMatchObject({
+      status: "error",
+      errorCode: "RECORDING_STREAM_ERROR",
+      errorSource: "systemAudio",
+      cleanupPending: true,
+    });
+    expect(controller.activeSessionId).toBeNull();
+    expect(created.deps.onError).toHaveBeenCalledTimes(1);
+
+    failureHandler?.({
+      sessionId: "session-1",
+      mode: "mixed",
+      elapsedMs: 600,
+      errorCode: "RECORDING_STREAM_ERROR",
+      source: "systemAudio",
+      cleanupPending: false,
+      warnings: [],
+    });
+    controller = created.render();
+    expect(controller.session.cleanupPending).toBe(false);
+    expect(created.deps.onError).toHaveBeenCalledTimes(1);
+  });
+
+  test("hydrates a failed session and acknowledges it before returning idle", async () => {
+    const acknowledge = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const created = await createController({
+      recordingClient: {
+        getRecordingState: vi.fn().mockResolvedValue({
+          status: "failed",
+          sessionId: "failed-session",
+          mode: "system",
+          elapsedMs: 1_200,
+          errorCode: "RECORDING_STREAM_ERROR",
+          source: "systemAudio",
+          cleanupPending: false,
+          warnings: [],
+        }),
+        acknowledgeRecordingFailure: acknowledge,
+      },
+    });
+    let controller = created.render();
+    await settle();
+    controller = created.render();
+
+    expect(controller.session).toMatchObject({
+      status: "error",
+      errorCode: "RECORDING_STREAM_ERROR",
+      errorSource: "systemAudio",
+      cleanupPending: false,
+    });
+    expect(controller.mode).toBe("system");
+    await controller.dismissFailure();
+    controller = created.render();
+    expect(acknowledge).toHaveBeenCalledWith("failed-session");
+    expect(controller.session).toEqual({ status: "idle" });
+  });
+
+  test("does not allow dismiss while native cleanup is pending", async () => {
+    let failureHandler: ((failure: RecordingFailureView) => void) | undefined;
+    const created = await createController();
+    created.deps.recordingClient.listenRecordingFailures = async (handler) => {
+      failureHandler = handler;
+      return () => undefined;
+    };
+    let controller = created.render();
+    await settle();
+    controller = created.render();
+    await controller.start();
+    await settle();
+    controller = created.render();
+    failureHandler?.({
+      sessionId: "session-1",
+      mode: "mic",
+      elapsedMs: 0,
+      errorCode: "RECORDING_STREAM_ERROR",
+      cleanupPending: true,
+      warnings: [],
+    });
+    controller = created.render();
+    await controller.dismissFailure();
+    expect(created.deps.recordingClient.acknowledgeRecordingFailure).toBeUndefined();
+    expect(controller.session.cleanupPending).toBe(true);
+  });
+
+  test("deduplicates a stop error when the matching failure event arrives later", async () => {
+    let failureHandler: ((failure: RecordingFailureView) => void) | undefined;
+    const created = await createController({
+      recordingClient: {
+        stopRecording: vi.fn().mockRejectedValue({
+          code: "RECORDING_STREAM_ERROR",
+          source: "systemAudio",
+        }),
+        listenRecordingFailures: async (handler) => {
+          failureHandler = handler;
+          return () => undefined;
+        },
+      },
+    });
+    let controller = created.render();
+    await settle();
+    controller = created.render();
+    await controller.start();
+    await settle();
+    controller = created.render();
+
+    await controller.stop();
+    controller = created.render();
+    expect(controller.session).toMatchObject({
+      status: "error",
+      errorCode: "RECORDING_STREAM_ERROR",
+      errorSource: "systemAudio",
+      cleanupPending: true,
+    });
+    expect(created.deps.onError).toHaveBeenCalledTimes(1);
+
+    failureHandler?.({
+      sessionId: "session-1",
+      mode: "mic",
+      elapsedMs: 500,
+      errorCode: "RECORDING_EMPTY",
+      source: "microphone",
+      cleanupPending: false,
+      warnings: [],
+    });
+    controller = created.render();
+    expect(controller.session).toMatchObject({
+      errorCode: "RECORDING_STREAM_ERROR",
+      errorSource: "systemAudio",
+      cleanupPending: false,
+    });
+    expect(created.deps.onError).toHaveBeenCalledTimes(1);
+  });
+
+  test("keeps a stop failure blocked when failed-state hydration is unavailable", async () => {
+    const acknowledge = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const created = await createController({
+      recordingClient: {
+        getRecordingState: vi.fn().mockRejectedValue(new Error("offline")),
+        acknowledgeRecordingFailure: acknowledge,
+        stopRecording: vi.fn().mockRejectedValue({
+          code: "RECORDING_STREAM_ERROR",
+        }),
+      },
+    });
+    let controller = created.render();
+    await settle();
+    controller = created.render();
+    await controller.start();
+    await settle();
+    controller = created.render();
+
+    await controller.stop();
+    controller = created.render();
+    expect(controller.session).toMatchObject({
+      status: "error",
+      errorCode: "RECORDING_STREAM_ERROR",
+      cleanupPending: true,
+    });
+
+    await controller.dismissFailure();
+    expect(acknowledge).not.toHaveBeenCalled();
+    await controller.start();
+    expect(created.deps.recordingClient.startRecording).toHaveBeenCalledTimes(1);
   });
 
   test("filters system-audio-recovered from startup warnings", async () => {
@@ -1604,6 +1811,20 @@ describe("useRecordingController", () => {
     const { deps, render } = await startRecordingSession({
       recordingClient: {
         getRecordingCapabilities: vi.fn().mockResolvedValue(CAPABILITIES),
+        getRecordingState: vi
+          .fn()
+          .mockResolvedValueOnce(null)
+          .mockResolvedValueOnce(null)
+          .mockResolvedValueOnce({
+            status: "failed",
+            sessionId: "session-retry",
+            mode: "mic",
+            elapsedMs: 0,
+            errorCode: "RECORDING_FINALIZE_FAILED",
+            cleanupPending: false,
+            warnings: [],
+          })
+          .mockResolvedValue(null),
         startRecording: vi.fn().mockResolvedValue({ sessionId: "session-retry", warnings: [] }),
         stopRecording,
         cancelRecording: vi.fn(),
@@ -1613,7 +1834,7 @@ describe("useRecordingController", () => {
 
     await controller.stop();
     controller = render();
-    expect(controller.session).toEqual({
+    expect(controller.session).toMatchObject({
       status: "error",
       errorCode: "RECORDING_FINALIZE_FAILED",
     });

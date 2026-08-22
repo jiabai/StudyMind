@@ -6,14 +6,15 @@ use std::sync::mpsc::{Receiver, SyncSender, TrySendError};
 use std::thread::JoinHandle;
 
 use super::wav_writer::{WavCaptureSummary, WaveFormat, WaveWriter};
-#[cfg(target_os = "macos")]
-use super::CaptureWorkspace;
 use super::{
-    CapturedRecording, RecordingCapabilities, RecordingError, RecordingErrorCode, RecordingMode,
-    RecordingPlatform, RecordingSourceCapability, RECORDING_MIC_ACCESS_DENIED,
+    CapturedRecording, RecordingCapabilities, RecordingError, RecordingErrorCode,
+    RecordingMode, RecordingPlatform, RecordingSourceCapability, RecordingSource,
+    RECORDING_MIC_ACCESS_DENIED,
     RECORDING_MIC_INIT_FAILED, RECORDING_MIX_FAILED, RECORDING_STREAM_ERROR,
     RECORDING_SYSTEM_AUDIO_UNAVAILABLE, RECORDING_SYSTEM_LOOPBACK_INIT_FAILED,
 };
+use super::failure_supervisor::RecordingFailureReporter;
+use super::mixed::{CaptureGate, FirstSourceFailure, PreparedSource, ReadySender};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PermissionStatus {
@@ -45,11 +46,15 @@ trait SystemAudioProbe: Send + Sync {
 
 #[allow(dead_code)]
 trait SystemAudioRuntime: Send + Sync {
-    fn start(
+    fn prepare(
         &self,
         workspace: &super::CaptureWorkspace,
         reporter: super::RecordingWarningReporter,
-    ) -> Result<Box<dyn super::ActiveCapture>, RecordingError>;
+        gate: CaptureGate,
+        ready: ReadySender,
+        failures: FirstSourceFailure,
+        terminal: RecordingFailureReporter,
+    ) -> Result<PreparedSource, RecordingError>;
 }
 
 #[cfg(test)]
@@ -119,14 +124,37 @@ fn capabilities_for_with_system(
         }
     };
 
+    let system_audio = system_capability_for(system_probe.probe());
+    let mixed_available = microphone.available && system_audio.available;
     RecordingCapabilities {
         platform: RecordingPlatform::Macos,
         microphone,
-        system_audio: system_capability_for(system_probe.probe()),
+        system_audio,
         mixed: RecordingSourceCapability {
-            available: false,
-            reason_code: Some(RECORDING_MIX_FAILED),
+            available: mixed_available,
+            reason_code: (!mixed_available).then_some(RECORDING_MIX_FAILED),
         },
+    }
+}
+
+fn authorize_microphone_for_mode(
+    mode: RecordingMode,
+    permission: PermissionStatus,
+    request_access: impl FnOnce() -> bool,
+) -> Result<(), RecordingError> {
+    if !matches!(mode, RecordingMode::Mic | RecordingMode::Mixed) {
+        return Ok(());
+    }
+
+    match permission {
+        PermissionStatus::Authorized => Ok(()),
+        PermissionStatus::NotDetermined if request_access() => Ok(()),
+        PermissionStatus::NotDetermined
+        | PermissionStatus::Denied
+        | PermissionStatus::Restricted => Err(
+            RecordingError::new(RECORDING_MIC_ACCESS_DENIED)
+                .for_source(super::RecordingSource::Microphone),
+        ),
     }
 }
 
@@ -326,18 +354,42 @@ fn receive_startup_signal_with(
     receiver.recv().map_err(|_| RecordingError::new(fallback))?
 }
 
-#[derive(Default)]
-struct FirstStreamError(AtomicBool);
+struct FirstStreamError {
+    failed: AtomicBool,
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    gate: Option<CaptureGate>,
+}
+
+impl Default for FirstStreamError {
+    fn default() -> Self {
+        Self {
+            failed: AtomicBool::new(false),
+            gate: None,
+        }
+    }
+}
 
 impl FirstStreamError {
+    fn with_gate(gate: CaptureGate) -> Self {
+        Self {
+            failed: AtomicBool::new(false),
+            gate: Some(gate),
+        }
+    }
+
     fn store(&self) {
         let _ = self
-            .0
+            .failed
             .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst);
     }
 
     fn is_set(&self) -> bool {
-        self.0.load(Ordering::SeqCst)
+        self.failed.load(Ordering::SeqCst)
+    }
+
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    fn gate_is_open(&self) -> bool {
+        self.gate.as_ref().map_or(true, CaptureGate::is_open)
     }
 }
 
@@ -353,6 +405,18 @@ fn submit_block(
             Err(RecordingError::new(RECORDING_STREAM_ERROR))
         }
     }
+}
+
+fn submit_gated_block(
+    gate: &CaptureGate,
+    sender: &SyncSender<AudioBlock>,
+    block: AudioBlock,
+    first_error: &FirstStreamError,
+) -> Result<(), RecordingError> {
+    if !gate.is_open() {
+        return Ok(());
+    }
+    submit_block(sender, block, first_error)
 }
 
 #[cfg(test)]
@@ -456,6 +520,8 @@ mod platform {
     use screencapturekit::prelude::*;
 
     use super::*;
+    use super::mixed::{CaptureCommand, CaptureSignal, SourceReady};
+    use crate::audio_capture::CaptureWorkspace;
     use crate::audio_capture::system_audio_recovery::{
         AudioSampleTiming, SystemAudioRecovery, WriteAction,
     };
@@ -777,6 +843,9 @@ mod platform {
         event: SystemStreamEvent,
         first_error: &FirstStreamError,
     ) -> Result<(), RecordingError> {
+        if matches!(&event, SystemStreamEvent::Audio { .. }) && !first_error.gate_is_open() {
+            return Ok(());
+        }
         match sender.try_send(event) {
             Ok(()) => Ok(()),
             Err(TrySendError::Full(_)) => {
@@ -819,11 +888,17 @@ mod platform {
         mut writer: WaveWriter,
         receiver: Receiver<SystemStreamEvent>,
         reporter: RecordingWarningReporter,
+        first_error: Arc<FirstStreamError>,
         sample_rate: u32,
         channels: u16,
     ) -> Result<WavCaptureSummary, RecordingError> {
         let mut recovery = SystemAudioRecovery::new(sample_rate, channels);
         while let Ok(event) = receiver.recv() {
+            if !first_error.gate_is_open()
+                && !matches!(event, SystemStreamEvent::Stop | SystemStreamEvent::Cancel)
+            {
+                continue;
+            }
             match event {
                 SystemStreamEvent::Audio { block, timing } => {
                     log::debug!(
@@ -1087,34 +1162,103 @@ mod platform {
     struct NativeSystemAudioRuntime;
 
     impl SystemAudioRuntime for NativeSystemAudioRuntime {
-        fn start(
+        fn prepare(
             &self,
             workspace: &CaptureWorkspace,
             reporter: RecordingWarningReporter,
-        ) -> Result<Box<dyn ActiveCapture>, RecordingError> {
-            let (control_tx, control_rx) = mpsc::channel();
-            let (ready_tx, ready_rx) = mpsc::sync_channel(1);
+            gate: CaptureGate,
+            ready: ReadySender,
+            failures: FirstSourceFailure,
+            terminal: RecordingFailureReporter,
+        ) -> Result<PreparedSource, RecordingError> {
+            let signal = CaptureSignal::default();
+            let worker_signal = signal.clone();
             let path = workspace.temp_dir.join("system.wav");
             let worker = thread::Builder::new()
                 .name("studymind-macos-system-audio".to_string())
                 .spawn(move || {
-                    run_system_capture_worker(
-                        Arc::new(NativeSystemStreamFactory),
-                        path,
-                        control_rx,
-                        ready_tx,
-                        reporter,
-                    )
+                    let (control_tx, control_rx) = mpsc::channel();
+                    let (inner_ready_tx, inner_ready_rx) = mpsc::sync_channel(1);
+                    let inner_path = path.clone();
+                    let inner_factory = Arc::new(NativeSystemStreamFactory);
+                    let inner_gate = gate.clone();
+                    let inner_reporter = reporter.clone();
+                    let inner_handle = thread::spawn(move || {
+                        run_system_capture_worker_gated(
+                            inner_factory,
+                            inner_path,
+                            control_rx,
+                            inner_ready_tx,
+                            inner_reporter,
+                            inner_gate,
+                        )
+                    });
+                    match inner_ready_rx.recv_timeout(Duration::from_secs(3)) {
+                        Ok(Ok(())) => {
+                            let _ = ready.send(SourceReady {
+                                source: RecordingSource::SystemAudio,
+                                result: Ok(()),
+                            });
+                            while worker_signal.current().is_none() {
+                                thread::sleep(CONTROL_POLL_INTERVAL);
+                            }
+                            let control = if worker_signal.current()
+                                == Some(CaptureCommand::Cancel)
+                            {
+                                CaptureControl::Cancel
+                            } else {
+                                CaptureControl::Stop
+                            };
+                            let _ = control_tx.send(control);
+                        }
+                        Ok(Err(error)) => {
+                            let _ = ready.send(SourceReady {
+                                source: RecordingSource::SystemAudio,
+                                result: Err(error.clone()),
+                            });
+                        }
+                        Err(_) => {
+                            let error = RecordingError::new(RECORDING_STREAM_ERROR)
+                                .for_source(RecordingSource::SystemAudio);
+                            let _ = ready.send(SourceReady {
+                                source: RecordingSource::SystemAudio,
+                                result: Err(error.clone()),
+                            });
+                            let _ = control_tx.send(CaptureControl::Cancel);
+                        }
+                    }
+                    let result = inner_handle
+                        .join()
+                        .map_err(|_| RecordingError::new(RECORDING_STREAM_ERROR))?;
+                    match result {
+                        Ok(Some(captured)) => Ok(WavCaptureSummary {
+                            path: captured.source_paths.into_iter().next().unwrap_or(path),
+                            valid_frame_count: captured.valid_frame_count,
+                            silent: captured.silent,
+                            duration_ms: captured.duration_ms,
+                        }),
+                        Ok(None) => Ok(WavCaptureSummary {
+                            path,
+                            valid_frame_count: 0,
+                            silent: true,
+                            duration_ms: 0,
+                        }),
+                        Err(error) => {
+                            let error = error.for_source(RecordingSource::SystemAudio);
+                            failures.record(error.clone(), RecordingSource::SystemAudio);
+                            if gate.is_open() {
+                                terminal.report(error.clone());
+                            }
+                            Err(error)
+                        }
+                    }
                 })
                 .map_err(|_| RecordingError::new(RECORDING_SYSTEM_LOOPBACK_INIT_FAILED))?;
-
-            match receive_startup_signal_with(&ready_rx, RECORDING_SYSTEM_LOOPBACK_INIT_FAILED) {
-                Ok(()) => Ok(Box::new(MacosActiveCapture { control_tx, worker })),
-                Err(error) => {
-                    let _ = worker.join();
-                    Err(error)
-                }
-            }
+            Ok(PreparedSource {
+                source: RecordingSource::SystemAudio,
+                signal,
+                worker,
+            })
         }
     }
 
@@ -1132,57 +1276,166 @@ mod platform {
             mode: RecordingMode,
             workspace: &CaptureWorkspace,
             reporter: RecordingWarningReporter,
+            failure_reporter: super::RecordingFailureReporter,
         ) -> Result<Box<dyn ActiveCapture>, RecordingError> {
+            let gate = CaptureGate::default();
+            let failures = FirstSourceFailure::default();
+            let (ready_tx, ready_rx) = super::mixed::ready_channel();
             match mode {
                 RecordingMode::Mic => {
-                    authorize_start(mode, permission_status()?, request_microphone_access)?;
-
-                    let (control_tx, control_rx) = mpsc::channel();
-                    let (ready_tx, ready_rx) = mpsc::sync_channel(1);
-                    let path = workspace.temp_dir.join("mic.wav");
-                    let worker = thread::Builder::new()
-                        .name("studymind-macos-microphone".to_string())
-                        .spawn(move || run_capture_worker(path, control_rx, ready_tx))
-                        .map_err(|_| RecordingError::new(RECORDING_MIC_INIT_FAILED))?;
-
-                    // CoreAudio/CPAL device setup can block in native code and cannot be safely
-                    // force-detached. Wait for the worker's readiness/error signal, and on error
-                    // join it before returning so controller cleanup cannot race a live writer.
-                    match receive_startup_signal(&ready_rx) {
-                        Ok(()) => Ok(Box::new(MacosActiveCapture { control_tx, worker })),
-                        Err(error) => {
-                            let _ = worker.join();
-                            Err(error)
+                    authorize_microphone_for_mode(
+                        mode,
+                        permission_status().map_err(|error| {
+                            error.for_source(RecordingSource::Microphone)
+                        })?,
+                        request_microphone_access,
+                    )?;
+                    let source = prepare_microphone_source(
+                        workspace,
+                        gate.clone(),
+                        ready_tx,
+                        failures.clone(),
+                        failure_reporter,
+                    )
+                    .map_err(|error| error.for_source(RecordingSource::Microphone))?;
+                    match ready_rx.recv_timeout(Duration::from_secs(3)) {
+                        Ok(SourceReady { result: Ok(()), .. }) => {
+                            gate.open();
+                            Ok(Box::new(MacosPreparedCapture { source, failures }))
+                        }
+                        Ok(SourceReady { result: Err(error), .. }) => {
+                            source.signal.request(CaptureCommand::Cancel);
+                            let _ = source.worker.join();
+                            Err(error.for_source(RecordingSource::Microphone))
+                        }
+                        Err(_) => {
+                            source.signal.request(CaptureCommand::Cancel);
+                            let _ = source.worker.join();
+                            Err(RecordingError::new(RECORDING_MIC_INIT_FAILED)
+                                .for_source(RecordingSource::Microphone))
                         }
                     }
                 }
-                RecordingMode::System => self.system_runtime.start(workspace, reporter),
-                RecordingMode::Mixed => Err(RecordingError::new(RECORDING_MIX_FAILED)),
+                RecordingMode::System => {
+                    let source = self.system_runtime.prepare(
+                        workspace,
+                        reporter,
+                        gate.clone(),
+                        ready_tx,
+                        failures.clone(),
+                        failure_reporter,
+                    )
+                    .map_err(|error| error.for_source(RecordingSource::SystemAudio))?;
+                    match ready_rx.recv_timeout(Duration::from_secs(3)) {
+                        Ok(SourceReady { result: Ok(()), .. }) => {
+                            gate.open();
+                            Ok(Box::new(MacosPreparedCapture { source, failures }))
+                        }
+                        Ok(SourceReady { result: Err(error), .. }) => {
+                            source.signal.request(CaptureCommand::Cancel);
+                            let _ = source.worker.join();
+                            Err(error.for_source(RecordingSource::SystemAudio))
+                        }
+                        Err(_) => {
+                            source.signal.request(CaptureCommand::Cancel);
+                            let _ = source.worker.join();
+                            Err(RecordingError::new(RECORDING_SYSTEM_LOOPBACK_INIT_FAILED)
+                                .for_source(RecordingSource::SystemAudio))
+                        }
+                    }
+                }
+                RecordingMode::Mixed => {
+                    authorize_microphone_for_mode(
+                        mode,
+                        permission_status().map_err(|error| {
+                            error.for_source(RecordingSource::Microphone)
+                        })?,
+                        request_microphone_access,
+                    )?;
+                    let microphone = prepare_microphone_source(
+                        workspace,
+                        gate.clone(),
+                        ready_tx.clone(),
+                        failures.clone(),
+                        failure_reporter.clone(),
+                    )
+                    .map_err(|error| error.for_source(RecordingSource::Microphone))?;
+                    let system = match self.system_runtime.prepare(
+                        workspace,
+                        reporter,
+                        gate.clone(),
+                        ready_tx,
+                        failures.clone(),
+                        failure_reporter,
+                    ) {
+                        Ok(system) => system,
+                        Err(error) => {
+                            microphone.signal.request(CaptureCommand::Cancel);
+                            let _ = microphone.worker.join();
+                            return Err(error.for_source(RecordingSource::SystemAudio));
+                        }
+                    };
+                    mixed::start_mixed(
+                        [microphone, system],
+                        ready_rx,
+                        gate,
+                        failures,
+                        Duration::from_secs(3),
+                    )
+                }
             }
         }
     }
 
-    struct MacosActiveCapture {
-        control_tx: mpsc::Sender<CaptureControl>,
-        worker: JoinHandle<Result<Option<CapturedRecording>, RecordingError>>,
+    struct MacosPreparedCapture {
+        source: PreparedSource,
+        failures: FirstSourceFailure,
     }
 
-    impl ActiveCapture for MacosActiveCapture {
+    impl ActiveCapture for MacosPreparedCapture {
         fn stop(self: Box<Self>) -> Result<CapturedRecording, RecordingError> {
-            let _ = self.control_tx.send(CaptureControl::Stop);
-            self.worker
-                .join()
-                .map_err(|_| RecordingError::new(RECORDING_STREAM_ERROR))??
-                .ok_or_else(|| RecordingError::new(RECORDING_STREAM_ERROR))
-        }
-
-        fn cancel(self: Box<Self>) -> Result<(), RecordingError> {
-            let _ = self.control_tx.send(CaptureControl::Cancel);
-            let _ = self
+            let MacosPreparedCapture { source, failures } = *self;
+            source.signal.request(CaptureCommand::Stop);
+            let summary = source
                 .worker
                 .join()
                 .map_err(|_| RecordingError::new(RECORDING_STREAM_ERROR))??;
-            Ok(())
+            if let Some(error) = failures.snapshot() {
+                return Err(error);
+            }
+            Ok(CapturedRecording {
+                source_paths: vec![summary.path],
+                valid_frame_count: summary.valid_frame_count,
+                silent: summary.silent,
+                duration_ms: summary.duration_ms,
+            })
+        }
+
+        fn cancel(self: Box<Self>) -> Result<(), RecordingError> {
+            let MacosPreparedCapture { source, failures } = *self;
+            source.signal.request(CaptureCommand::Cancel);
+            let _ = source.worker.join();
+            failures.snapshot().map_or(Ok(()), Err)
+        }
+
+        fn cancel_for_cleanup(self: Box<Self>) -> Result<(), RecordingError> {
+            let MacosPreparedCapture { source, failures } = *self;
+            let failure_confirmed = failures.snapshot().is_some();
+            let source_kind = source.source;
+            source.signal.request(CaptureCommand::Cancel);
+            match source.worker.join() {
+                Ok(Ok(_)) | Ok(Err(_)) if failure_confirmed => Ok(()),
+                Ok(Ok(_)) => Ok(()),
+                Ok(Err(error)) => Err(error.for_source(source_kind)),
+                Err(_) => Err(RecordingError::new(RECORDING_STREAM_ERROR)),
+            }
+        }
+
+        fn cancel_handle(&self) -> Option<super::CaptureCancelHandle> {
+            let signal = self.source.signal.clone();
+            Some(super::CaptureCancelHandle::new(move || {
+                signal.request(CaptureCommand::Cancel);
+            }))
         }
     }
 
@@ -1225,6 +1478,26 @@ mod platform {
         ready_tx: SyncSender<Result<(), RecordingError>>,
         reporter: RecordingWarningReporter,
     ) -> Result<Option<CapturedRecording>, RecordingError> {
+        let gate = CaptureGate::default();
+        gate.open();
+        run_system_capture_worker_gated(
+            factory,
+            path,
+            control_rx,
+            ready_tx,
+            reporter,
+            gate,
+        )
+    }
+
+    fn run_system_capture_worker_gated(
+        factory: Arc<dyn SystemStreamFactory>,
+        path: PathBuf,
+        control_rx: mpsc::Receiver<CaptureControl>,
+        ready_tx: SyncSender<Result<(), RecordingError>>,
+        reporter: RecordingWarningReporter,
+        gate: CaptureGate,
+    ) -> Result<Option<CapturedRecording>, RecordingError> {
         let factory = factory.as_ref();
         let anchor = match factory.probe_display_anchor() {
             Ok(anchor) => anchor,
@@ -1246,6 +1519,8 @@ mod platform {
         let (events_tx, events_rx) = mpsc::sync_channel(AUDIO_QUEUE_CAPACITY);
         let (interrupt_tx, interrupt_rx) = mpsc::sync_channel(1);
         let (writer_ready_tx, writer_ready_rx) = mpsc::sync_channel(1);
+        let first_error = Arc::new(FirstStreamError::with_gate(gate));
+        let writer_first_error = Arc::clone(&first_error);
         let writer = thread::Builder::new()
             .name("studymind-macos-system-audio-writer".to_string())
             .spawn(move || {
@@ -1259,6 +1534,7 @@ mod platform {
                             wave_writer,
                             events_rx,
                             reporter,
+                            writer_first_error,
                             sample_rate,
                             channels,
                         )
@@ -1280,7 +1556,6 @@ mod platform {
             Err(error) => return notify_setup_error(ready_tx, error),
         }
 
-        let first_error = Arc::new(FirstStreamError::default());
         let stream = match factory.create_stream(
             anchor,
             writer_guard.sender(),
@@ -1376,10 +1651,107 @@ mod platform {
         finish_capture(control, source_failed, writer_result)
     }
 
+    fn prepare_microphone_source(
+        workspace: &CaptureWorkspace,
+        gate: CaptureGate,
+        ready: ReadySender,
+        failures: FirstSourceFailure,
+        terminal: RecordingFailureReporter,
+    ) -> Result<PreparedSource, RecordingError> {
+        let signal = CaptureSignal::default();
+        let worker_signal = signal.clone();
+        let path = workspace.temp_dir.join("mic.wav");
+        let worker = thread::Builder::new()
+            .name("studymind-macos-microphone".to_string())
+            .spawn(move || {
+                let (control_tx, control_rx) = mpsc::channel();
+                let (inner_ready_tx, inner_ready_rx) = mpsc::sync_channel(1);
+                let inner_path = path.clone();
+                let inner_gate = gate.clone();
+                let inner_handle = thread::spawn(move || {
+                    run_capture_worker_gated(inner_path, control_rx, inner_ready_tx, inner_gate)
+                });
+                match inner_ready_rx.recv_timeout(Duration::from_secs(3)) {
+                    Ok(Ok(())) => {
+                        let _ = ready.send(SourceReady {
+                            source: RecordingSource::Microphone,
+                            result: Ok(()),
+                        });
+                        while worker_signal.current().is_none() {
+                            thread::sleep(CONTROL_POLL_INTERVAL);
+                        }
+                        let control = if worker_signal.current() == Some(CaptureCommand::Cancel) {
+                            CaptureControl::Cancel
+                        } else {
+                            CaptureControl::Stop
+                        };
+                        let _ = control_tx.send(control);
+                    }
+                    Ok(Err(error)) => {
+                        let _ = ready.send(SourceReady {
+                            source: RecordingSource::Microphone,
+                            result: Err(error.clone()),
+                        });
+                    }
+                    Err(_) => {
+                        let error = RecordingError::new(RECORDING_STREAM_ERROR)
+                            .for_source(RecordingSource::Microphone);
+                        let _ = ready.send(SourceReady {
+                            source: RecordingSource::Microphone,
+                            result: Err(error.clone()),
+                        });
+                        let _ = control_tx.send(CaptureControl::Cancel);
+                    }
+                }
+                let result = inner_handle
+                    .join()
+                    .map_err(|_| RecordingError::new(RECORDING_STREAM_ERROR))?;
+                match result {
+                    Ok(Some(captured)) => Ok(WavCaptureSummary {
+                        path: captured.source_paths.into_iter().next().unwrap_or(path),
+                        valid_frame_count: captured.valid_frame_count,
+                        silent: captured.silent,
+                        duration_ms: captured.duration_ms,
+                    }),
+                    Ok(None) => Ok(WavCaptureSummary {
+                        path,
+                        valid_frame_count: 0,
+                        silent: true,
+                        duration_ms: 0,
+                    }),
+                    Err(error) => {
+                        let error = error.for_source(RecordingSource::Microphone);
+                        failures.record(error.clone(), RecordingSource::Microphone);
+                        if gate.is_open() {
+                            terminal.report(error.clone());
+                        }
+                        Err(error)
+                    }
+                }
+            })
+            .map_err(|_| RecordingError::new(RECORDING_MIC_INIT_FAILED))?;
+        Ok(PreparedSource {
+            source: RecordingSource::Microphone,
+            signal,
+            worker,
+        })
+    }
+
     fn run_capture_worker(
         path: PathBuf,
         control_rx: mpsc::Receiver<CaptureControl>,
         ready_tx: SyncSender<Result<(), RecordingError>>,
+    ) -> Result<Option<CapturedRecording>, RecordingError> {
+        let gate = CaptureGate::default();
+        gate.open();
+        run_capture_worker_gated(path, control_rx, ready_tx, gate)
+    }
+
+    fn run_capture_worker_gated(
+        path: PathBuf,
+        control_rx: mpsc::Receiver<CaptureControl>,
+        ready_tx: SyncSender<Result<(), RecordingError>>,
+        gate: CaptureGate,
     ) -> Result<Option<CapturedRecording>, RecordingError> {
         let host = cpal::default_host();
         let device = host
@@ -1441,7 +1813,7 @@ mod platform {
             Err(error) => return notify_setup_error(ready_tx, error),
         }
 
-        let first_error = Arc::new(FirstStreamError::default());
+        let first_error = Arc::new(FirstStreamError::with_gate(gate.clone()));
         let stream_config: cpal::StreamConfig = supported_config.clone().into();
         let stream = match sample_format {
             cpal::SampleFormat::F32 => build_stream(
@@ -1449,6 +1821,7 @@ mod platform {
                 &stream_config,
                 writer_guard.sender(),
                 Arc::clone(&first_error),
+                gate.clone(),
                 channels,
                 pcm16_from_f32,
             ),
@@ -1457,6 +1830,7 @@ mod platform {
                 &stream_config,
                 writer_guard.sender(),
                 Arc::clone(&first_error),
+                gate.clone(),
                 channels,
                 pcm16_from_i16,
             ),
@@ -1465,6 +1839,7 @@ mod platform {
                 &stream_config,
                 writer_guard.sender(),
                 Arc::clone(&first_error),
+                gate,
                 channels,
                 pcm16_from_u16,
             ),
@@ -1506,6 +1881,7 @@ mod platform {
         config: &cpal::StreamConfig,
         sender: SyncSender<AudioBlock>,
         first_error: Arc<FirstStreamError>,
+        gate: CaptureGate,
         channels: u16,
         convert: fn(&[T], u16) -> Result<AudioBlock, RecordingError>,
     ) -> Result<cpal::Stream, RecordingError> {
@@ -1515,7 +1891,7 @@ mod platform {
                 config,
                 move |samples: &[T], _| match convert(samples, channels) {
                     Ok(block) => {
-                        let _ = submit_block(&sender, block, &first_error);
+                        let _ = submit_gated_block(&gate, &sender, block, &first_error);
                     }
                     Err(_) => first_error.store(),
                 },
@@ -1662,6 +2038,57 @@ mod tests {
                 Some(RECORDING_SYSTEM_AUDIO_UNAVAILABLE)
             );
         }
+    }
+
+    #[test]
+    fn macos_mixed_capability_requires_both_sources() {
+        let available_probe = StubSystemAudioProbe {
+            result: Ok(SystemAudioAvailability::Available),
+            calls: AtomicUsize::new(0),
+        };
+        let available = capabilities_for_with_system(
+            PermissionStatus::Authorized,
+            || true,
+            &available_probe,
+        );
+        assert!(available.microphone.available);
+        assert!(available.system_audio.available);
+        assert!(available.mixed.available);
+
+        let denied_probe = StubSystemAudioProbe {
+            result: Ok(SystemAudioAvailability::Denied),
+            calls: AtomicUsize::new(0),
+        };
+        let denied = capabilities_for_with_system(
+            PermissionStatus::Authorized,
+            || true,
+            &denied_probe,
+        );
+        assert!(!denied.mixed.available);
+        assert_eq!(denied.mixed.reason_code, Some(RECORDING_MIX_FAILED));
+    }
+
+    #[test]
+    fn mixed_requests_microphone_before_system_capture() {
+        let prompt_count = AtomicUsize::new(0);
+        authorize_microphone_for_mode(RecordingMode::Mixed, PermissionStatus::NotDetermined, || {
+            prompt_count.fetch_add(1, Ordering::SeqCst);
+            true
+        })
+        .expect("mixed microphone permission");
+        assert_eq!(prompt_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn mixed_microphone_denial_is_source_tagged() {
+        let error = authorize_microphone_for_mode(
+            RecordingMode::Mixed,
+            PermissionStatus::Denied,
+            || true,
+        )
+        .expect_err("denied microphone permission");
+        assert_eq!(error.code, RECORDING_MIC_ACCESS_DENIED);
+        assert_eq!(error.source, Some(RecordingSource::Microphone));
     }
 
     #[test]
@@ -1950,6 +2377,39 @@ mod tests {
 
         assert_eq!(error.code, RECORDING_STREAM_ERROR);
         assert!(first_error.is_set());
+    }
+
+    #[test]
+    fn macos_callback_drops_pre_gate_block_and_writes_post_gate_block() {
+        let gate = CaptureGate::default();
+        let (sender, receiver) = mpsc::sync_channel(2);
+        let first_error = FirstStreamError::with_gate(gate.clone());
+        submit_gated_block(
+            &gate,
+            &sender,
+            AudioBlock {
+                bytes: vec![1, 0],
+                frame_count: 1,
+                silent: false,
+            },
+            &first_error,
+        )
+        .expect("drop pre-gate block");
+        assert!(receiver.try_recv().is_err());
+
+        gate.open();
+        submit_gated_block(
+            &gate,
+            &sender,
+            AudioBlock {
+                bytes: vec![2, 0],
+                frame_count: 1,
+                silent: false,
+            },
+            &first_error,
+        )
+        .expect("submit post-gate block");
+        assert_eq!(receiver.recv().expect("post-gate block").frame_count, 1);
     }
 
     #[test]

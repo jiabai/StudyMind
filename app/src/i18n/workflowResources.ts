@@ -82,6 +82,7 @@ export const workflowResources = {
         recordingStatus: "正在录音",
         elapsedAria: "已录制时长",
         retryHandoff: "重试导入",
+        dismissFailure: "关闭错误",
         discardDialog: {
           title: "丢弃这段录音？",
           body: "录音将被删除，且不会添加到当前任务。",
@@ -106,6 +107,7 @@ export const workflowResources = {
           finalize: "录音整理失败，请重试。",
           stream: "录音流发生错误，请重试。",
           alreadyActive: "已有录音正在进行。",
+          cleanupPending: "正在安全结束录音；若持续无法重试，请重启应用。",
           openPrivacySettings: "打开 Windows 麦克风设置",
         },
       },
@@ -220,6 +222,7 @@ export const workflowResources = {
         recordingStatus: "正在錄音",
         elapsedAria: "已錄製時長",
         retryHandoff: "重試匯入",
+        dismissFailure: "關閉錯誤",
         discardDialog: {
           title: "捨棄這段錄音？",
           body: "錄音將被刪除，且不會加入目前工作。",
@@ -244,6 +247,7 @@ export const workflowResources = {
           finalize: "錄音整理失敗，請再試一次。",
           stream: "錄音串流發生錯誤，請再試一次。",
           alreadyActive: "已有錄音正在進行。",
+          cleanupPending: "正在安全結束錄音；若持續無法重試，請重新啟動應用程式。",
           openPrivacySettings: "開啟 Windows 麥克風設定",
         },
       },
@@ -358,6 +362,7 @@ export const workflowResources = {
         recordingStatus: "Recording",
         elapsedAria: "Recorded duration",
         retryHandoff: "Retry handoff",
+        dismissFailure: "Dismiss error",
         discardDialog: {
           title: "Discard this recording?",
           body: "The recording will be deleted and will not be added to the current task.",
@@ -382,6 +387,7 @@ export const workflowResources = {
           finalize: "The recording could not be prepared. Try again.",
           stream: "The recording stream encountered an error. Try again.",
           alreadyActive: "A recording is already in progress.",
+          cleanupPending: "Safely finishing the recording. If retry remains unavailable, restart the app.",
           openPrivacySettings: "Open Windows microphone settings",
         },
       },
