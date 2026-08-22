@@ -2,6 +2,8 @@
 
 > 目标：在 E1（Intel x86_64 / macOS 15.7.7 / 单显示器）取得 native stream supervisor（`414650d`..`40a4999`）的真机运行时证据，覆盖 **F-03、F-05（短/长中断）、R-01～R-05** 与可选 **C-06**。F-04（显示器变化）需 E3 外接显示器，本轮保持 Blocked。
 >
+> 2026-08-22 状态：Session D/C-06 已由用户完整跑完并确认（回填 Pass）；无人值守尝试（Session 0/A/C）因 ad-hoc 重签后 TCC Screen Recording 无法自动授予而阻塞，详见 `macos-recording-acceptance.md` §3.6。复跑注意：`784bea8` 已移除录音中恢复 warning 的 UI toast，warning 断言应以 `get_recording_state`/`stop_recording` 返回的 warnings 数据为准。
+>
 > 沙箱侧证据（本 runbook 不重复执行）：`DYLD_LIBRARY_PATH=/usr/lib/swift cargo test --lib audio_capture -- --test-threads=1` → **81/81**（含 6 个端到端 worker 恢复测试：中断不重建 / 重建 / 双中断 / deadline 判死 / anchor 变化不重建 / anchor 变化重建）。
 
 ## 0. 每轮必记的环境快照

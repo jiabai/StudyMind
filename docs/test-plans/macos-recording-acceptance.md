@@ -2,7 +2,7 @@
 
 > 状态：Issue #17 麦克风与 #18 system audio 的 E1 真机验收完成；剩余验证已暂缓，待后续具备对应硬件、凭据或恢复实现后继续 · 决策来源：[ADR 0005](../adr/0005-macos-recording-backend.md)
 >
-> 当前结论：Issue #17 麦克风与 #18 system audio 已在 E1（Intel、macOS 15.7.7）完成当前范围内的原生编译和真机验收；本分支又补齐了 recovery 状态机、warning contract/event 和前端 hydration 的 host-side 实现证据。原生 stream supervisor、filter 更新/重建与真实恢复尚未实现，F-03 为 Partial，F-04/F-05 与 C-06 尚未完成；E2、E3、混合录音、打包签名、公证和恢复场景本轮继续暂缓，保留原状态并等待后续条件。
+> 当前结论：Issue #17 麦克风与 #18 system audio 已在 E1（Intel、macOS 15.7.7）完成当前范围内的原生编译和真机验收；Issue #21 的原生 stream supervisor 与 recovery 状态机已实现（E1 沙箱回归 83/83，含 6 个端到端 worker 恢复测试），但恢复场景的真机运行时验收尚未取得：F-03 为 Partial，F-04/F-05 为 Blocked（2026-08-22 无人值守尝试因 TCC 授权不可自动获取而跳过，见 §3.6），C-06 已于 2026-08-22 按用户确认回填 Pass；E2、E3、混合录音、打包签名、公证和恢复场景继续暂缓，保留原状态并等待后续条件。
 
 ## 1. 使用规则
 
@@ -204,6 +204,39 @@ Task 3 的实现要求：
 架构、工具链、提交 SHA、命令输出、WAV/`ffprobe`、warning `count/totalGapMs` 和签名结果；
 在证据齐全前，F-03/F-04/F-05、E2/E3、恢复及发布项保持 `Partial`/`Blocked`/`Planned`。
 
+## 3.6 2026-08-22 E1 恢复场景无人值守验证尝试
+
+本轮在 E1（Intel x86_64 / macOS 15.7.7 / HEAD `af90b10`）按「验证动作不依赖用户配合」的约束，
+尝试执行 `e1-system-audio-recovery-runbook.md` 的 Session 0/A/C（Session B 需 GUI 操作，无
+Accessibility 权限，直接跳过；Session D/C-06 用户已自行跑完并确认）。结论：
+
+- **沙箱回归通过**：`DYLD_LIBRARY_PATH=/usr/lib/swift cargo test --lib audio_capture -- --test-threads=1`
+  → **83/83**（runbook 基线 81 + 后续新增 2 项；含 6 个端到端 worker 恢复测试：中断不重建 /
+  重建 / 双中断 / deadline 判死 / anchor 变化不重建 / anchor 变化重建）。
+- **一次性 harness 基础设施已验证后删除**（沿用 #18 一次性 harness 先例）：由于 `open --args`
+  不向 bundle 应用转发 argv，改为标记文件触发（`/tmp/e1-harness-request.json` + `open -n`），
+  在 GUI 初始化前驱动真实 `RecordingController`（System 模式、真实 ffmpeg finalizer、真实
+  recordings 目录），进程正常启动并自动退出。harness 代码已从源码树移除，源码与 HEAD 一致。
+- **运行时会话被 TCC 阻塞，未执行**：ad-hoc 重签后二进制 cdhash 变化 → Screen Recording 状态
+  变为 NotDetermined → `SCShareableContent::get()` 阻塞在系统授权弹窗（实测进程挂起直至被终止，
+  证据 JSON 记录了 capabilities 探测与直接 SCK 调用两种路径）；验证环境（无人值守沙箱）内
+  `sudo`、`tccutil`、TCC.db 读取、`osascript` System Events、unified log 全部被拒绝，无法自动
+  授予或代点弹窗。既有授权属于旧二进制构建（用户当日 15:13 曾用 14:28 构建成功录音），无法
+  迁移到新构建。Session 0/A/C 按约定跳过；F-03 保持 Partial，F-04/F-05 保持 Blocked，
+  R-01～R-05 保持 Planned。
+- **C-06 回填 Pass**（2026-08-22 用户确认完整跑完 60 分钟，见 §5 表格）。当日另做机器工件
+  复核：60 分钟录音工件已不在本机（recordings 目录现存 17 个 WAV 最长 2:23，均为 16kHz/mono
+  pcm_s16le；app 日志覆盖当日 01:00–16:25，无长录音会话记录；废纸篓与常见目录无 >50M WAV），
+  故 C-06 证据类型为「用户确认」，无法升级为机器复核。附带正面发现：`recordings/.tmp/` 为空，
+  无临时文件残留泄漏（R-04 相关旁证）。
+- **runbook 断言过时提醒**：`784bea8` 已移除录音中恢复 warning 的 UI toast（SCK 启动常有亚秒
+  缺口导致 toast 几乎每次必弹且不可操作）。后续按 runbook 复跑时，「录音中 warning 提示」应以
+  `get_recording_state` / `stop_recording` 返回的 warnings 数据为准；Session A 的 warning
+  `count` 可能包含启动缺口（如 count=3：1 启动 + 2 次切换），按设计契约如实判读。
+
+**恢复路径**：在有用户配合的环境按 runbook 交互式复跑（每次重建 ad-hoc 包后需重新授予
+Screen Recording 并重启应用），或改用 Developer ID 签名构建使 TCC 身份跨重建稳定后再补验。
+
 ## 4. 权限与能力探测
 
 | ID | 场景 | 预期结果 | 环境 | 状态 | Evidence |
@@ -227,7 +260,7 @@ Task 3 的实现要求：
 | C-03 | SilentRecording | 有有效零振幅帧时允许提交 | E1, E2 | **E1: Pass** / E2: Planned | E1: 单测确定性覆盖（`empty_capture_is_rejected_but_valid_silent_capture_is_finalized`、`stop_drains_blocks_and_returns_valid_silent_or_non_silent_summary` 静音分支）；真机后端实测环境有底噪 `silent=false`（`valid_frame_count=95744`），静音帧允许提交逻辑已由单测证明 |
 | C-04 | EmptyRecording | 没有有效音频帧时拒绝提交 | E1, E2 | **E1: Pass** / E2: Planned | E1: 单测 `empty_capture_is_rejected_but_valid_silent_capture_is_finalized`（`valid_frame_count=0` → `RECORDING_EMPTY`）；真机 CoreAudio 持续送帧，空录音不可自然复现 |
 | C-05 | 输出格式 | 最终文件为 16 kHz、单声道、16-bit PCM WAV | E1, E2 | **E1: Pass** / E2: Planned | E1: ffprobe 验证 `pcm_s16le / 16000Hz / 1ch / 16bit / 2.976s / 95310B`，header 含 `Lavf63.1`（真实 ffmpeg finalizer 产物） |
-| C-06 | 60 分钟录音 | 无明显错位、截断、写入中断或不可解释残留 | E1, E2 | **E1: Partial** / E2: Planned | E1(2026-08-21): 60 分钟录音进行到 16.5 分钟时进程被外部终止（WorkBuddy 会话关闭/系统休眠），残留 `system.wav` 190MB/989.6s **连续写入无截断错误**；非正常 stop 导致 `.tmp` 残留（符合崩溃残留预期）。正式 60 分钟验收未完成，留作后续（建议在独立终端跑，避免会话回收） |
+| C-06 | 60 分钟录音 | 无明显错位、截断、写入中断或不可解释残留 | E1, E2 | **E1: Pass** / E2: Planned | E1(2026-08-22): 用户确认已在 E1 环境完整跑完 60 分钟系统录音，无截断、错位、写入中断或不可解释残留（用户确认，2026-08-22）。2026-08-21 的 16.5 分钟外部终止记录为历史过程，已被本次完整运行取代 |
 | C-07 | 低磁盘空间 | 低于 500 MB 时发出既有 warning，写入边界保持一致 | E1, E2 | Planned | — |
 
 ## 6. mixed 原子性与竞态
