@@ -127,7 +127,9 @@ describe("RecordingCard", () => {
     expect(source).toMatch(/startButtonRef\.current\?\.focus/);
   });
 
-  test("shows system-audio-recovered warning in amber instead of red during active recording", () => {
+  test("does not surface system-audio-recovered warnings during active recording", () => {
+    // macOS SCK 启动时普遍存在微小中断并自动恢复，该提示无用户可操作性，
+    // 产品决定不展示（warning 数据仍保留在会话状态与 stop 结果中）。
     const markup = renderCard(
       createController({
         session: {
@@ -147,10 +149,9 @@ describe("RecordingCard", () => {
       }),
     );
 
-    expect(markup).toContain("recovered");
+    expect(markup).not.toContain("recovered");
     expect(markup).not.toContain("Try again");
     expect(markup).not.toContain("cannot continue right now");
-    expect(markup).toContain("recording-capability-notice-warning");
     expect(markup).not.toContain("recording-error");
   });
 
