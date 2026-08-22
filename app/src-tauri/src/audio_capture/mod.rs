@@ -447,9 +447,25 @@ pub(crate) trait RecordingFileStore: Send + Sync {
     fn cleanup(&self, workspace: &CaptureWorkspace) -> Result<(), RecordingError>;
 }
 
+#[derive(Clone)]
+pub(crate) struct CaptureCancelHandle(Arc<dyn Fn() + Send + Sync>);
+
+impl CaptureCancelHandle {
+    pub(crate) fn new(request: impl Fn() + Send + Sync + 'static) -> Self {
+        Self(Arc::new(request))
+    }
+
+    pub(crate) fn request(&self) {
+        (self.0)();
+    }
+}
+
 pub(crate) trait ActiveCapture: Send {
     fn stop(self: Box<Self>) -> Result<CapturedRecording, RecordingError>;
     fn cancel(self: Box<Self>) -> Result<(), RecordingError>;
+    fn cancel_handle(&self) -> Option<CaptureCancelHandle> {
+        None
+    }
 }
 
 pub(crate) trait RecordingBackend: Send + Sync {

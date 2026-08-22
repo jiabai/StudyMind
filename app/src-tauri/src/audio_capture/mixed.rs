@@ -1,6 +1,7 @@
 use super::wav_writer::WavCaptureSummary;
 use super::{
-    ActiveCapture, CapturedRecording, RecordingError, RecordingSource, RECORDING_STREAM_ERROR,
+    ActiveCapture, CaptureCancelHandle, CapturedRecording, RecordingError, RecordingSource,
+    RECORDING_EMPTY, RECORDING_STREAM_ERROR,
 };
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender};
@@ -173,43 +174,75 @@ struct MixedActiveCapture {
 impl ActiveCapture for MixedActiveCapture {
     fn stop(self: Box<Self>) -> Result<CapturedRecording, RecordingError> {
         let MixedActiveCapture { sources, failures } = *self;
-        for prepared in &sources {
-            prepared.signal.request(CaptureCommand::Stop);
-        }
+        request_all(&sources, CaptureCommand::Stop);
         let summaries = join_sources(sources, &failures);
         if let Some(error) = failures.snapshot() {
             return Err(error);
         }
-        if summaries.is_empty() {
-            return Err(RecordingError::new(RECORDING_STREAM_ERROR));
-        }
-
-        let valid_frame_count = summaries.iter().fold(0_u64, |count, summary| {
-            count.saturating_add(summary.valid_frame_count)
-        });
-        let duration_ms = summaries
-            .iter()
-            .map(|summary| summary.duration_ms)
-            .max()
-            .unwrap_or(0);
-        let silent = summaries.iter().all(|summary| summary.silent);
-        let source_paths = summaries.into_iter().map(|summary| summary.path).collect();
-        Ok(CapturedRecording {
-            source_paths,
-            valid_frame_count,
-            silent,
-            duration_ms,
-        })
+        summarize_sources(summaries)
     }
 
     fn cancel(self: Box<Self>) -> Result<(), RecordingError> {
         let MixedActiveCapture { sources, failures } = *self;
-        for prepared in &sources {
-            prepared.signal.request(CaptureCommand::Cancel);
-        }
+        request_all(&sources, CaptureCommand::Cancel);
         let _ = join_sources(sources, &failures);
         failures.snapshot().map_or(Ok(()), Err)
     }
+
+    fn cancel_handle(&self) -> Option<CaptureCancelHandle> {
+        let signals = self
+            .sources
+            .iter()
+            .map(|prepared| prepared.signal.clone())
+            .collect::<Vec<_>>();
+        Some(CaptureCancelHandle::new(move || {
+            for signal in &signals {
+                signal.request(CaptureCommand::Cancel);
+            }
+        }))
+    }
+}
+
+fn request_all(sources: &[PreparedSource; 2], command: CaptureCommand) {
+    for prepared in sources {
+        prepared.signal.request(command);
+    }
+}
+
+fn summarize_sources(
+    mut summaries: Vec<(RecordingSource, WavCaptureSummary)>,
+) -> Result<CapturedRecording, RecordingError> {
+    summaries.sort_by_key(|(source, _)| match source {
+        RecordingSource::Microphone => 0,
+        RecordingSource::SystemAudio => 1,
+    });
+
+    let mut valid_frame_count = 0_u64;
+    let mut duration_ms = 0_u64;
+    let mut silent = true;
+    let mut source_paths = Vec::with_capacity(summaries.len());
+    for (source, summary) in summaries {
+        if summary.valid_frame_count == 0 {
+            return Err(RecordingError::new(RECORDING_EMPTY).for_source(source));
+        }
+        valid_frame_count = valid_frame_count
+            .checked_add(summary.valid_frame_count)
+            .ok_or_else(|| RecordingError::new(RECORDING_STREAM_ERROR).for_source(source))?;
+        duration_ms = duration_ms.max(summary.duration_ms);
+        silent &= summary.silent;
+        source_paths.push(summary.path);
+    }
+
+    if source_paths.is_empty() {
+        return Err(RecordingError::new(RECORDING_STREAM_ERROR));
+    }
+
+    Ok(CapturedRecording {
+        source_paths,
+        valid_frame_count,
+        silent,
+        duration_ms,
+    })
 }
 
 fn has_mixed_source_identity(sources: &[PreparedSource; 2]) -> bool {
@@ -255,13 +288,14 @@ fn cancel_and_join(sources: [PreparedSource; 2], failures: &FirstSourceFailure) 
 fn join_sources(
     sources: [PreparedSource; 2],
     failures: &FirstSourceFailure,
-) -> Vec<WavCaptureSummary> {
+) -> Vec<(RecordingSource, WavCaptureSummary)> {
     let mut summaries = Vec::with_capacity(2);
     for prepared in sources {
+        let source = prepared.source;
         match prepared.worker.join() {
-            Ok(Ok(summary)) => summaries.push(summary),
-            Ok(Err(error)) => failures.record(error, prepared.source),
-            Err(_) => failures.record(RecordingError::new(RECORDING_STREAM_ERROR), prepared.source),
+            Ok(Ok(summary)) => summaries.push((source, summary)),
+            Ok(Err(error)) => failures.record(error, source),
+            Err(_) => failures.record(RecordingError::new(RECORDING_STREAM_ERROR), source),
         }
     }
     summaries
@@ -378,6 +412,352 @@ mod tests {
             observed = predicate();
         }
         assert!(observed, "timed out waiting for {label}");
+    }
+
+    fn prepared_summary_worker(
+        source: RecordingSource,
+        result: Result<WavCaptureSummary, RecordingError>,
+        wait_for_all_stop: Option<Arc<AtomicUsize>>,
+        wait_for_cancel_after_stop: bool,
+        observation: Option<Arc<WorkerObservation>>,
+    ) -> PreparedSource {
+        let signal = CaptureSignal::default();
+        let worker_signal = signal.clone();
+        let worker = thread::spawn(move || {
+            let mut result = Some(result);
+            loop {
+                match worker_signal.current() {
+                    Some(CaptureCommand::Cancel) => {
+                        if let Some(observation) = observation.as_ref() {
+                            observation.cancelled.fetch_add(1, Ordering::SeqCst);
+                            observation.joined.fetch_add(1, Ordering::SeqCst);
+                        }
+                        return result.take().expect("worker result");
+                    }
+                    Some(CaptureCommand::Stop) => {
+                        if let Some(stop_count) = wait_for_all_stop.as_ref() {
+                            stop_count.fetch_add(1, Ordering::SeqCst);
+                            let deadline = Instant::now() + Duration::from_millis(250);
+                            while stop_count.load(Ordering::SeqCst) < 2 && Instant::now() < deadline
+                            {
+                                thread::yield_now();
+                            }
+                            if stop_count.load(Ordering::SeqCst) < 2 {
+                                return Err(
+                                    RecordingError::new(RECORDING_STREAM_ERROR).for_source(source)
+                                );
+                            }
+                        }
+                        if wait_for_cancel_after_stop {
+                            let deadline = Instant::now() + Duration::from_millis(250);
+                            while worker_signal.current() != Some(CaptureCommand::Cancel)
+                                && Instant::now() < deadline
+                            {
+                                thread::yield_now();
+                            }
+                            if worker_signal.current() != Some(CaptureCommand::Cancel) {
+                                return Err(
+                                    RecordingError::new(RECORDING_STREAM_ERROR).for_source(source)
+                                );
+                            }
+                        }
+                        if let Some(observation) = observation.as_ref() {
+                            observation.joined.fetch_add(1, Ordering::SeqCst);
+                        }
+                        return result.take().expect("worker result");
+                    }
+                    None => thread::yield_now(),
+                }
+            }
+        });
+
+        PreparedSource {
+            source,
+            signal,
+            worker,
+        }
+    }
+
+    #[test]
+    fn mixed_stop_broadcasts_before_join_and_returns_fixed_source_order() {
+        let stop_count = Arc::new(AtomicUsize::new(0));
+        let microphone_summary = WavCaptureSummary {
+            path: PathBuf::from("microphone.wav"),
+            valid_frame_count: 441,
+            silent: false,
+            duration_ms: 11,
+        };
+        let system_summary = WavCaptureSummary {
+            path: PathBuf::from("system-audio.wav"),
+            valid_frame_count: 480,
+            silent: false,
+            duration_ms: 10,
+        };
+        let sources = [
+            prepared_summary_worker(
+                RecordingSource::SystemAudio,
+                Ok(system_summary),
+                Some(stop_count.clone()),
+                false,
+                None,
+            ),
+            prepared_summary_worker(
+                RecordingSource::Microphone,
+                Ok(microphone_summary),
+                Some(stop_count),
+                false,
+                None,
+            ),
+        ];
+        let capture = MixedActiveCapture {
+            sources,
+            failures: FirstSourceFailure::default(),
+        };
+
+        let captured = Box::new(capture).stop().expect("mixed stop succeeds");
+
+        assert_eq!(
+            captured.source_paths,
+            vec![
+                PathBuf::from("microphone.wav"),
+                PathBuf::from("system-audio.wav")
+            ]
+        );
+        assert_eq!(captured.valid_frame_count, 921);
+        assert_eq!(captured.duration_ms, 11);
+        assert!(!captured.silent);
+    }
+
+    #[test]
+    fn mixed_stop_rejects_one_empty_source_without_partial_result() {
+        let sources = [
+            prepared_summary_worker(
+                RecordingSource::Microphone,
+                Ok(WavCaptureSummary {
+                    path: PathBuf::from("microphone.wav"),
+                    valid_frame_count: 12,
+                    silent: true,
+                    duration_ms: 10,
+                }),
+                None,
+                false,
+                None,
+            ),
+            prepared_summary_worker(
+                RecordingSource::SystemAudio,
+                Ok(WavCaptureSummary {
+                    path: PathBuf::from("system-audio.wav"),
+                    valid_frame_count: 0,
+                    silent: true,
+                    duration_ms: 0,
+                }),
+                None,
+                false,
+                None,
+            ),
+        ];
+        let capture = MixedActiveCapture {
+            sources,
+            failures: FirstSourceFailure::default(),
+        };
+
+        let error = Box::new(capture)
+            .stop()
+            .expect_err("empty source must fail");
+
+        assert_eq!(error.code, super::RECORDING_EMPTY);
+        assert_eq!(error.source, Some(RecordingSource::SystemAudio));
+    }
+
+    #[test]
+    fn mixed_stop_accepts_valid_silent_source() {
+        let sources = [
+            prepared_summary_worker(
+                RecordingSource::Microphone,
+                Ok(WavCaptureSummary {
+                    path: PathBuf::from("microphone.wav"),
+                    valid_frame_count: 3,
+                    silent: false,
+                    duration_ms: 10,
+                }),
+                None,
+                false,
+                None,
+            ),
+            prepared_summary_worker(
+                RecordingSource::SystemAudio,
+                Ok(WavCaptureSummary {
+                    path: PathBuf::from("system-audio.wav"),
+                    valid_frame_count: 2,
+                    silent: true,
+                    duration_ms: 15,
+                }),
+                None,
+                false,
+                None,
+            ),
+        ];
+        let capture = MixedActiveCapture {
+            sources,
+            failures: FirstSourceFailure::default(),
+        };
+
+        let captured = Box::new(capture)
+            .stop()
+            .expect("valid silent source is accepted");
+
+        assert_eq!(captured.valid_frame_count, 5);
+        assert!(!captured.silent);
+    }
+
+    #[test]
+    fn mixed_source_failure_beats_concurrent_normal_stop() {
+        let sources = [
+            prepared_summary_worker(
+                RecordingSource::Microphone,
+                Err(RecordingError::new(RECORDING_STREAM_ERROR)),
+                None,
+                false,
+                None,
+            ),
+            prepared_summary_worker(
+                RecordingSource::SystemAudio,
+                Ok(summary_for(RecordingSource::SystemAudio)),
+                None,
+                false,
+                None,
+            ),
+        ];
+        let capture = MixedActiveCapture {
+            sources,
+            failures: FirstSourceFailure::default(),
+        };
+
+        let error = Box::new(capture)
+            .stop()
+            .expect_err("source failure must win");
+
+        assert_eq!(error.code, RECORDING_STREAM_ERROR);
+        assert_eq!(error.source, Some(RecordingSource::Microphone));
+    }
+
+    #[test]
+    fn mixed_cancel_handle_upgrades_inflight_stop_before_join_finishes() {
+        let stop_count = Arc::new(AtomicUsize::new(0));
+        let sources = [
+            prepared_summary_worker(
+                RecordingSource::Microphone,
+                Ok(summary_for(RecordingSource::Microphone)),
+                Some(stop_count.clone()),
+                true,
+                None,
+            ),
+            prepared_summary_worker(
+                RecordingSource::SystemAudio,
+                Ok(summary_for(RecordingSource::SystemAudio)),
+                Some(stop_count.clone()),
+                true,
+                None,
+            ),
+        ];
+        let capture: Box<dyn ActiveCapture> = Box::new(MixedActiveCapture {
+            sources,
+            failures: FirstSourceFailure::default(),
+        });
+        let cancel_handle = capture
+            .cancel_handle()
+            .expect("mixed capture is cancellable");
+        let stopping = thread::spawn(move || capture.stop());
+
+        wait_until("both workers receiving stop", || {
+            stop_count.load(Ordering::SeqCst) == 2
+        });
+        cancel_handle.request();
+
+        let captured = stopping
+            .join()
+            .expect("stop worker joined")
+            .expect("cancel upgrades stop cleanly");
+        assert_eq!(captured.valid_frame_count, 2);
+    }
+
+    #[test]
+    fn mixed_first_confirmed_failure_is_not_overwritten_by_join_error() {
+        let panicking_worker = |source| {
+            let signal = CaptureSignal::default();
+            let worker_signal = signal.clone();
+            let worker = thread::spawn(move || -> Result<WavCaptureSummary, RecordingError> {
+                loop {
+                    if worker_signal.current().is_some() {
+                        panic!("simulated worker join failure");
+                    }
+                    thread::yield_now();
+                }
+            });
+            PreparedSource {
+                source,
+                signal,
+                worker,
+            }
+        };
+        let sources = [
+            prepared_summary_worker(
+                RecordingSource::Microphone,
+                Ok(summary_for(RecordingSource::Microphone)),
+                None,
+                false,
+                None,
+            ),
+            panicking_worker(RecordingSource::SystemAudio),
+        ];
+        let capture = MixedActiveCapture {
+            sources,
+            failures: {
+                let failures = FirstSourceFailure::default();
+                failures.record(
+                    RecordingError::new(RECORDING_EMPTY),
+                    RecordingSource::Microphone,
+                );
+                failures
+            },
+        };
+
+        let error = Box::new(capture)
+            .stop()
+            .expect_err("first failure must win");
+
+        assert_eq!(error.code, super::RECORDING_EMPTY);
+        assert_eq!(error.source, Some(RecordingSource::Microphone));
+    }
+
+    #[test]
+    fn mixed_cancel_broadcasts_joins_and_returns_no_capture() {
+        let observation = Arc::new(WorkerObservation::default());
+        let sources = [
+            prepared_summary_worker(
+                RecordingSource::Microphone,
+                Ok(summary_for(RecordingSource::Microphone)),
+                None,
+                false,
+                Some(observation.clone()),
+            ),
+            prepared_summary_worker(
+                RecordingSource::SystemAudio,
+                Ok(summary_for(RecordingSource::SystemAudio)),
+                None,
+                false,
+                Some(observation.clone()),
+            ),
+        ];
+        let capture = MixedActiveCapture {
+            sources,
+            failures: FirstSourceFailure::default(),
+        };
+
+        Box::new(capture).cancel().expect("mixed cancel succeeds");
+
+        assert_eq!(observation.cancelled.load(Ordering::SeqCst), 2);
+        assert_eq!(observation.joined.load(Ordering::SeqCst), 2);
     }
 
     #[test]
