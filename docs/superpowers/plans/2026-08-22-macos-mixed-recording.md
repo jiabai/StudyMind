@@ -17,8 +17,9 @@ latest `master` containing the confirmed design and terminal-failure revision. D
 runtime rows Pass from Windows-host tests.
 
 Current execution progress in `codex/macos-mixed-recording`: Task 1 is committed as `306f045` plus
-review fix `8852573`; Task 2 is committed as `23e1613` and requires renewed spec/quality review after
-this plan revision. Continue with Task 2 review, then Task 3; do not reimplement completed work.
+review fix `8852573`; Task 2 is committed as `23e1613`, `a432bdd`, and `baf32e8` with focused and
+full `audio_capture` tests green; Task 3 is committed as `65f5725` with mixed 13/13 and full
+`audio_capture` 91/91 green. Continue with Task 4; do not reimplement completed work.
 
 ## File responsibility map
 
