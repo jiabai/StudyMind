@@ -97,10 +97,19 @@ impl RecordingErrorCode {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum RecordingSource {
+    Microphone,
+    SystemAudio,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub(crate) struct RecordingError {
     pub(crate) code: RecordingErrorCode,
     pub(crate) message: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) source: Option<RecordingSource>,
 }
 
 impl RecordingError {
@@ -108,7 +117,15 @@ impl RecordingError {
         Self {
             code,
             message: code.message(),
+            source: None,
         }
+    }
+
+    pub(crate) fn for_source(mut self, source: RecordingSource) -> Self {
+        if self.source.is_none() {
+            self.source = Some(source);
+        }
+        self
     }
 }
 
@@ -1936,6 +1953,56 @@ mod tests {
         assert!(serialized.contains("RECORDING_MIC_INIT_FAILED"));
         assert_eq!(error.message, "The microphone could not be initialized.");
         assert!(!serialized.contains("C:\\\\Users"));
+    }
+
+    #[test]
+    fn recording_error_serializes_system_audio_source_with_stable_payload() {
+        let error = RecordingError::new(RECORDING_STREAM_ERROR)
+            .for_source(RecordingSource::SystemAudio);
+
+        assert_eq!(
+            serde_json::to_string(&error).expect("serialize recording error"),
+            r#"{"code":"RECORDING_STREAM_ERROR","message":"The recording stream was interrupted.","source":"systemAudio"}"#
+        );
+    }
+
+    #[test]
+    fn recording_error_without_source_omits_source_key() {
+        let error = RecordingError::new(RECORDING_MIX_FAILED);
+        let payload = serde_json::to_value(error).expect("serialize recording error");
+
+        assert_eq!(
+            payload,
+            serde_json::json!({
+                "code": "RECORDING_MIX_FAILED",
+                "message": "The recording sources could not be mixed."
+            })
+        );
+    }
+
+    #[test]
+    fn recording_error_preserves_first_source() {
+        let error = RecordingError::new(RECORDING_STREAM_ERROR)
+            .for_source(RecordingSource::Microphone)
+            .for_source(RecordingSource::SystemAudio);
+
+        assert_eq!(error.source, Some(RecordingSource::Microphone));
+    }
+
+    #[test]
+    fn recording_error_source_payload_contains_only_stable_fields() {
+        let error = RecordingError::new(RECORDING_STREAM_ERROR)
+            .for_source(RecordingSource::SystemAudio);
+        let payload = serde_json::to_value(error).expect("serialize recording error");
+
+        assert_eq!(
+            payload.as_object().expect("recording error object").keys().collect::<Vec<_>>(),
+            vec!["code", "message", "source"]
+        );
+        assert_eq!(payload["code"], "RECORDING_STREAM_ERROR");
+        assert_eq!(payload["message"], "The recording stream was interrupted.");
+        assert_eq!(payload["source"], "systemAudio");
+        assert!(!serde_json::to_string(&payload).unwrap().contains("native"));
     }
 
     #[test]
