@@ -1,6 +1,6 @@
 # macOS Mixed Recording Design
 
-> 状态：已获用户确认，等待书面 spec review · 日期：2026-08-22
+> 状态：已获用户确认；2026-08-22 grilling 后补充异步终态失败契约，等待书面 spec review
 
 ## Goal
 
@@ -43,6 +43,10 @@
    技术入口，不改变“系统声音”的产品语义；mixed 不引入新的显示器范围语义或视频输出。
 8. 两个 native source 不承诺 sample-accurate 同步。共同 gate 提供 best-effort 起点对齐，
    v1 接受长录音的轻微独立时钟漂移。
+9. 权限交互先于 Ready 等待。用户处理 macOS TCC 对话框的时间不计入三秒 Ready timeout；v1
+   不为尚未返回 `sessionId` 的首次权限等待增加取消协议。
+10. `start_recording` 成功返回后的任一致命失败必须立即结束用户可见的 RecordingSession；前端
+    停止计时并进入错误终态，后端在不阻塞通知的情况下继续清理采集资源。
 
 ## Chosen Architecture
 
@@ -57,11 +61,14 @@
 - 同时持有 microphone 与 systemAudio 两个 worker；
 - 在既有三秒启动窗口内等待两路 Ready；
 - 任一路启动错误、ready channel 断开或超时后，取消两路并等待两路退出；
+- Ready deadline 到期时，若恰有一路未 Ready，则 timeout error 归因给该 source；若两路都未
+  Ready，则返回无 source 的 `RECORDING_STREAM_ERROR`；
 - 两路均 Ready 时仅打开一次共同 gate，并返回一个 `MixedActiveCapture`；
 - stop 时先向两路广播停止，再等待两路结果，避免顺序 stop 给另一 source 增加额外录音尾巴；
 - cancel 时向两路广播取消、等待退出且不返回 source paths；
 - 仅当两个结果都成功且各自具有有效帧时，按固定顺序返回 `mic.wav`、`system.wav`；
-- 锁存第一个已确认的 source failure，后续 cleanup 或另一 source 的派生错误不得覆盖它。
+- 按 failure latch 的实际观察顺序锁存第一个已确认的 source failure，不按媒体 timestamp 排序；
+  后续 cleanup 或另一 source 的派生错误不得覆盖它。
 
 该模块不负责权限请求、native stream 创建、WAV 编码、system recovery、ffmpeg 或 Controller
 状态。这样协调语义可以用确定性 fake source 在任意 host 测试，而平台 worker 仍保持单一职责。
@@ -97,9 +104,33 @@ macOS `macos.rs` 复用现有 cpal microphone worker 与 ScreenCaptureKit system
 - 只有 mixed coordinator 已编入当前构建，且本次 capability probe 中 microphone 与
   systemAudio 都可用时，macOS 的显式 mixed capability 才标为 available；前端仍不得自行推导。
 
-Controller、`RecordingBackend`、`ActiveCapture`、workspace 和 finalizer 的外部契约不变。
+`RecordingBackend` 的平台边界、workspace 和 finalizer 继续复用；`ActiveCapture` 与 Controller
+之间增加平台无关的异步终态通道，使 source worker 不必等待用户调用 stop 才能报告 runtime
+failure。该通道适用于所有平台和所有 RecordingMode，公共层不得加入 macOS 或 mixed 特判。
+`ActiveCapture` 还提供可克隆的 cancel handle：Controller 进入 Stopping 并把 capture 所有权交给
+stop 操作后，竞态中的 cancel 仍能向 native workers 提升控制信号；两路 join 成功后 Controller
+才原子进入 Finalizing，此后 cancel 被拒绝。
 
-### 4. Finalization and downstream flow
+### 4. Accepted-session terminal failure supervisor
+
+`start_recording` 成功返回是启动失败与已接受会话失败的边界：
+
+- 返回前发生的权限、初始化、Ready 或 timeout 错误属于 `RecordingStartFailure`。启动调用在两路
+  cancel、join 和 workspace cleanup 完成后直接返回错误，不发送失败 event，不留下 hydration
+  快照；
+- 返回后发生的 runtime、提前正常退出、stop、Empty 或 finalizer 错误属于
+  `RecordingFailure`。Controller 原子锁存首个失败并立即发布终态，停止用户可见计时；
+- runtime failure 锁存后先发送 `recording-failed`，随后后台 cancel peer、join worker 并清理
+  workspace。清理期间 `cleanupPending=true`，拒绝确认错误和开始新会话；
+- 仅临时文件删除失败不阻塞后续会话。若 native stream、callback 或 worker 无法确认退出，则
+  `cleanupPending` 保持为 true，本进程内禁止新录音并提示用户重启；
+- 清理完成后使用同一失败身份重发 `recording-failed`，更新 `cleanupPending=false` 和最终聚合的
+  warnings。event 是实时路径，`get_recording_state` hydration 是漏收补偿路径。
+
+失败身份固定为 `(sessionId, errorCode, source?)`。event、命令返回和 hydration 中的同一身份只能
+使前端进入一次错误终态、调用一次用户错误入口；后续副本只更新 cleanup 与 warning 信息。
+
+### 5. Finalization and downstream flow
 
 成功 stop 只向现有 finalizer 交付两个 workspace-contained source path，顺序固定为 microphone
 后 systemAudio。`mixer.rs` 继续使用：
@@ -147,12 +178,35 @@ cleanup 错误。只有两路都正常完成，才允许进入 finalizer。若 f
 现有非 source 错误；未知 source 或错误类型的数据继续 fail-closed。前端不新增 mixed 专用页面、
 第二个 session 或第二套媒体选择流程。
 
+### Accepted-session state and event
+
+`get_recording_state` 从“活动对象或 null”扩展为显式 tagged union：
+
+```text
+{ status: "recording", sessionId, mode, elapsedMs, warnings }
+{ status: "failed", sessionId, mode, elapsedMs, errorCode, source?, cleanupPending, warnings }
+null
+```
+
+failed variant 与 `recording-failed` payload 共用同一个 `RecordingFailureView`，不得维护两套字段。
+失败快照仅存在于当前 Tauri 进程，不落盘；保留到用户确认或新会话原子取得所有权。新增
+`acknowledge_recording_failure(sessionId)`：只有匹配且 `cleanupPending=false` 的快照可清除；
+同 session 重复确认成功，不匹配的旧 session 返回 `RECORDING_SESSION_INVALID`。
+
+同一已失败 session 的 `stop_recording` 返回已锁存原始失败；`cancel_recording` 是幂等清理请求且
+不覆盖失败快照。finalizer 开始后 cancel 不再胜出，返回 `RECORDING_SESSION_INVALID`，原 stop/
+finalize 继续完成。
+
 ## Cleanup and Concurrency Rules
 
 - startup 任一路失败或超时：协调器先向两路发送 cancel，再 join 两路，随后由 Controller 清理
-  整个 workspace。
+  整个 workspace；权限等待结束后才开始三秒 Ready timeout。
 - stop：先广播 stop，再 join；在两路正常完成前已锁存的 source failure 胜出。
 - cancel：先广播 cancel，再 join；不运行 finalizer，不保留诊断 WAV。
+- stop/cancel 竞态中，finalizer 开始前 Cancel 可覆盖 Stop；两路 join 完成且 finalizer 已开始后，
+  Cancel 返回 `RECORDING_SESSION_INVALID`，不能中断组合产物提交。
+- runtime failure：原子锁存失败并发送 `cleanupPending=true` 的终态 event，再 cancel peer、join、
+  cleanup；清理成功后以同一失败身份发送 `cleanupPending=false` 更新。
 - callback 和 writer 在返回 start/stop/cancel 前必须已脱离临时路径；Controller 不能删除仍被
   worker 写入的文件。
 - shutdown、join 和 workspace cleanup 必须可以安全处理重复信号或部分初始化；不能遗留第二
@@ -196,12 +250,21 @@ cleanup 错误。只有两路都正常完成，才允许进入 finalizer。若 f
 - Controller 只有 backend 两路 Ready 并成功返回后才进入 recording 状态和启动计时。
 - startup、runtime、stop、empty、finalizer、cancel 和 cleanup 竞态都只结束一个 session，清理
   整个 workspace，不创建部分 `LocalMediaSource`。
+- runtime failure 无需等待用户 stop 即结束 Controller 会话；event、stop 返回和 hydration 的
+  重复失败按身份去重，cleanup 状态更新不重复调用用户错误入口。
+- `get_recording_state` 覆盖 recording/failed/null；failed snapshot、确认、清理完成重发、窗口
+  重载恢复和进程重启清除均有测试。
+- `cleanupPending=true` 禁止确认和新启动；临时文件删除失败可解除阻塞，native teardown 未确认
+  时持续阻塞并保留原始失败。
 - 正常 mixed stop 只产生一个 `RecordingResult`，warning hydration 与 system 单源保持一致。
 
 ### 4. Frontend tests
 
 - mixed option 只服从显式 capability，不从两个单源 availability 推导；
 - source-tagged errors 能解析并使用现有本地化错误入口显示，不暴露内部 message；
+- `RecordingFailureView` 同时解析 event 与 hydration，按 session/error/source 去重；
+- runtime failure 立即停止 timer、清除活动控制、关闭 discard dialog，进入 error 且不 handoff；
+- cleanup 完成前禁用关闭/重试，完成 event 只更新状态，不重复显示错误；
 - mixed start/stop/cancel 仍使用一个 RecordingSession、一个 timer 和一个 media handoff；
 - state hydration、system recovery warnings 和已有 mic/system 流程不回归。
 
@@ -252,14 +315,17 @@ start/stop/cancel、一路静音、一路无帧或提前失败、queue/runtime/s
 ## File Boundaries
 
 - Create: `app/src-tauri/src/audio_capture/mixed.rs`（共享 coordinator、gate 和 fake-source tests）
-- Modify: `app/src-tauri/src/audio_capture/mod.rs`（module wiring、RecordingSource、error source）
+- Create: `app/src-tauri/src/audio_capture/failure_supervisor.rs`（通用首错锁存与异步唤醒）
+- Modify: `app/src-tauri/src/audio_capture/mod.rs`（module wiring、source error、终态通道、failed snapshot、状态 union、确认命令）
+- Modify: `app/src-tauri/src/lib.rs`（注册失败确认命令）
 - Modify: `app/src-tauri/src/audio_capture/wasapi.rs`（Windows source adapter 与共享 mixed）
 - Modify: `app/src-tauri/src/audio_capture/macos.rs`（macOS source adapter、权限顺序、mixed capability）
 - Modify: `app/src-tauri/src/audio_capture/mixer.rs`（仅补充不同格式/原子输入测试，保留混音参数）
-- Modify: `app/src/recordingClient.ts`（可选 error source 解析）
-- Modify: `app/src/recordingClient.test.ts`（source/error/capability contract tests）
+- Modify: `app/src/recordingClient.ts`（可选 error source、RecordingFailureView、failed event/state、确认命令）
+- Modify: `app/src/recordingClient.test.ts`（source/error/capability/failure event/state contract tests）
 - Modify: `app/src/features/workflow/useRecordingController.ts` 及其测试（把 error source 送入现有
-  本地化错误入口，并断言 mixed 仍只有一个 session）
+  本地化错误入口，处理 event/hydration 去重、cleanup UI，并断言 mixed 仍只有一个 session）
+- Modify: `app/src/features/workflow/RecordingCard.tsx` 及其测试（失败来源和 cleanupPending 文案/控制）
 - Update evidence: `docs/adr/0005-macos-recording-backend.md`
 - Update evidence: `docs/test-plans/macos-recording-acceptance.md`
 - Update handoff: `docs/handoffs/studymind-macos-recording-implementation-handoff.md`

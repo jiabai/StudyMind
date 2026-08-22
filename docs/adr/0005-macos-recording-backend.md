@@ -126,6 +126,9 @@ ScreenCaptureKit 的 Rust 绑定选用 `screencapturekit` crate（启用 macOS 1
 - 同一 `RecordingSession` 内并发启动 cpal 和 ScreenCaptureKit；只有两路都启动成功后才向
   `start_recording` 返回成功。两路都发出 ready 信号后才定义 session audio time zero；屏障前
   先就绪一路产生的帧不得进入最终录音。
+- microphone → Screen Recording 的 TCC 权限交互先于三秒 ready deadline；用户处理系统权限
+  对话框的时间不属于 native source ready timeout。v1 不为尚未返回 session id 的权限等待增加
+  独立取消协议。
 - 两路分别写入 session 临时目录的 WAV。任一路启动、运行或停止失败，都停止另一条路、清理
   临时目录，并使整个 mixed 会话失败；不得静默退化为单路录音。
 - 两路临时 WAV 必须写入各自协商出的明确 PCM 格式和完整 WAV header；采样率、声道数等差异
@@ -145,9 +148,8 @@ ScreenCaptureKit 的 Rust 绑定选用 `screencapturekit` crate（启用 macOS 1
 
 ### 6. IPC、前端能力门控和错误语义
 
-- Tauri 命令保持现有集合：`get_recording_capabilities`、`start_recording`、
-  `stop_recording`、`cancel_recording`、`get_recording_state`；不新增 Worker 或录音专用
-  网络接口。
+- Tauri 录音命令继续使用现有本地 IPC 边界，并增加
+  `acknowledge_recording_failure(sessionId)`；不新增 Worker 或录音专用网络接口。
 - v1 新增最小化的 Rust → 前端 `recording-warning` Tauri 事件，用于运行时可恢复异常。payload
   固定为 `{ sessionId, warningCode, source?, count, totalGapMs }`；本 ADR 定义的首个 warning
   code 为 `RECORDING_SYSTEM_AUDIO_RECOVERED`，`source` 为 `systemAudio`。事件不得携带
@@ -155,6 +157,18 @@ ScreenCaptureKit 的 Rust 绑定选用 `screencapturekit` crate（启用 macOS 1
 - 事件只负责即时通知，不能作为 warning 的唯一存储。`RecordingSession` 按
   `(warningCode, source)` 去重并累计 `count` / `totalGapMs`；`get_recording_state` 和
   `stop_recording` 都必须返回当前累计的 `warnings` 列表，使前端重新挂载或漏收事件后仍能恢复。
+- `start_recording` 成功返回后的 runtime、stop、Empty 或 finalizer 致命失败使用通用
+  `recording-failed` 事件即时终止用户可见会话，并把同一 `RecordingFailureView` 保存在
+  `get_recording_state` 的 failed variant 中作为 hydration 补偿。启动成功返回前的错误仍由
+  start 命令在完整 cleanup 后直接返回，不产生 event 或失败快照。
+- 失败身份为 `(sessionId, errorCode, source?)`。event、命令错误和 hydration 的重复副本只允许
+  前端报告一次；失败快照仅保存在当前 Tauri 进程，用户确认或新会话原子取得所有权时清除。
+- runtime failure 锁存后立即发送 `cleanupPending=true`，后台 cancel/join/cleanup 完成后以同一
+  身份重发 `cleanupPending=false`。pending 期间不能确认错误或开始新会话；临时文件删除失败
+  不阻塞后续录音，但无法确认 native stream/callback/worker 已退出时，本进程持续禁止录音并
+  提示重启。
+- 同一已失败 session 的 stop 返回原始锁存错误，cancel 是不覆盖失败快照的幂等清理请求；
+  finalizer 开始后 cancel 返回 `RECORDING_SESSION_INVALID`，不能中断 ffmpeg。
 - `RecordingCapabilities.platform` 类型增加 `"macos"`，解析器和能力判断允许
   `windows` / `macos`，不再硬编码 Windows。能力契约显式携带 microphone、systemAudio 和
   mixed capability：Windows 可由两路已实现 source 组合出 mixed；macOS 在 #18 只开放 system，
@@ -170,6 +184,8 @@ ScreenCaptureKit 的 Rust 绑定选用 `screencapturekit` crate（启用 macOS 1
   - ffmpeg 或最终 WAV 校验失败：`RECORDING_MIX_FAILED` / `RECORDING_FINALIZE_FAILED`。
 - 能力探测阶段的不可用只影响 option 和开始按钮；空闲态的已保存模式可按上述规则回退；用户
   明确点击开始后和活动会话中的 source 失败必须报错，不自动换源。
+- 上述终态失败、状态恢复和去重契约适用于所有平台与所有 RecordingMode；公共 Controller、IPC
+  和前端不得包含 macOS/mixed 特判。
 
 ### 7. 打包、签名和数据边界
 
