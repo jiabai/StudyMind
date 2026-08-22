@@ -172,8 +172,9 @@ stream supervisor 实现；host-side 与 E1 沙箱证据不替代 F-03/F-04/F-05
 | `1d54944` | TypeScript parser、事件过滤、state hydration | 当时 frontend 75 个 test files / 778 tests 通过；TypeScript/Vite build 通过 | Historical host-side Pass |
 | `414650d` 及后续 recovery commits | macOS native stream supervisor 与 recovery integration | `SCStream::new_with_delegate`、Audio-only output、filter 更新优先、失败重建、CMSampleBuffer timing、stop/cancel/error/rebuild 清理；E1 沙箱回归 83/83，含 6 个端到端 worker recovery 测试 | Implementation complete；runtime recovery evidence pending |
 
-2026-08-22 Windows host 回归：frontend 75 个 test files / **780 tests passed**；TypeScript/Vite
-production build passed。
+2026-08-23 Windows host 回归：frontend 75 个 test files / **791 tests passed**；TypeScript/Vite
+production build passed；`cargo test ... audio_capture -- --test-threads=1` **111 passed**；
+`cargo check --manifest-path app/src-tauri/Cargo.toml` passed。
 
 Task 3 实现已完成，但上述证据仍不能替代恢复场景的 macOS runtime 验收：
 
@@ -181,6 +182,32 @@ Task 3 实现已完成，但上述证据仍不能替代恢复场景的 macOS run
   在本轮新的恢复场景中取得完整 macOS runtime 证据；
 - 因此 R-01～R-05、F-03～F-05 仍保持 `Partial`/`Blocked`/`Planned` 原状态，不能标记
   为 macOS runtime `Pass`。
+
+## 3.4.1 Issue #20 mixed implementation evidence (Windows host)
+
+2026-08-23 在 `codex/macos-mixed-recording` 工作树完成 Issue #20 的平台无关 mixed coordinator、
+accepted-session failure supervisor、Windows WASAPI 接入、macOS mixed 接入以及前端失败
+hydration/dedup 契约。当前可复核的 host-side 证据为：
+
+- 实现提交：`7c88660`（`feat(recording): complete mixed capture implementation`）；
+
+- `cargo test --manifest-path app/src-tauri/Cargo.toml audio_capture -- --test-threads=1`：111 passed；
+- `cargo check --manifest-path app/src-tauri/Cargo.toml`：passed；
+- `npm --prefix app test`：75 个 test files / 791 passed；
+- `npm --prefix app run build`：TypeScript 与 Vite production build passed；
+- `git diff --check`：passed；
+- 额外覆盖：mixed 双路 ready gate、pre-gate 丢帧、固定 mic→system 路径顺序、不同 WAV
+  协商格式、source-tagged runtime error、失败 event/hydration/dismiss 竞态、后台 cleanup。
+
+`cargo fmt --manifest-path app/src-tauri/Cargo.toml -- --check` 当前仍因仓库既有的全量 Rust
+格式漂移退出 1；本轮没有对整个 Tauri crate 做格式化覆盖，避免引入与 Issue #20 无关的大量
+改动。该格式基线不改变上述编译、测试、构建和 diff 检查结果。
+
+以上仅证明平台无关契约、Windows host 编译路径和 portable macOS seam；当前 Windows 环境未编译
+`target_os = "macos"` native cpal/ScreenCaptureKit 分支，不能替代 E1/E2 的 macOS 真机证据。
+因此 M-01～M-10、D-06～D-10 的状态仍保持 `Planned`，其 Evidence 可引用本节 host-side
+implementation evidence；E2 Apple Silicon、E3 外接显示器/默认输出、macOS recovery runtime、
+签名与公证继续按后续验收执行。
 
 ## 3.5 macOS 恢复与发布验收交接清单
 

@@ -1,7 +1,7 @@
 # Handoff — StudyMind macOS 系统声音 RecordingSession 实现
 
-> 更新时间：2026-08-22（GMT+8）
-> 当前状态：Issue #18 system audio 已在 E1 Intel macOS 完成产品代码 native 编译和当前范围内的真机验收；Issue #21 的 native stream supervisor、recovery/warning/frontend 契约均已实现。F-03 为 Partial，F-04/F-05 的恢复场景真机运行时证据仍待补齐；C-06 已按用户确认回填 Pass。Issue #20 mixed 已进入共享 coordinator 实施阶段；E2/E3、Developer ID/公证和剩余恢复场景仍待后续真机验收。
+> 更新时间：2026-08-23（GMT+8）
+> 当前状态：Issue #18 system audio 已在 E1 Intel macOS 完成产品代码 native 编译和当前范围内的真机验收；Issue #21 的 native stream supervisor、recovery/warning/frontend 契约均已实现。Issue #20 mixed 的共享 coordinator、Windows/macOS adapter、accepted-session failure supervisor 与前端 hydration 已完成 host-side implementation evidence；E1 mixed runtime、E2/E3、Developer ID/公证和剩余恢复场景仍待后续真机验收。
 
 ## 1. 交接结论
 
@@ -25,11 +25,15 @@ audio-only fail-closed、start/stop/cancel 和 ad-hoc bundle 基础内容；剩�
 audio-only stream；只有音频流确实无法恢复时才判定 source failure。这部分按 ADR 0005 和
 验收计划中的 F-03/F-04/F-05 作为实现后补验与验收阻塞项。
 
-Issue #20 的后续实现采用平台无关双源 ready gate，并在 2026-08-22 设计 grilling 后增加通用
+Issue #20 已采用平台无关双源 ready gate，并在 2026-08-22 设计 grilling 后增加通用
 accepted-session 失败 supervisor：`start_recording` 成功返回后的 runtime failure 必须通过
 `recording-failed` event 立即结束前端会话，同时以 failed state 支持 hydration；native cleanup
 在后台进行并以 `cleanupPending` 阻止过早重试。该契约适用于所有平台和录音模式，不改变
 ScreenCaptureKit audio-only、系统声音范围或后续 E2/E3 真机验收边界。
+
+Issue #20 当前实现只宣称 host-side completion，不宣称 macOS native runtime completion：Windows
+host 未编译 `target_os = "macos"` 分支；Intel E1 的 mixed、Apple Silicon E2、外接显示器 E3、
+默认输出/中断恢复、签名和公证仍需要真实 macOS/Xcode 环境按验收计划回填。
 
 ## 2. 实现提交链
 
@@ -48,6 +52,7 @@ ScreenCaptureKit audio-only、系统声音范围或后续 E2/E3 真机验收边�
 | `1d54944` | frontend warning parser、event filtering 与 state hydration |
 | `414650d` | native stream supervisor、filter 更新优先、audio-only stream 重建与 recovery 接入 |
 | `72dde23` / `03ac789` / `40a4999` / `1b14124` | worker recovery 测试、显示器 anchor 测试、SCK timestamp jitter 与 warning hardening |
+| `7c88660` | Issue #20 mixed coordinator、accepted-session failure supervisor、Windows/macOS adapter 与前端 failure hydration/dedup |
 
 代码基线为当前 `master` HEAD `434402e`；Task 3 native supervisor 已合入，当前 handoff 只保留尚未完成的真机补验和发布验收事项。
 
@@ -55,16 +60,19 @@ ScreenCaptureKit audio-only、系统声音范围或后续 E2/E3 真机验收边�
 
 Windows host 上已完成：
 
-- `cargo test ... audio_capture -- --test-threads=1`：62 passed；
+- `cargo test ... audio_capture -- --test-threads=1`：111 passed；
 - `cargo check --manifest-path app/src-tauri/Cargo.toml`：passed；
 - frontend targeted tests（recording client/controller/card）：133 passed；
 - recovery state machine standalone tests：6 passed；`1d54944` 时 frontend full suite 为 778 passed，
-  当前工作树复跑为 75 个 test files / 780 passed；
+  当前工作树复跑为 75 个 test files / 791 passed；
 - TypeScript/Vite production build：passed；warning payload parser/event filtering/hydration 已有
   host-side coverage；
 - frontend production build：passed；
 - `git diff --check`、`Info.plist` XML 和 Screen Recording purpose string 检查：passed；
 - x64/arm64 GitHub Actions bundle smoke gate 已同步，但未在 Windows host 执行 macOS native job。
+
+当前实现提交为 `7c88660`。`cargo fmt --manifest-path app/src-tauri/Cargo.toml -- --check`
+仍报告仓库既有的全量 Rust 格式漂移，本轮未做全仓格式化。
 
 E1 Intel macOS 已补充本次产品实现的 native compile/runtime 证据，详见验收计划 §3.3：
 F-01/F-02/F-07、P-03、C-02 和 ad-hoc bundle 的基础检查已回填；F-06 的 runtime 排除仍由

@@ -3,9 +3,10 @@
 ## Status
 
 Accepted — macOS 内置录音已立项，本文档冻结技术边界；#17 麦克风与 #18 system audio 的 E1
-核心真机验收已完成，F-03 为 Partial，F-04/F-05、E2/E3、#20 mixed 和发布验收暂缓。
+核心真机验收已完成，#20 mixed 的 host-side implementation 已完成；F-03 为 Partial，F-04/F-05、
+E1 mixed、E2/E3 和发布验收仍暂缓。
 
-Accepted 表示技术决策已批准，不表示实现或发布门槛已经通过。当前验证状态见
+Accepted 表示技术决策已批准，不表示 native runtime 或发布门槛已经通过。当前验证状态见
 [macOS 录音验收计划](../test-plans/macos-recording-acceptance.md)，在要求项全部通过前不得宣称
 macOS 录音实现完成。
 
