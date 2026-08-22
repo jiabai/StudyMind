@@ -138,22 +138,6 @@ caffeinate -dims open app/src-tauri/target/release/bundle/macos/StudyMind.app
 
 Pass 判定：60min 无截断错位；WAV 时长 ≈3600s；写入速率稳定（中途 `ls -la` 观察 `.tmp` 的 system.wav 增长）；正常 stop 后 `.tmp` 清空。
 
-## §5.5 一键脚本（替代手动敲命令）
-
-所有命令行证据采集已封装为 `scripts/e1-acceptance.sh`（commit cc40616）。进菜单跑或直跑子命令：
-
-```bash
-bash scripts/e1-acceptance.sh            # 菜单
-bash scripts/e1-acceptance.sh env        # 环境快照
-bash scripts/e1-acceptance.sh session0   # 冒烟
-bash scripts/e1-acceptance.sh sessionA   # 输出切换×2
-bash scripts/e1-acceptance.sh sessionB   # 前端重挂载(dev)
-bash scripts/e1-acceptance.sh sessionC   # 超窗失败
-bash scripts/e1-acceptance.sh sessionD   # 60min 提示
-```
-
-脚本首次运行会让你填音频输出设备名（brew 装 `switchaudio-osx` 后自动列出）。每条断言自动打 ✅/❌，结果落盘 `docs/test-plans/e1-acceptance-evidence.md` —— 跑完把该文件发回即可回填验收表。
-
 ## §6 证据收集命令
 
 ```bash
