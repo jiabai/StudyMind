@@ -39,7 +39,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDgzMkJGREFBRDAyQzVGRApSV1Q5eFFLdDJyOHlDRWRVV244bFQyYjJSTW9VVmR4S1l2MmNtK0NJQ0RUanRWbk4vbkJidFF1VQo=",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEVCRjM5NkNFQ0I3REVBNjEKUldSaDZuM0x6cGJ6NjRaU3plWXZFSXM2azdFQjg4TFNXeWRjN05aNW4vbXJOVGdwcXBXd3NIN1cK",
       "endpoints": [
         "https://github.com/jiabai/StudyMind/releases/latest/download/latest.json"
       ],
