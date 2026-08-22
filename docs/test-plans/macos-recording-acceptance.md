@@ -158,38 +158,41 @@ macOS E1/E2/E3 上重新执行 native compile、TCC、两类应用全局音频�
 > F-03；随后按 §3.2 继续 E2、E3、60 分钟 C-06、Developer ID 签名和公证。当前文档中的
 > `Partial`、`Blocked`、`Planned` 状态保持不变。
 
-## 3.4 Recovery warning host-side implementation evidence
+## 3.4 Recovery warning 与 native supervisor implementation evidence
 
-2026-08-21 在 Windows host 完成了不依赖 macOS 原生运行时的实现切片；这些证据不替代
-F-03/F-04/F-05 的 macOS native 验收：
+2026-08-21 至 2026-08-22 已完成 portable recovery、warning、frontend 契约和 native
+stream supervisor 实现；host-side 与 E1 沙箱证据不替代 F-03/F-04/F-05 的 macOS
+恢复场景运行时验收：
 
 | Commit | 范围 | Evidence | 结论 |
 |---|---|---|---|
-| `c1bdc58` | `SystemAudioRecovery` 时间轴与 2 秒 bounded state machine | 独立 `rustc --test`：6/6 通过；duration-aware gap、checked arithmetic、deadline、stop 语义 | Host-side Pass；native stream 未接入 |
+| `c1bdc58` | `SystemAudioRecovery` 时间轴与 2 秒 bounded state machine | 独立 `rustc --test`：6/6 通过；duration-aware gap、checked arithmetic、deadline、stop 语义 | Host-side Pass；已接入 native writer |
 | `7624ee1` | warning code/source 聚合、session state/result、best-effort reporter | warning 聚合、sink 失败不丢事实、state/stop 回传测试已加入；完整 Cargo 被 `resources/python/**/*` 缺失阻塞 | Host-side implementation evidence |
 | `a7f2f79` | Tauri `recording-warning` event sink | 固定 payload 只含 session/warning/source/count/totalGapMs；rustfmt 解析与 diff check 通过；Cargo 仍受同一资源缺失阻塞 | Host-side contract evidence |
-| `1d54944` | TypeScript parser、事件过滤、state hydration | frontend 75 个 test files / 778 tests 通过；TypeScript/Vite build 通过 | Host-side Pass |
+| `1d54944` | TypeScript parser、事件过滤、state hydration | 当时 frontend 75 个 test files / 778 tests 通过；TypeScript/Vite build 通过 | Historical host-side Pass |
+| `414650d` 及后续 recovery commits | macOS native stream supervisor 与 recovery integration | `SCStream::new_with_delegate`、Audio-only output、filter 更新优先、失败重建、CMSampleBuffer timing、stop/cancel/error/rebuild 清理；E1 沙箱回归 83/83，含 6 个端到端 worker recovery 测试 | Implementation complete；runtime recovery evidence pending |
 
-当前尚未完成的 Task 3 native supervisor 不得用上述证据替代：
+2026-08-22 Windows host 回归：frontend 75 个 test files / **780 tests passed**；TypeScript/Vite
+production build passed。
 
-- `SCStream::new_with_delegate`、`did_stop_with_error`、`update_content_filter` 优先路径、
-  audio-only stream rebuild 尚未落地；
+Task 3 实现已完成，但上述证据仍不能替代恢复场景的 macOS runtime 验收：
+
 - 默认输出/显示器变化时的全局系统声音连续捕获、媒体时间戳补静音和超过 2 秒失败尚未
-  在 macOS 上执行；
+  在本轮新的恢复场景中取得完整 macOS runtime 证据；
 - 因此 R-01～R-05、F-03～F-05 仍保持 `Partial`/`Blocked`/`Planned` 原状态，不能标记
   为 macOS runtime `Pass`。
 
-## 3.5 macOS 实施交接清单
+## 3.5 macOS 恢复与发布验收交接清单
 
-下一阶段必须在 macOS + Xcode 环境完成 Task 3。Intel Mac 可以用于编码、native 编译和
-功能调试；E2 仍必须在 Apple Silicon 上单独补验。开始时记录 `sw_vers`、`uname -m`、
+下一阶段在 macOS + Xcode 环境补齐恢复与发布验收。Intel Mac 可用于 F-03/F-04/F-05
+调试；E2 仍必须在 Apple Silicon 上单独补验。开始时记录 `sw_vers`、`uname -m`、
 `xcodebuild -version`、`rustc -Vv` 和 `cargo -V`，并确认 macOS 至少为 13.0（本项目
 system-audio 的当前基线；ScreenCaptureKit 整体从 12.3 引入）、Screen Recording 权限和
 测试音频源可用。
 
-Task 3 的实现要求：
+Task 3 当前实现与验收边界：
 
-- 接入 `SCStreamDelegate` 和 `did_stop_with_error`，由 supervisor 管理 stream、output
+- 已接入 `SCStreamDelegate`/`did_stop_with_error` 语义，由 supervisor 管理 stream、output
   handler、writer 和停止竞态；
 - 主显示器只作为 `SCContentFilter` 的技术入口，不成为用户可见的录音 source，也不改变
   “系统声音”的产品语义；
@@ -199,7 +202,7 @@ Task 3 的实现要求：
   2 秒补静音并继续且发送 warning，超过 2 秒失败；
 - 补齐 stop/cancel/error/rebuild 清理和 audio-only 无视频输出验证。
 
-完成编码后按 E1 Intel → E2 Apple Silicon → E3 外接显示器/默认输出 → 短/长中断恢复 →
+E1 核心 native 验收已完成；后续按 E2 Apple Silicon → E3 外接显示器/默认输出 → 短/长中断恢复 →
 真实 `.app`、60 分钟录音、Developer ID 签名和公证的顺序回填证据。每项至少记录系统版本、
 架构、工具链、提交 SHA、命令输出、WAV/`ffprobe`、warning `count/totalGapMs` 和签名结果；
 在证据齐全前，F-03/F-04/F-05、E2/E3、恢复及发布项保持 `Partial`/`Blocked`/`Planned`。

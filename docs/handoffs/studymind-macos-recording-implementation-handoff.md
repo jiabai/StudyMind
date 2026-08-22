@@ -1,7 +1,7 @@
 # Handoff — StudyMind macOS 系统声音 RecordingSession 实现
 
-> 更新时间：2026-08-21（GMT+8）
-> 当前状态：Issue #18 system audio 已在 E1 Intel macOS 完成产品代码 native 编译和当前范围内的真机验收；本分支补齐了 host-side recovery/warning/frontend 契约，但 native stream supervisor 尚未实现。F-03 为 Partial，F-04/F-05 与 C-06 尚未完成。剩余验证已暂缓，mixed、E2/E3、Developer ID/公证和恢复场景待后续继续。
+> 更新时间：2026-08-22（GMT+8）
+> 当前状态：Issue #18 system audio 已在 E1 Intel macOS 完成产品代码 native 编译和当前范围内的真机验收；Issue #21 的 native stream supervisor、recovery/warning/frontend 契约均已实现。F-03 为 Partial，F-04/F-05 的恢复场景真机运行时证据仍待补齐；C-06 已按用户确认回填 Pass。剩余验证已暂缓，mixed、E2/E3、Developer ID/公证和恢复场景待后续继续。
 
 ## 1. 交接结论
 
@@ -18,8 +18,8 @@ audio-only fail-closed、start/stop/cancel 和 ad-hoc bundle 基础内容；剩�
 - 采集 callback 只做样本格式转换和有界 `try_send`，writer 线程独占临时 WAV 写入；
 - stop/cancel/失败均执行 stream stop、writer join、临时目录清理；空录音拒绝，合法静音帧允许提交；
 - 前端按显式 `systemAudio` capability 门控；system 启动不进入 microphone permission path；
-- 主显示器变化、默认输出变化、短中断恢复的 native supervisor 尚未实现，不能由当前切片
-  宣称已支持；本分支仅完成后续实现所需的 portable state/warning/frontend contract。
+- 主显示器变化、默认输出变化、短中断恢复由 native supervisor 处理；当前仍不能把尚未取得
+  真机运行时证据的 F-03/F-04/F-05 宣称为最终验收通过。
 
 主显示器不能改变“系统声音”的产品语义。默认输出/显示器变化优先更新 filter 或重建
 audio-only stream；只有音频流确实无法恢复时才判定 source failure。这部分按 ADR 0005 和
@@ -40,8 +40,10 @@ audio-only stream；只有音频流确实无法恢复时才判定 source failure
 | `7624ee1` | warning 聚合、reporter 与 state/result contract |
 | `a7f2f79` | `recording-warning` Tauri event sink 与 setup injection |
 | `1d54944` | frontend warning parser、event filtering 与 state hydration |
+| `414650d` | native stream supervisor、filter 更新优先、audio-only stream 重建与 recovery 接入 |
+| `72dde23` / `03ac789` / `40a4999` / `1b14124` | worker recovery 测试、显示器 anchor 测试、SCK timestamp jitter 与 warning hardening |
 
-代码基线为 `1d54944`；Task 3 的 native supervisor 尚未合入，文档收口提交将在本交接更新后补充。
+代码基线为当前 `master` HEAD `434402e`；Task 3 native supervisor 已合入，当前 handoff 只保留尚未完成的真机补验和发布验收事项。
 
 ## 3. 已有验证证据
 
@@ -50,7 +52,8 @@ Windows host 上已完成：
 - `cargo test ... audio_capture -- --test-threads=1`：62 passed；
 - `cargo check --manifest-path app/src-tauri/Cargo.toml`：passed；
 - frontend targeted tests（recording client/controller/card）：133 passed；
-- recovery state machine standalone tests：6 passed；frontend full suite：778 passed；
+- recovery state machine standalone tests：6 passed；`1d54944` 时 frontend full suite 为 778 passed，
+  当前工作树复跑为 75 个 test files / 780 passed；
 - TypeScript/Vite production build：passed；warning payload parser/event filtering/hydration 已有
   host-side coverage；
 - frontend production build：passed；
@@ -59,14 +62,16 @@ Windows host 上已完成：
 
 E1 Intel macOS 已补充本次产品实现的 native compile/runtime 证据，详见验收计划 §3.3：
 F-01/F-02/F-07、P-03、C-02 和 ad-hoc bundle 的基础检查已回填；F-06 的 runtime 排除仍由
-同一 API 的 feasibility 证据与产品配置单测共同支撑。F-03 发现 1.04 秒自然静音缺口，
-C-06 仅完成 16.5 分钟连续写入，均未达到最终 Pass。Windows host 上的 Cargo focused test 仍被
-工作树缺少 `resources/python/**/*` 阻塞在 Tauri build script；没有修改生产资源配置。
+同一 API 的 feasibility 证据与产品配置单测共同支撑。Issue #21 的 E1 沙箱回归为 83/83，
+含 6 个端到端 worker recovery 测试。F-03 仍记录 1.04 秒自然静音缺口，F-04/F-05 的
+恢复场景运行时证据尚未取得；C-06 已于 2026-08-22 按用户确认回填 Pass。Windows host
+上的 Cargo focused test 仍可能受工作树缺少 `resources/python/**/*` 阻塞在 Tauri build script；
+没有修改生产资源配置。
 
 ## 4. 后续 macOS 原生与发布验证顺序
 
-本轮验证已暂缓。恢复开发时先实现并验证 Task 3 的 F-05 恢复补静音与 F-04 filter/stream 恢复，再复核
-F-03；随后在 E2 Apple Silicon、E3 外接显示器和发布环境继续执行：
+本轮代码实现与 E1 核心真机验收已完成。恢复验收时先复跑/补齐 F-03 默认输出变化、F-04
+filter/stream 恢复与 F-05 短长中断恢复；随后在 E2 Apple Silicon、E3 外接显示器和发布环境继续执行：
 
 ```bash
 cargo test --manifest-path app/src-tauri/Cargo.toml audio_capture -- --test-threads=1
@@ -105,9 +110,9 @@ cargo -V
 内置/外接输出设备和可连接/拔出的外接显示器。当前分支只实现 `RecordingMode::System`，
 不要在本任务中扩大到 #20 的 `Mixed`。
 
-### Task 3：native stream supervisor
+### Task 3：native stream supervisor（已实现；待恢复场景补验）
 
-按以下顺序实现，完成一项就补对应 focused test 或运行证据：
+以下行为已落地并有 host/E1 证据；后续只需在具备对应硬件、TCC 和中断注入条件的环境补齐运行时验收：
 
 1. 将当前无 delegate 的 `SCStream` 创建路径接入 `SCStreamDelegate`，处理
    `did_stop_with_error`，并把 stream 生命周期、输出 handler 和 writer join 收拢到 supervisor。

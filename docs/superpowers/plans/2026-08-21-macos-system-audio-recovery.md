@@ -262,13 +262,17 @@ git commit -m "feat(recording): persist system audio recovery warnings"
 
 ## Task 3: Add the macOS stream supervisor and recovery integration
 
+**Status:** Implemented in `414650d` and subsequent recovery hardening/test commits. E1 sandbox
+regression is recorded as 83/83, including six end-to-end worker recovery tests. F-03/F-04/F-05
+remain runtime acceptance items, not unimplemented code.
+
 **Files:**
 
 - Modify: app/src-tauri/src/audio_capture/macos.rs
 - Modify: app/src-tauri/src/audio_capture/system_audio_recovery.rs only for adapter methods
 - Test: app/src-tauri/src/audio_capture/macos.rs
 
-- [ ] **Step 1: Write failing fake-driver tests.**
+- [x] **Step 1: Write failing fake-driver tests.**
 
 Add test-only fake stream/display drivers and tests named:
 
@@ -301,7 +305,7 @@ fn display_anchor_change_does_not_change_user_source() {
 
 The fake driver records calls and registered output types. Assert Audio is the only output and display ids never appear in warning/source selection.
 
-- [ ] **Step 2: Verify RED.**
+- [x] **Step 2: Verify RED.**
 
 ~~~powershell
 cargo test --manifest-path app/src-tauri/Cargo.toml audio_capture::macos_test -- --test-threads=1
@@ -309,7 +313,7 @@ cargo test --manifest-path app/src-tauri/Cargo.toml audio_capture::macos_test --
 
 Expected: failures because delegate, factory seam, and reconciliation loop do not exist.
 
-- [ ] **Step 3: Implement the native stream seam.**
+- [x] **Step 3: Implement the native stream seam.**
 
 Add a native-only SystemStreamFactory/SystemStreamHandle seam around:
 
@@ -323,7 +327,7 @@ stream.stop_capture()
 
 The delegate sends a bounded StreamInterrupted signal to the worker. The output handler sends owned PCM16 data plus presentation timestamp and sample duration without blocking. Queue overflow stores the existing first stream error and fails closed.
 
-- [ ] **Step 4: Implement display-anchor reconciliation and bounded recovery.**
+- [x] **Step 4: Implement display-anchor reconciliation and bounded recovery.**
 
 In run_system_capture_worker:
 
@@ -334,7 +338,7 @@ In run_system_capture_worker:
 5. At the monotonic deadline, fail with RECORDING_STREAM_ERROR and source systemAudio. User stop/cancel exits without turning unfinished recovery into source failure.
 6. Ensure every old stream is stopped/dropped before replacement. Keep one writer and one active callback set.
 
-- [ ] **Step 5: Verify GREEN.**
+- [x] **Step 5: Verify GREEN.**
 
 ~~~powershell
 cargo test --manifest-path app/src-tauri/Cargo.toml audio_capture::macos_test -- --test-threads=1
@@ -343,7 +347,7 @@ cargo test --manifest-path app/src-tauri/Cargo.toml audio_capture -- --test-thre
 
 Expected: fake supervisor, recovery, and existing system lifecycle tests pass. Windows host results are not macOS native acceptance.
 
-- [ ] **Step 6: Commit.**
+- [x] **Step 6: Commit.**
 
 ~~~powershell
 git add app/src-tauri/src/audio_capture/macos.rs app/src-tauri/src/audio_capture/system_audio_recovery.rs
