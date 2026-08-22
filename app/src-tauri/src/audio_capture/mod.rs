@@ -1957,8 +1957,8 @@ mod tests {
 
     #[test]
     fn recording_error_serializes_system_audio_source_with_stable_payload() {
-        let error = RecordingError::new(RECORDING_STREAM_ERROR)
-            .for_source(RecordingSource::SystemAudio);
+        let error =
+            RecordingError::new(RECORDING_STREAM_ERROR).for_source(RecordingSource::SystemAudio);
 
         assert_eq!(
             serde_json::to_string(&error).expect("serialize recording error"),
@@ -1991,14 +1991,15 @@ mod tests {
 
     #[test]
     fn recording_error_source_payload_contains_only_stable_fields() {
-        let error = RecordingError::new(RECORDING_STREAM_ERROR)
-            .for_source(RecordingSource::SystemAudio);
+        let error =
+            RecordingError::new(RECORDING_STREAM_ERROR).for_source(RecordingSource::SystemAudio);
         let payload = serde_json::to_value(error).expect("serialize recording error");
 
-        assert_eq!(
-            payload.as_object().expect("recording error object").keys().collect::<Vec<_>>(),
-            vec!["code", "message", "source"]
-        );
+        let object = payload.as_object().expect("recording error object");
+        assert_eq!(object.len(), 3);
+        assert!(object.contains_key("code"));
+        assert!(object.contains_key("message"));
+        assert!(object.contains_key("source"));
         assert_eq!(payload["code"], "RECORDING_STREAM_ERROR");
         assert_eq!(payload["message"], "The recording stream was interrupted.");
         assert_eq!(payload["source"], "systemAudio");
