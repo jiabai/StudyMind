@@ -374,6 +374,7 @@ fn ui_preferences_backup_path(path: &Path) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(UI_PREFERENCES_BACKUP_FILE_NAME))
 }
 
+#[cfg(any(windows, test))]
 fn replace_existing_with_backup_using<R, M>(
     temp_path: &Path,
     destination: &Path,

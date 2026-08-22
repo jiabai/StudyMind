@@ -248,6 +248,7 @@ impl WaveWriter {
         })
     }
 
+    #[cfg(windows)]
     pub(crate) fn block_align(&self) -> u16 {
         self.format.block_align
     }

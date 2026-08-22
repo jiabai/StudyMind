@@ -265,6 +265,7 @@ impl RecordingWarningReporter {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn no_op() -> Self {
         Self {
             session_id: String::new(),
@@ -539,6 +540,7 @@ impl RecordingController {
         }
     }
 
+    #[cfg(any(windows, test))]
     pub(crate) fn with_disk_space(mut self, disk_space: Arc<dyn RecordingDiskSpace>) -> Self {
         self.disk_space = disk_space;
         self
