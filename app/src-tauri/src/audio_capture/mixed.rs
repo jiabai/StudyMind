@@ -125,6 +125,7 @@ pub(crate) fn start_mixed(
             .map(|deadline| deadline.saturating_duration_since(Instant::now()))
             .unwrap_or(Duration::MAX);
         if remaining.is_zero() {
+            record_startup_timeout(&failures, microphone_ready, system_audio_ready);
             return Err(cancel_and_join(sources, &failures));
         }
 
@@ -157,6 +158,7 @@ pub(crate) fn start_mixed(
                 }
             }
             Err(mpsc::RecvTimeoutError::Timeout) | Err(mpsc::RecvTimeoutError::Disconnected) => {
+                record_startup_timeout(&failures, microphone_ready, system_audio_ready);
                 return Err(cancel_and_join(sources, &failures));
             }
         }
@@ -221,6 +223,23 @@ fn has_mixed_source_identity(sources: &[PreparedSource; 2]) -> bool {
             .filter(|prepared| prepared.source == RecordingSource::SystemAudio)
             .count()
             == 1
+}
+
+fn record_startup_timeout(
+    failures: &FirstSourceFailure,
+    microphone_ready: bool,
+    system_audio_ready: bool,
+) {
+    let missing_source = match (microphone_ready, system_audio_ready) {
+        (true, false) => Some(RecordingSource::SystemAudio),
+        (false, true) => Some(RecordingSource::Microphone),
+        (false, false) | (true, true) => None,
+    };
+    if failures.snapshot().is_none() {
+        if let Some(source) = missing_source {
+            failures.record(RecordingError::new(RECORDING_STREAM_ERROR), source);
+        }
+    }
 }
 
 fn cancel_and_join(sources: [PreparedSource; 2], failures: &FirstSourceFailure) -> RecordingError {
@@ -517,6 +536,107 @@ mod tests {
         };
 
         assert_eq!(error.code, RECORDING_STREAM_ERROR);
+        assert!(!gate.is_open());
+        assert_eq!(observation.cancelled.load(Ordering::SeqCst), 2);
+        assert_eq!(observation.joined.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn mixed_start_timeout_tags_the_only_missing_source() {
+        let (ready_sender, ready_receiver) = ready_channel();
+        let gate = CaptureGate::default();
+        let failures = FirstSourceFailure::default();
+        let observation = Arc::new(WorkerObservation::default());
+        let (microphone_ready_sender, microphone_ready_receiver) = mpsc::sync_channel(1);
+        let (_system_ready_sender, system_ready_receiver) = mpsc::sync_channel(1);
+        let microphone = prepared_worker(
+            RecordingSource::Microphone,
+            ready_sender.clone(),
+            gate.clone(),
+            microphone_ready_receiver,
+            None,
+            Ok(()),
+            observation.clone(),
+        );
+        let system_audio = prepared_worker(
+            RecordingSource::SystemAudio,
+            ready_sender,
+            gate.clone(),
+            system_ready_receiver,
+            None,
+            Ok(()),
+            observation.clone(),
+        );
+
+        microphone_ready_sender
+            .send(())
+            .expect("release microphone");
+        for _ in 0..20 {
+            if observation.ready.load(Ordering::SeqCst) == 1 {
+                break;
+            }
+            thread::sleep(Duration::from_millis(1));
+        }
+        assert_eq!(observation.ready.load(Ordering::SeqCst), 1);
+
+        let error = match start_mixed(
+            [microphone, system_audio],
+            ready_receiver,
+            gate.clone(),
+            failures,
+            Duration::from_millis(10),
+        ) {
+            Err(error) => error,
+            Ok(_capture) => panic!("startup timeout, got active capture"),
+        };
+
+        assert_eq!(error.code, RECORDING_STREAM_ERROR);
+        assert_eq!(error.source, Some(RecordingSource::SystemAudio));
+        assert!(!gate.is_open());
+        assert_eq!(observation.cancelled.load(Ordering::SeqCst), 2);
+        assert_eq!(observation.joined.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn mixed_start_timeout_without_any_ready_source_is_unsourced() {
+        let (ready_sender, ready_receiver) = ready_channel();
+        let gate = CaptureGate::default();
+        let failures = FirstSourceFailure::default();
+        let observation = Arc::new(WorkerObservation::default());
+        let (_microphone_ready_sender, microphone_ready_receiver) = mpsc::sync_channel(1);
+        let (_system_ready_sender, system_ready_receiver) = mpsc::sync_channel(1);
+        let microphone = prepared_worker(
+            RecordingSource::Microphone,
+            ready_sender.clone(),
+            gate.clone(),
+            microphone_ready_receiver,
+            None,
+            Ok(()),
+            observation.clone(),
+        );
+        let system_audio = prepared_worker(
+            RecordingSource::SystemAudio,
+            ready_sender,
+            gate.clone(),
+            system_ready_receiver,
+            None,
+            Ok(()),
+            observation.clone(),
+        );
+
+        let error = match start_mixed(
+            [microphone, system_audio],
+            ready_receiver,
+            gate.clone(),
+            failures,
+            Duration::from_millis(10),
+        ) {
+            Err(error) => error,
+            Ok(_capture) => panic!("startup timeout, got active capture"),
+        };
+
+        assert_eq!(error.code, RECORDING_STREAM_ERROR);
+        assert_eq!(error.source, None);
         assert!(!gate.is_open());
         assert_eq!(observation.cancelled.load(Ordering::SeqCst), 2);
         assert_eq!(observation.joined.load(Ordering::SeqCst), 2);
