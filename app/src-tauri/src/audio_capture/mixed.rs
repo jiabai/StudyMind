@@ -277,7 +277,7 @@ mod tests {
     use std::sync::mpsc::{self, Receiver};
     use std::sync::Arc;
     use std::thread;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     #[derive(Default)]
     struct WorkerObservation {
@@ -370,6 +370,16 @@ mod tests {
         }
     }
 
+    fn wait_until(label: &str, mut predicate: impl FnMut() -> bool) {
+        let deadline = Instant::now() + Duration::from_millis(250);
+        let mut observed = predicate();
+        while !observed && Instant::now() < deadline {
+            thread::yield_now();
+            observed = predicate();
+        }
+        assert!(observed, "timed out waiting for {label}");
+    }
+
     #[test]
     fn mixed_start_opens_gate_only_after_both_sources_are_ready() {
         let (ready_sender, ready_receiver) = ready_channel();
@@ -417,12 +427,9 @@ mod tests {
             .send(())
             .expect("release microphone");
         frame_sender.send(()).expect("provide pre-gate frame");
-        for _ in 0..20 {
-            if observation.dropped.load(Ordering::SeqCst) == 1 {
-                break;
-            }
-            thread::sleep(Duration::from_millis(1));
-        }
+        wait_until("pre-gate frame to be dropped", || {
+            observation.dropped.load(Ordering::SeqCst) == 1
+        });
         assert!(!gate.is_open());
         assert_eq!(observation.dropped.load(Ordering::SeqCst), 1);
         assert_eq!(observation.written.load(Ordering::SeqCst), 0);
@@ -471,13 +478,9 @@ mod tests {
         microphone_ready_sender
             .send(())
             .expect("release microphone");
-        for _ in 0..20 {
-            if observation.ready.load(Ordering::SeqCst) == 1 {
-                break;
-            }
-            thread::sleep(Duration::from_millis(1));
-        }
-        assert_eq!(observation.ready.load(Ordering::SeqCst), 1);
+        wait_until("microphone readiness", || {
+            observation.ready.load(Ordering::SeqCst) == 1
+        });
         system_ready_sender.send(()).expect("release system audio");
         let error = match start_mixed(
             [microphone, system_audio],
@@ -571,13 +574,9 @@ mod tests {
         microphone_ready_sender
             .send(())
             .expect("release microphone");
-        for _ in 0..20 {
-            if observation.ready.load(Ordering::SeqCst) == 1 {
-                break;
-            }
-            thread::sleep(Duration::from_millis(1));
-        }
-        assert_eq!(observation.ready.load(Ordering::SeqCst), 1);
+        wait_until("microphone readiness", || {
+            observation.ready.load(Ordering::SeqCst) == 1
+        });
 
         let error = match start_mixed(
             [microphone, system_audio],
