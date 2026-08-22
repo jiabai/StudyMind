@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import struct
 import sys
@@ -235,6 +236,172 @@ def test_archive_download_rejects_oversized_content_length(tmp_path, monkeypatch
             None,
         )
     assert error.value.code == model_download.MODEL_DOWNLOAD_ERROR_CODE
+
+
+def _write_modelscope_snapshot_payload(target: Path) -> None:
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "model.pt").write_bytes(b"pytorch-model")
+    (target / "config.yaml").write_bytes(b"config")
+
+
+def _make_modelscope_snapshot_downloader(calls: list[dict[str, object]]):
+    """Mimic the real ModelScope SDK across cache layouts.
+
+    With ``local_dir`` the SDK writes files flat into that directory (all
+    versions). With only ``cache_dir`` the SDK >=1.38 writes the snapshot
+    layout ``{cache}/models/{owner}--{name}/snapshots/{revision}/`` instead.
+    """
+
+    def snapshot_downloader(**kwargs: object) -> str:
+        calls.append(kwargs)
+        model_id = str(kwargs["model_id"])
+        revision = str(kwargs.get("revision") or "master")
+        local_dir = kwargs.get("local_dir")
+        if local_dir is not None:
+            target = Path(str(local_dir))
+        else:
+            safe_id = model_id.replace("/", "--")
+            target = Path(str(kwargs["cache_dir"])) / "models" / safe_id / "snapshots" / revision
+        if not (target / "model.pt").exists():
+            _write_modelscope_snapshot_payload(target)
+        return target.as_posix()
+
+    return snapshot_downloader
+
+
+def test_modelscope_download_lands_flat_regardless_of_sdk_cache_layout(tmp_path) -> None:
+    """ModelScope >=1.38 changed its cache_dir layout; downloads must land in
+    the flat per-repo layout StudyMind validates (regression: downloads used
+    to complete at 96% and then fail validation with ASR_MODEL_ARCHIVE_INVALID)."""
+    calls: list[dict[str, object]] = []
+    cache_dir = tmp_path / "asr-models"
+
+    model_download.download_asr_model_cache(
+        cache_dir,
+        snapshot_downloader=_make_modelscope_snapshot_downloader(calls),
+    )
+
+    assert model_download.validate_asr_model_cache(cache_dir)
+    assert (cache_dir / "models" / "iic" / "SenseVoiceSmall" / "model.pt").is_file()
+    assert (
+        cache_dir
+        / "models"
+        / "iic"
+        / "speech_fsmn_vad_zh-cn-16k-common-pytorch"
+        / "model.pt"
+    ).is_file()
+    assert calls, "snapshot downloader must have been invoked"
+    assert all(call.get("local_dir") for call in calls)
+
+
+def test_modelscope_snapshot_layout_migration_reuses_downloaded_bytes(tmp_path) -> None:
+    """A completed ModelScope >=1.38 snapshot-cache download (left behind by a
+    previous failed attempt) must be migrated to the flat layout so the bytes
+    are reused instead of re-downloaded."""
+    cache_dir = tmp_path / "asr-models"
+    modelscope_root = cache_dir / "models"
+    primary_snapshot = (
+        modelscope_root / "models" / "iic--SenseVoiceSmall" / "snapshots" / "master"
+    )
+    primary_snapshot.mkdir(parents=True)
+    (primary_snapshot / "model.pt").write_bytes(b"primary-model")
+    vad_snapshot = (
+        modelscope_root
+        / "models"
+        / "iic--speech_fsmn_vad_zh-cn-16k-common-pytorch"
+        / "snapshots"
+        / "master"
+    )
+    vad_snapshot.mkdir(parents=True)
+    (vad_snapshot / "model.pt").write_bytes(b"vad-model")
+
+    model_download.download_asr_model_cache(
+        cache_dir,
+        snapshot_downloader=_make_modelscope_snapshot_downloader([]),
+    )
+
+    primary = cache_dir / "models" / "iic" / "SenseVoiceSmall" / "model.pt"
+    vad = (
+        cache_dir
+        / "models"
+        / "iic"
+        / "speech_fsmn_vad_zh-cn-16k-common-pytorch"
+        / "model.pt"
+    )
+    assert primary.read_bytes() == b"primary-model"
+    assert vad.read_bytes() == b"vad-model"
+    assert not (modelscope_root / "models" / "iic--SenseVoiceSmall").exists()
+    assert not (modelscope_root / "models" / "iic--speech_fsmn_vad_zh-cn-16k-common-pytorch").exists()
+
+
+def test_onnx_download_targets_flat_modelscope_layout(tmp_path) -> None:
+    calls: list[dict[str, object]] = []
+    payloads_by_model: dict[str, dict[str, bytes]] = {
+        "iic/SenseVoiceSmall-onnx": {
+            "model_quant.onnx": b"asr-onnx",
+            "config.yaml": b"asr-config",
+            "am.mvn": b"asr-mvn",
+            "tokens.json": b"asr-tokens",
+            "configuration.json": b"asr-configuration",
+            "chn_jpn_yue_eng_ko_spectok.bpe.model": b"asr-bpe",
+        },
+        "iic/speech_fsmn_vad_zh-cn-16k-common-onnx": {
+            "model_quant.onnx": b"vad-onnx",
+            "config.yaml": b"vad-config",
+            "am.mvn": b"vad-mvn",
+        },
+        "iic/SenseVoiceSmall": {
+            "chn_jpn_yue_eng_ko_spectok.bpe.model": b"asr-bpe",
+        },
+    }
+
+    def snapshot_downloader(**kwargs: object) -> str:
+        calls.append(kwargs)
+        target = Path(str(kwargs["local_dir"]))
+        target.mkdir(parents=True, exist_ok=True)
+        for file_name, payload in payloads_by_model[str(kwargs["model_id"])].items():
+            (target / file_name).write_bytes(payload)
+        return target.as_posix()
+
+    def sha256(payload: bytes) -> str:
+        return hashlib.sha256(payload).hexdigest()
+
+    onnx_asset_hashes = {
+        Path("models/iic/SenseVoiceSmall-onnx/am.mvn"): sha256(b"asr-mvn"),
+        Path("models/iic/SenseVoiceSmall-onnx/config.yaml"): sha256(b"asr-config"),
+        Path("models/iic/SenseVoiceSmall-onnx/configuration.json"): sha256(b"asr-configuration"),
+        Path("models/iic/SenseVoiceSmall-onnx/model_quant.onnx"): sha256(b"asr-onnx"),
+        Path("models/iic/SenseVoiceSmall-onnx/tokens.json"): sha256(b"asr-tokens"),
+        Path(
+            "models/iic/SenseVoiceSmall-onnx/chn_jpn_yue_eng_ko_spectok.bpe.model"
+        ): sha256(b"asr-bpe"),
+        Path(
+            "models/iic/speech_fsmn_vad_zh-cn-16k-common-onnx/model_quant.onnx"
+        ): sha256(b"vad-onnx"),
+    }
+
+    ready_dir = model_download.download_asr_model_cache(
+        tmp_path / "cache",
+        model_name="iic/SenseVoiceSmall-onnx",
+        snapshot_downloader=snapshot_downloader,
+        onnx_asset_hashes=onnx_asset_hashes,
+    )
+
+    asr_dir = ready_dir / "models" / "iic" / "SenseVoiceSmall-onnx"
+    assert (asr_dir / "model_quant.onnx").read_bytes() == b"asr-onnx"
+    assert (
+        asr_dir / "chn_jpn_yue_eng_ko_spectok.bpe.model"
+    ).read_bytes() == b"asr-bpe"
+    assert (
+        ready_dir
+        / "models"
+        / "iic"
+        / "speech_fsmn_vad_zh-cn-16k-common-onnx"
+        / "model_quant.onnx"
+    ).read_bytes() == b"vad-onnx"
+    assert not (ready_dir / "models" / "iic" / "SenseVoiceSmall").exists()
+    assert calls, "snapshot downloader must have been invoked"
+    assert all(call.get("local_dir") for call in calls)
 
 
 def test_pipeline_unexpected_error_preserves_task_id_and_manifest(tmp_path) -> None:

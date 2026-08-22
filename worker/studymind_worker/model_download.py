@@ -351,7 +351,7 @@ def _download_onnx_modelscope_assets(
     snapshot_downloader(
         model_id=ONNX_SENSEVOICE_MODEL_ID,
         revision=DEFAULT_SENSEVOICE_REVISION,
-        cache_dir=model_root,
+        local_dir=_modelscope_local_dir(model_root, ONNX_SENSEVOICE_MODEL_ID).as_posix(),
         endpoint=endpoint,
         progress_callbacks=[_make_modelscope_progress_callback(progress_callback, 10, 58)],
     )
@@ -365,7 +365,7 @@ def _download_onnx_modelscope_assets(
     snapshot_downloader(
         model_id=ONNX_VAD_MODEL_ID,
         revision=DEFAULT_SENSEVOICE_REVISION,
-        cache_dir=model_root,
+        local_dir=_modelscope_local_dir(model_root, ONNX_VAD_MODEL_ID).as_posix(),
         endpoint=endpoint,
         progress_callbacks=[_make_modelscope_progress_callback(progress_callback, 70, 18)],
     )
@@ -379,7 +379,7 @@ def _download_onnx_modelscope_assets(
     snapshot_downloader(
         model_id=ONNX_SENSEVOICE_BPE_MODEL_ID,
         revision=DEFAULT_SENSEVOICE_REVISION,
-        cache_dir=model_root,
+        local_dir=_modelscope_local_dir(model_root, ONNX_SENSEVOICE_BPE_MODEL_ID).as_posix(),
         endpoint=endpoint,
         allow_patterns=[ONNX_BPE_FILE_NAME],
         progress_callbacks=[_make_modelscope_progress_callback(progress_callback, 88, 10)],
@@ -455,6 +455,80 @@ def _promote_onnx_cache(staging_dir: Path, ready_dir: Path) -> None:
         shutil.rmtree(backup_dir, ignore_errors=True)
 
 
+def _modelscope_local_dir(cache_root: Path, model_id: str) -> Path:
+    """Flat per-repo directory that is stable across ModelScope SDK layouts.
+
+    Passing this path as ``local_dir`` to ``snapshot_download`` keeps downloads
+    independent of the SDK cache-layout changes (ModelScope >=1.38 moved
+    cache_dir downloads to ``{root}/models/{owner}--{name}/snapshots/{rev}/``).
+    """
+    owner, _, name = model_id.partition("/")
+    return cache_root / owner / name
+
+
+def _migrate_modelscope_snapshot_layout(cache_root: Path) -> None:
+    """Best-effort reuse of ModelScope >=1.38 snapshot-cache downloads.
+
+    ModelScope >=1.38 stores ``cache_dir`` downloads under
+    ``{root}/models/{owner}--{name}/snapshots/{revision}/`` instead of the flat
+    ``{root}/{owner}/{name}`` layout StudyMind validates. Move completed
+    snapshot payloads into the flat layout so already-downloaded bytes are
+    reused (the SDK skips re-downloading existing files).
+    """
+    cache_root = Path(cache_root)
+    models_dir = cache_root / "models"
+    if not models_dir.is_dir():
+        return
+    for repo_dir in sorted(models_dir.iterdir()):
+        if not repo_dir.is_dir() or "--" not in repo_dir.name:
+            continue
+        owner, _, name = repo_dir.name.partition("--")
+        if not owner or not name:
+            continue
+        snapshots_dir = repo_dir / "snapshots"
+        if not snapshots_dir.is_dir():
+            continue
+        target_dir = cache_root / owner / name
+        for snapshot_dir in sorted(snapshots_dir.iterdir()):
+            if snapshot_dir.is_dir():
+                _move_directory_contents(snapshot_dir, target_dir)
+        try:
+            shutil.rmtree(repo_dir)
+        except OSError:
+            LOGGER.warning(
+                "Failed to remove migrated ModelScope snapshot directory %s.",
+                repo_dir,
+                exc_info=True,
+            )
+    try:
+        if models_dir.is_dir() and not any(models_dir.iterdir()):
+            models_dir.rmdir()
+    except OSError:
+        LOGGER.warning(
+            "Failed to remove empty ModelScope snapshot models directory %s.",
+            models_dir,
+            exc_info=True,
+        )
+
+
+def _move_directory_contents(source: Path, destination: Path) -> None:
+    destination.mkdir(parents=True, exist_ok=True)
+    for source_path in source.iterdir():
+        target_path = destination / source_path.name
+        try:
+            if target_path.is_dir():
+                shutil.rmtree(target_path)
+            elif target_path.exists():
+                target_path.unlink()
+            shutil.move(str(source_path), str(target_path))
+        except OSError:
+            LOGGER.warning(
+                "Failed to migrate ModelScope snapshot file %s.",
+                source_path,
+                exc_info=True,
+            )
+
+
 def _download_from_modelscope(
     cache_dir: Path,
     revision: str | None,
@@ -464,6 +538,7 @@ def _download_from_modelscope(
 ) -> None:
     sensevoice_revision = revision or DEFAULT_SENSEVOICE_REVISION
     modelscope_cache_dir = _canonical_model_root(cache_dir)
+    _migrate_modelscope_snapshot_layout(modelscope_cache_dir)
     _emit(
         progress_callback,
         "model.primary.downloading",
@@ -474,7 +549,7 @@ def _download_from_modelscope(
     snapshot_downloader(
         model_id=SENSEVOICE_MODEL_ID,
         revision=sensevoice_revision,
-        cache_dir=modelscope_cache_dir,
+        local_dir=_modelscope_local_dir(modelscope_cache_dir, SENSEVOICE_MODEL_ID).as_posix(),
         endpoint=endpoint,
         progress_callbacks=[_make_modelscope_progress_callback(progress_callback, 10, 72)],
     )
@@ -489,7 +564,7 @@ def _download_from_modelscope(
     snapshot_downloader(
         model_id=VAD_MODEL_ID,
         revision=DEFAULT_SENSEVOICE_REVISION,
-        cache_dir=modelscope_cache_dir,
+        local_dir=_modelscope_local_dir(modelscope_cache_dir, VAD_MODEL_ID).as_posix(),
         endpoint=endpoint,
         progress_callbacks=[_make_modelscope_progress_callback(progress_callback, 82, 14)],
     )
