@@ -15,29 +15,22 @@ const DESKTOP_LOG_FILE_NAME: &str = "StudyMind-desktop.log";
 /// The plugin's default rotation (40KB, keep-one-delete) would discard the
 /// worker-event history `append_desktop_log` writes to the same file, so a
 /// larger cap with archived rotation is configured explicitly.
+///
+/// **Note:** as of the [SYSDBG] logging instrument pass, the tauri-plugin-log
+/// is registered on the Builder chain in `lib.rs::run` instead, so its setup
+/// hook actually runs and `attach_logger` installs the log facade. Calling
+/// `app.plugin()` from inside `.setup()` registers the plugin but Tauri 2
+/// never invokes its setup, leaving every `log::*!` call on the default
+/// (stderr-only) logger that a GUI app cannot observe. We retain this helper
+/// (marked `#[allow(dead_code)]`) as the documented fingerprint of the
+/// original registration shape so future contributors do not regress to the
+/// broken setup-time form.
+#[allow(dead_code)]
 pub(crate) fn register_desktop_logger(
-    app: &tauri::AppHandle,
-    paths: &RuntimePaths,
+    _app: &tauri::AppHandle,
+    _paths: &RuntimePaths,
 ) -> Result<(), tauri::Error> {
-    let level = if cfg!(debug_assertions) {
-        log::LevelFilter::Debug
-    } else {
-        log::LevelFilter::Info
-    };
-    app.plugin(
-        tauri_plugin_log::Builder::new()
-            .level(level)
-            .max_file_size(10 * 1024 * 1024)
-            .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(3))
-            .targets([
-                tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
-                tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Folder {
-                    path: desktop_log_dir(paths),
-                    file_name: Some(DESKTOP_LOG_FILE_NAME.to_string()),
-                }),
-            ])
-            .build(),
-    )
+    Ok(())
 }
 
 pub(crate) fn desktop_log_dir(paths: &RuntimePaths) -> PathBuf {

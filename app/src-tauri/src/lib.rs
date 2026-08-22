@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use tauri::Manager;
+#[cfg(any(windows, target_os = "linux"))]
 use tauri_plugin_deep_link::DeepLinkExt;
 
 mod account;
@@ -39,8 +40,7 @@ pub(crate) use runtime::{
 };
 
 pub(crate) use diagnostics::{
-    append_desktop_log, register_desktop_logger, sanitize_diagnostic_text,
-    summarize_worker_result_for_log,
+    append_desktop_log, sanitize_diagnostic_text, summarize_worker_result_for_log,
 };
 
 pub(crate) use asr_model::{DEFAULT_ASR_MODEL, SUPPORTED_ASR_MODELS};
@@ -80,11 +80,31 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())
+        // Register the log plugin on the Builder chain (NOT inside .setup): Tauri 2 only
+        // invokes a plugin's setup hook for plugins registered before the app starts.
+        // Inside setup, app.plugin() registers the plugin but skips its setup — meaning
+        // `attach_logger` / `log::set_boxed_logger` never runs and every `log::*!` call
+        // falls through to the default (stderr-only) logger, which a GUI app cannot
+        // observe. Default targets: Stdout + LogDir (~/Library/Logs/{bundle-id}/).
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .level(if cfg!(debug_assertions) {
+                    log::LevelFilter::Debug
+                } else {
+                    log::LevelFilter::Info
+                })
+                .max_file_size(10 * 1024 * 1024)
+                .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(3))
+                .build(),
+        )
         .setup(|app| {
             let runtime_paths = resolve_runtime_paths(app.handle())?;
             ensure_runtime_dirs(&runtime_paths)?;
             cleanup_stale_recording_temp_dirs(&runtime_paths)?;
-            register_desktop_logger(app.handle(), &runtime_paths)?;
+            // Note: the log plugin is registered on the Builder chain above so its
+            // setup hook runs and installs the log facade. Do NOT call
+            // register_desktop_logger here — it would call app.plugin() too late and
+            // the plugin's attach_logger would never fire.
             app.manage(audio_capture::RecordingController::from_runtime_paths(
                 &runtime_paths,
                 app.handle().clone(),
