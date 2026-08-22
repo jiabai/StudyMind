@@ -1,7 +1,7 @@
 # Handoff — StudyMind macOS 系统声音 RecordingSession 实现
 
 > 更新时间：2026-08-22（GMT+8）
-> 当前状态：Issue #18 system audio 已在 E1 Intel macOS 完成产品代码 native 编译和当前范围内的真机验收；Issue #21 的 native stream supervisor、recovery/warning/frontend 契约均已实现。F-03 为 Partial，F-04/F-05 的恢复场景真机运行时证据仍待补齐；C-06 已按用户确认回填 Pass。剩余验证已暂缓，mixed、E2/E3、Developer ID/公证和恢复场景待后续继续。
+> 当前状态：Issue #18 system audio 已在 E1 Intel macOS 完成产品代码 native 编译和当前范围内的真机验收；Issue #21 的 native stream supervisor、recovery/warning/frontend 契约均已实现。F-03 为 Partial，F-04/F-05 的恢复场景真机运行时证据仍待补齐；C-06 已按用户确认回填 Pass。Issue #20 mixed 已进入共享 coordinator 实施阶段；E2/E3、Developer ID/公证和剩余恢复场景仍待后续真机验收。
 
 ## 1. 交接结论
 
@@ -24,6 +24,12 @@ audio-only fail-closed、start/stop/cancel 和 ad-hoc bundle 基础内容；剩�
 主显示器不能改变“系统声音”的产品语义。默认输出/显示器变化优先更新 filter 或重建
 audio-only stream；只有音频流确实无法恢复时才判定 source failure。这部分按 ADR 0005 和
 验收计划中的 F-03/F-04/F-05 作为实现后补验与验收阻塞项。
+
+Issue #20 的后续实现采用平台无关双源 ready gate，并在 2026-08-22 设计 grilling 后增加通用
+accepted-session 失败 supervisor：`start_recording` 成功返回后的 runtime failure 必须通过
+`recording-failed` event 立即结束前端会话，同时以 failed state 支持 hydration；native cleanup
+在后台进行并以 `cleanupPending` 阻止过早重试。该契约适用于所有平台和录音模式，不改变
+ScreenCaptureKit audio-only、系统声音范围或后续 E2/E3 真机验收边界。
 
 ## 2. 实现提交链
 

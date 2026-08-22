@@ -277,6 +277,9 @@ Screen Recording 并重启应用），或改用 Developer ID 签名构建使 TCC
 | M-05 | 初始化/运行/停止失败 | 停止另一条路，整体失败并清理 | E1, E2 | Planned | — |
 | M-06 | writer 队列溢出 | 返回 `RECORDING_STREAM_ERROR` 与准确 `source` | E1, E2 | Planned | — |
 | M-07 | stop/error 竞态 | 两路正常停止完成前已确定的 source failure 优先 | E1, E2 | Planned | — |
+| M-08 | accepted-session runtime failure | 无需用户 stop 即终止计时和整个会话；不提交部分媒体 | E1, E2 | Planned | — |
+| M-09 | TCC 与 ready timeout | 权限交互不计入三秒 ready deadline；权限完成后 timeout 生效 | E1, E2 | Planned | — |
+| M-10 | stop/cancel/finalizer 竞态 | join 完成前 cancel 可覆盖 stop；进入 finalizer 后 cancel 被拒绝且不打断提交 | E1, E2 | Planned | — |
 
 ## 7. warning 连续性
 
@@ -297,6 +300,11 @@ Screen Recording 并重启应用），或改用 Developer ID 签名构建使 TCC
 | D-03 | 崩溃后重启 | 清理不属于活动会话的陈旧 `.tmp` 目录，不恢复部分录音 | E1, E2 | Planned | — |
 | D-04 | 路径 containment | 录音和清理操作均限制在 `$APPLOCALDATA/recordings/**` | E1, E2 | Planned | — |
 | D-05 | 日志边界 | 日志不含音频数据、用户路径、OSStatus 细节或设备名 | E1, E2 | Planned | — |
+| D-06 | 失败 event 与 hydration | `recording-failed` 与 failed state 共用 `RecordingFailureView`；漏收 event 后仍恢复同一失败 | E1, E2 | Planned | — |
+| D-07 | 重复失败交付 | event、stop 返回和 hydration 按 session/code/source 去重，只显示一次错误 | E1, E2 | Planned | — |
+| D-08 | 后台 cleanup | 首次失败立即可见；`cleanupPending` 完成更新不重复报错，pending 期间不能确认或重启录音 | E1, E2 | Planned | — |
+| D-09 | cleanup 风险分级 | 临时文件删除失败不阻塞；native teardown 未确认时本进程持续阻塞并提示重启 | E1, E2 | Planned | — |
+| D-10 | 失败确认与替换 | 匹配 session 的确认幂等；旧 session 无法清除新失败；新会话原子替换旧快照 | E1, E2 | Planned | — |
 
 ## 9. 打包与发布
 
