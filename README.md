@@ -11,6 +11,29 @@
 - **思维导图大纲** - 输出 Mermaid 格式的知识点结构图
 - **文字稿解剖** - 对已保存文字稿做结构化拆解
 
+## 下载与发布
+
+公开版本和 Windows 安装包发布在 [GitHub Releases](https://github.com/jiabai/StudyMind/releases)。构建流程见 [Desktop release workflow](.github/workflows/desktop-release.yml)。
+
+## Code signing policy
+
+Free code signing provided by SignPath.io, certificate by SignPath Foundation.
+
+StudyMind is distributed under the MIT License. SignPath-signed releases are built from the public source repository and require manual approval before signing.
+
+### Project roles
+
+This is currently a single-maintainer project:
+
+- Committer and reviewer: [Aaron Bi](https://github.com/jiabai)
+- Approver: [Aaron Bi](https://github.com/jiabai)
+
+### Privacy
+
+StudyMind is designed as a local-first desktop application. Local media and generated transcripts are processed by the application on the user’s device. AI-assisted synthesis may use the local or cloud LLM endpoint selected by the user. See the [StudyMind privacy policy](https://studymind.8xf.pro/privacy) for the current details.
+
+For the complete signing-policy record, see [docs/code-signing-policy.md](docs/code-signing-policy.md).
+
 ## 开发
 
 ```bash
