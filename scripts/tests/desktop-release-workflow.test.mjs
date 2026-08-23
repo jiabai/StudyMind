@@ -68,7 +68,7 @@ function assertBuildSetup(jobText, runner, target) {
   assert.match(jobText, /uses: actions\/checkout@v5/);
   assert.match(
     jobText,
-    /uses: actions\/checkout@v5\n\s+with:\n\s+ref: \$\{\{ github\.event_name == 'workflow_dispatch' && github\.sha \|\| github\.ref \}\}/,
+    /uses: actions\/checkout@v5\n\s+with:\n\s+ref: \$\{\{ needs\.prepare-release\.outputs\.release_tag \}\}/,
   );
   assert.match(jobText, /uses: actions\/setup-node@v5/);
   assert.match(jobText, /node-version: lts\/\*/);
@@ -163,6 +163,36 @@ test('prepares an existing tag and preserves an existing release state', () => {
   assert.doesNotMatch(prepare, /gh release edit/);
 });
 
+test('pins release tags to the checked-out desktop application version', () => {
+  if (!workflowExists) return;
+
+  const prepare = job('prepare-release');
+  assert.match(prepare, /uses: actions\/checkout@v5/);
+  assert.match(
+    prepare,
+    /ref: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.tag \|\| github\.ref \}\}/,
+  );
+  assert.match(prepare, /APP_VERSION=.*app\/package\.json/);
+  assert.match(prepare, /TAURI_VERSION=.*app\/src-tauri\/tauri\.conf\.json/);
+  assert.match(prepare, /CARGO_VERSION=.*app\/src-tauri\/Cargo\.toml/);
+  assert.match(prepare, /Desktop versions must match/);
+  assert.match(prepare, /Release tag must match desktop version/);
+
+  for (const name of ['windows-updater-artifacts', 'macos-x64', 'macos-arm64']) {
+    const buildJob = job(name);
+    assert.match(
+      buildJob,
+      /ref: \$\{\{ needs\.prepare-release\.outputs\.release_tag \}\}/,
+    );
+  }
+
+  const windows = job('windows-updater-artifacts');
+  assert.match(
+    windows,
+    /releaseCommitish: \$\{\{ needs\.prepare-release\.outputs\.release_tag \}\}/,
+  );
+});
+
 test('builds and publishes signed Windows updater artifacts', () => {
   if (!workflowExists) return;
 
@@ -197,7 +227,7 @@ test('builds and publishes signed Windows updater artifacts', () => {
   assert.match(windows, /releaseDraft: \$\{\{ needs\.prepare-release\.outputs\.release_draft == 'true' \}\}/);
   assert.doesNotMatch(windows, /releaseDraft:.*(?:github\.event_name|inputs\.release_draft)/);
   assert.match(windows, /prerelease: false/);
-  assert.match(windows, /releaseCommitish: \$\{\{ github\.sha \}\}/);
+  assert.match(windows, /releaseCommitish: \$\{\{ needs\.prepare-release\.outputs\.release_tag \}\}/);
   assert.match(windows, /includeUpdaterJson: true/);
   assert.match(windows, /updaterJsonPreferNsis: true/);
   assert.match(windows, /args: --bundles nsis --target x86_64-pc-windows-msvc/);
@@ -300,6 +330,8 @@ test('documents the desktop release workflow and its required runtime inputs', (
   assert.match(releaseSection, /torch==2\.2\.2/);
   assert.match(releaseSection, /ad-hoc signed/);
   assert.match(releaseSection, /not notarized/);
+  assert.match(releaseSection, /GitHub Release preview/);
+  assert.match(releaseSection, /Gatekeeper/);
   assert.doesNotMatch(releaseSection, /Secret value|Secret 值/i);
   assert.doesNotMatch(releaseSection, /TAURI_SIGNING_PRIVATE_KEY=/);
   assert.doesNotMatch(releaseSection, /TAURI_SIGNING_PRIVATE_KEY_PASSWORD=/);

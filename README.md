@@ -80,6 +80,10 @@ git push origin vX.Y.Z
 
 也可以在 GitHub Actions 中使用 `workflow_dispatch`：填写已有的 `vX.Y.Z` tag，并勾选 Windows、macOS Intel x64 和 macOS Apple Silicon arm64 架构；例如可为已有的 `v0.1.0` 补发 DMG。
 
+发布前必须将 `app/package.json`、`app/src-tauri/tauri.conf.json` 和 `app/src-tauri/Cargo.toml` 的桌面版本保持一致，并使用对应的 `vX.Y.Z` tag；Workflow 会拒绝版本不一致的发布。
+
+当前 macOS 产物是 **GitHub Release preview**：使用 ad-hoc signing、未 notarized。用户首次启动时可能需要在 macOS Gatekeeper 提示中手动允许。Developer ID 签名和公证不属于当前免费 preview 发布范围。
+
 ### 必需的 Secrets
 
 仅需配置以下十个 Secret 名称：
