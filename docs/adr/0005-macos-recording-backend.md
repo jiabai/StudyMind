@@ -3,7 +3,7 @@
 ## Status
 
 Accepted — macOS 内置录音已立项，本文档冻结技术边界；#17 麦克风与 #18 system audio 的 E1
-核心真机验收已完成，F-03 为 Partial，F-04/F-05、E2/E3、#20 mixed 和发布验收暂缓。
+核心真机验收已完成，F-03 为 Partial，F-04/F-05、#20 mixed 的 native 验收、E2/E3 和发布验收仍待完成。
 
 Accepted 表示技术决策已批准，不表示实现或发布门槛已经通过。当前验证状态见
 [macOS 录音验收计划](../test-plans/macos-recording-acceptance.md)，在要求项全部通过前不得宣称
@@ -53,6 +53,11 @@ macOS 13+ 的任一 source 因权限、无可捕获内容或初始化失败而�
 能力契约中的 `mixed` 是显式 source capability，不得由 `microphone.available` 与
 `systemAudio.available` 推导。#18 即使两路 source 都可用也保持 macOS `mixed` 不可用；只有
 #20 完成双路 ready 屏障、原子失败、停止和清理语义后才允许开放。
+
+实现阶段由 macOS 后端直接返回 `mixed` capability；调用方不得用两个 source capability 的布尔值
+拼出 mixed。`mixed` 不可用时保留聚合的 `RECORDING_MIX_FAILED` reasonCode，具体 source 的能力
+结果仍保留 `RECORDING_MIC_ACCESS_DENIED` 或 `RECORDING_SYSTEM_AUDIO_UNAVAILABLE` 等 source-specific
+reasonCode；用户在 stale capability 下点击开始时必须重新探测并返回带 source 的启动错误。
 
 ### 2. 平台适配边界
 

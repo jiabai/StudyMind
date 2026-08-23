@@ -8,7 +8,7 @@ StudyMind 的架构决策记录。涉及录音、媒体来源或下游交接的�
 | [0002 — independent account, entitlement and LLM server](./0002-independent-account-entitlement-llm-server.md) | 账号、权益、计费与 LLM 服务独立于桌面端 | Accepted |
 | [0003 — recording is finalized as local media](./0003-windows-recording-as-local-media.md) | 录音完成后复用 `LocalMediaSource` 和既有 Pipeline | Accepted；macOS 下游适用范围由 ADR 0005 扩展 |
 | [0004 — Windows WASAPI recording backend](./0004-windows-wasapi-recording-backend.md) | Windows 使用原生 WASAPI 采集 mic/loopback/mixed | Accepted |
-| [0005 — macOS recording backend](./0005-macos-recording-backend.md) | macOS 13+ 使用 cpal + ScreenCaptureKit，复用既有 WAV/finalizer/Worker 管线 | Accepted；已立项，实现尚未开始 |
+| [0005 — macOS recording backend](./0005-macos-recording-backend.md) | macOS 13+ 使用 cpal + ScreenCaptureKit，复用既有 WAV/finalizer/Worker 管线 | Accepted；mixed 已进入实现阶段，验收尚未完成 |
 
 ## 录音 ADR 的关系
 

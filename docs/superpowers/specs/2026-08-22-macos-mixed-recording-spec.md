@@ -19,8 +19,10 @@ recovery、warning 聚合、Tauri event、前端 hydration 和基础验收已经
   成功返回；权限交互不计入 Ready deadline。
 - 两路各自保留 native 协商格式，停止后由现有 finalizer 等权混音为一个 16 kHz、单声道、
   16-bit PCM `LocalMediaSource`。
-- 任一路启动、运行、队列、停止、Empty 或 finalization 致命失败，都使整个会话失败且不提交
-  partial result；首先确认的 failure 决定 source 归因。
+- `start_recording` 成功返回前的权限、初始化、Ready 或 timeout 失败属于 `RecordingStartFailure`；
+  完整 cleanup 后直接返回，不创建 failed snapshot 或 runtime event。
+- `start_recording` 成功返回后的 runtime、队列、停止、Empty 或 finalization 致命失败，都使整个
+  accepted session 进入 `RecordingFailure` 且不提交 partial result；首先确认的 failure 决定 source 归因。
 - macOS system audio 使用 audio-only ScreenCaptureKit stream。主显示器只作为 `SCContentFilter`
   的技术入口，不改变“系统声音”的产品语义，也不创建、保存或传递视频输出。
 - accepted-session failure 通过 `recording-failed` 和 `get_recording_state` 共享同一个
@@ -65,7 +67,10 @@ recovery、warning 聚合、Tauri event、前端 hydration 和基础验收已经
 ## Implementation Decisions
 
 - `RecordingMode` remains the user-facing choice of `mic`, `system`, or `mixed`; mixed remains an explicit
-  capability and is never derived in the frontend from two single-source capability flags.
+  backend capability and is never derived by the frontend or caller from two single-source capability flags.
+- The backend returns `mixed` capability directly. When mixed is unavailable, its aggregate `reasonCode` is
+  `RECORDING_MIX_FAILED`; the microphone and system-audio capabilities retain their own source-specific
+  reason codes. A stale mixed start re-probes and returns a source-tagged `RecordingStartFailure`.
 - `RecordingSource` is a closed set containing `microphone` and `systemAudio`. `RecordingError` carries an
   optional stable source and never exposes device names, display identifiers, OSStatus values, paths, or
   native error text to the frontend.
@@ -75,10 +80,14 @@ recovery、warning 聚合、Tauri event、前端 hydration 和基础验收已经
 - Ready means that the source can accept audio frames; it does not require a first frame. Before both sources
   are Ready, callbacks consume and discard data without blocking native realtime threads or writing WAV
   frames. Exactly one gate opening defines mixed audio time zero.
-- Startup failures are `RecordingStartFailure`: the coordinator cancels and joins both workers, the
+- `RecordingStartFailure` covers permission, initialization, Ready, and timeout failures before the session is
+  accepted. The coordinator cancels and joins both workers, the
   Controller cleans the workspace, and the start command returns directly without a failed snapshot or
   runtime event. The three-second Ready deadline begins only after permission handling completes; if exactly
   one source is missing at timeout it receives source attribution, otherwise the timeout is unsourced.
+- `MixedRecordingFailure` covers a fatal failure after an accepted mixed session is delivered to the user;
+  it immediately stops the visible timer, preserves the first confirmed failure identity, and never commits a
+  partial result.
 - Stop broadcasts Stop to both workers before joining either one, joins both even when one result is already an
   error, records join errors without replacing an earlier latched failure, and only summarizes after the
   failure latch is clear.
@@ -133,7 +142,10 @@ recovery、warning 聚合、Tauri event、前端 hydration 和基础验收已经
 
 - The highest useful seam is the platform-neutral recording contract: deterministic prepared-source fakes
   exercise the mixed coordinator, while Controller tests exercise accepted-session failure, event/state
-  identity, cleanup ownership, and command races. Native APIs are tested only at their adapter seams.
+  identity, cleanup ownership, and command races. Existing `macos_test` and WASAPI adapter seams cover
+  capability, permission order, source mapping, and audio-only behavior; frontend recording-client/controller
+  seams cover parsing, hydration, deduplication, and cleanup controls. Native APIs are tested only at their
+  adapter seams and native runtime evidence remains separate.
 - Tests assert external behavior and stable contracts rather than private implementation details. A test may
   use barriers, channels, atomic observations, and controlled worker results to prove ordering, but should
   not depend on fixed sleeps or scheduler luck.
@@ -182,7 +194,7 @@ recovery、warning 聚合、Tauri event、前端 hydration 和基础验收已经
 ## Further Notes
 
 - The canonical product vocabulary is defined in `CONTEXT.md`: `RecordingSession`, `RecordingMode`,
-  `SystemAudioRecording`, `MixedRecordingReady`, `MixedRecordingFailure`, `RecordingStartFailure`,
+  `RecordingSource`, `SystemAudioRecording`, `MixedRecordingReady`, `MixedRecordingFailure`, `RecordingStartFailure`,
   `RecordingFailure`, `RecordingFailureIdentity`, `RecordingCleanup`, `RecordingPermissionWait`,
   `RecordingWarning`, `EmptyRecording`, and `SilentRecording`.
 - Issue #20 is the delivery ticket and already uses the `ready-for-agent` triage label. Its acceptance

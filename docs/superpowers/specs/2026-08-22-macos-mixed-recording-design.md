@@ -1,6 +1,6 @@
 # macOS Mixed Recording Design
 
-> 状态：已获用户确认；2026-08-22 grilling 后补充异步终态失败契约，等待书面 spec review
+> 状态：已获用户确认；异步终态失败契约已确认并纳入文档；Task 1-3 已完成，Task 4 为下一实现边界
 
 ## Goal
 
@@ -289,8 +289,8 @@ macOS 原生编译与真机命令在可用机器上按验收计划记录系统�
 host-side tests/build 和文档更新。完成这些工作后：
 
 - Issue #20 转为 `ready-for-human`，不直接关闭；
-- 验收计划中的 M-01 至 M-07 可记录自动化 implementation evidence，但 E1/E2 runtime 状态仍
-  保持 Planned，直到真机执行；
+- 验收计划中的 M-01 至 M-10 和 D-06 至 D-10 可记录 Host-side implementation evidence，但
+  E1/E2 runtime 状态仍保持 Planned，直到真机执行；Host-side evidence 不得表述为 macOS runtime Pass；
 - E2 Apple Silicon 与 E3 外接显示器继续保留，不用 Intel 或 Windows 结果替代；
 - E3 主要验证 system recovery/display 场景，mixed 必须证明能继承同一 system failure/recovery
   语义，但不另造显示器产品语义；

@@ -1,7 +1,7 @@
 # Handoff — StudyMind macOS 系统声音 RecordingSession 实现
 
 > 更新时间：2026-08-22（GMT+8）
-> 当前状态：Issue #18 system audio 已在 E1 Intel macOS 完成产品代码 native 编译和当前范围内的真机验收；Issue #21 的 native stream supervisor、recovery/warning/frontend 契约均已实现。F-03 为 Partial，F-04/F-05 的恢复场景真机运行时证据仍待补齐；C-06 已按用户确认回填 Pass。Issue #20 mixed 已进入共享 coordinator 实施阶段；E2/E3、Developer ID/公证和剩余恢复场景仍待后续真机验收。
+> 当前状态：Issue #18 system audio 已在 E1 Intel macOS 完成产品代码 native 编译和当前范围内的真机验收；Issue #21 的 native stream supervisor、recovery/warning/frontend 契约均已实现。F-03 为 Partial，F-04/F-05 的恢复场景真机运行时证据仍待补齐；C-06 已按用户确认回填 Pass。Issue #20 mixed 的 Task 1-3 已完成并进入 Task 4 accepted-session failure supervisor；E1/E2 mixed、E2/E3、Developer ID/公证和剩余恢复场景仍待后续真机验收。
 
 ## 1. 交接结论
 

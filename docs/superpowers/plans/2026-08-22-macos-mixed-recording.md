@@ -16,9 +16,10 @@ Execute this plan in an isolated worktree/branch such as `codex/macos-mixed-reco
 latest `master` containing the confirmed design and terminal-failure revision. Do not mark E1/E2/E3
 runtime rows Pass from Windows-host tests.
 
-Current execution progress in `codex/macos-mixed-recording`: Task 1 is committed as `306f045` plus
-review fix `8852573`; Task 2 is committed as `23e1613` and requires renewed spec/quality review after
-this plan revision. Continue with Task 2 review, then Task 3; do not reimplement completed work.
+Current execution progress in `codex/macos-mixed-recording`: Tasks 1–3 are complete (`306f045`,
+`8852573`, `23e1613`, `a432bdd`, `baf32e8`, `65f5725`) with host-side mixed coverage recorded.
+Task 4, the accepted-session terminal failure supervisor, is the next implementation boundary. The
+checkboxes below describe the implementation recipe and are not a request to reimplement completed Tasks 1–3.
 
 ## File responsibility map
 
@@ -45,6 +46,8 @@ this plan revision. Continue with Task 2 review, then Task 3; do not reimplement
   runtime evidence.
 
 ### Task 1: Add the stable error-source contract
+
+> Status: complete in the current implementation branch.
 
 **Files:**
 - Modify: `app/src-tauri/src/audio_capture/mod.rs:101-121`
@@ -169,6 +172,8 @@ git commit -m "feat(recording): attach source to capture errors"
 ```
 
 ### Task 2: Build the shared ready gate and atomic startup barrier
+
+> Status: complete in the current implementation branch.
 
 **Files:**
 - Create: `app/src-tauri/src/audio_capture/mixed.rs`
@@ -373,6 +378,8 @@ git commit -m "feat(recording): add atomic mixed startup barrier"
 
 ### Task 3: Complete mixed stop, cancel, result, and failure precedence
 
+> Status: complete in the current implementation branch.
+
 **Files:**
 - Modify: `app/src-tauri/src/audio_capture/mixed.rs`
 - Modify: `app/src-tauri/src/audio_capture/mod.rs`
@@ -528,6 +535,8 @@ git commit -m "feat(recording): make mixed stop and cleanup atomic"
 ```
 
 ### Task 4: Add the accepted-session terminal failure supervisor
+
+> Status: next implementation boundary.
 
 **Files:**
 - Create: `app/src-tauri/src/audio_capture/failure_supervisor.rs`
@@ -993,17 +1002,18 @@ Compute the source capabilities first, then construct mixed explicitly:
 
 ```rust
 let system_audio = system_capability_for(system_probe.probe());
-let mixed_available = microphone.available && system_audio.available;
+let mixed = mixed_backend.capability();
 RecordingCapabilities {
     platform: RecordingPlatform::Macos,
     microphone,
     system_audio,
-    mixed: RecordingSourceCapability {
-        available: mixed_available,
-        reason_code: (!mixed_available).then_some(RECORDING_MIX_FAILED),
-    },
+    mixed,
 }
 ```
+
+`mixed_backend.capability()` is an explicit backend capability decision; do not replace it with a
+`microphone.available && system_audio.available` expression. When mixed is unavailable, its aggregate
+reason remains `RECORDING_MIX_FAILED`, while each source capability retains its own source-specific reason.
 
 Replace `authorize_start` with `authorize_microphone_for_mode`: System returns `Ok(())` without
 requesting microphone; Mic and Mixed perform the existing lazy microphone request. Source-tag denied
@@ -1397,7 +1407,8 @@ export type RecordingFailureView = {
 
 export type RecordingStateView =
   | ({ status: "recording" } & RecordingActiveStateView)
-  | ({ status: "failed" } & RecordingFailureView);
+  | ({ status: "failed" } & RecordingFailureView)
+  | null;
 
 export type RecordingFailureListener = (
   handler: (failure: RecordingFailureView) => void,

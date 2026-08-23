@@ -38,6 +38,10 @@ _Avoid_: recording task, recording file
 录音会话的音源选择：`mic`（仅麦克风）、`system`（仅系统声音）或 `mixed`（麦克风与系统声音）。
 _Avoid_: audio source, capture type
 
+**RecordingSource**:
+`RecordingSession` 中可独立报告故障并保留采集语义的音源：`microphone` 或 `systemAudio`；它不同于用户选择的 RecordingMode。
+_Avoid_: source, RecordingMode
+
 **RecordingSourceCapability**:
 某类录音音源在当前系统版本、设备与权限状态下是否可以启动的事实；它不同于用户选择的 RecordingMode。
 _Avoid_: mode availability, platform support
@@ -53,8 +57,9 @@ _Avoid_: silent downgrade, automatic source switch
 _Avoid_: screen recording, loopback device
 
 **MixedRecordingFailure**:
-`mixed` 会话任一路音源在启动、运行或停止阶段失败，或在会话收到整体停止/放弃请求前自行结束时，
-整个 RecordingSession 立即进入失败终态且不提交部分录音产物；首先确认的失败决定失败归因。
+`mixed` 会话成功交付给用户后，任一路音源在运行、停止或会话收到整体停止/放弃请求前自行结束时，
+整个 RecordingSession 立即进入失败终态且不提交部分录音产物；首先确认的失败决定失败归因。成功交付前的
+权限、初始化、ready 或 timeout 结果属于 RecordingStartFailure，不形成 RecordingFailure。
 _Avoid_: partial mixed recording, source fallback
 
 **MixedRecordingReady**:
@@ -79,8 +84,8 @@ _Avoid_: error occurrence, notification id
 
 **RecordingCleanup**:
 RecordingFailure 已对用户可见后，对该会话残留采集资源和临时产物进行的后台收尾阶段；完成前不得开始
-新的 RecordingSession，也不得改变已确认的失败归因。临时产物删除失败不阻塞后续会话；无法确认采集资源
-已释放时，本次应用运行期间继续阻止录音。
+新的 RecordingSession，也不得改变已确认的失败归因。只有在采集资源已确认释放后，临时产物删除失败才不阻塞
+后续会话；无法确认采集资源已释放时，本次应用运行期间继续阻止录音。
 _Avoid_: finalization, media handoff
 
 **RecordingPermissionWait**:
