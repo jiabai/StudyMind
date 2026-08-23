@@ -50,4 +50,5 @@ cpal = "=0.15.3"
 objc2 = "0.6"
 objc2-av-foundation = { version = "0.3.2", default-features = false, features = ["std", "AVCaptureDevice", "AVMediaFormat", "block2"] }
 block2 = "0.6.2"
+apple-metal = { version = "=0.6.0", default-features = false }
 screencapturekit = { version = "8", features = ["macos_13_0"] }

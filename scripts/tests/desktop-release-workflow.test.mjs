@@ -7,10 +7,14 @@ import { fileURLToPath } from 'node:url';
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const workflowPath = path.join(repositoryRoot, '.github', 'workflows', 'desktop-release.yml');
 const readmePath = path.join(repositoryRoot, 'README.md');
+const cargoManifestPath = path.join(repositoryRoot, 'app', 'src-tauri', 'Cargo.toml');
+const cargoLockPath = path.join(repositoryRoot, 'app', 'src-tauri', 'Cargo.lock');
 const workflowExists = fs.existsSync(workflowPath);
 const normalizeNewlines = (source) => source.replace(/\r\n?/g, '\n');
 const workflow = workflowExists ? normalizeNewlines(fs.readFileSync(workflowPath, 'utf8')) : '';
 const readme = normalizeNewlines(fs.readFileSync(readmePath, 'utf8'));
+const cargoManifest = normalizeNewlines(fs.readFileSync(cargoManifestPath, 'utf8'));
+const cargoLock = normalizeNewlines(fs.readFileSync(cargoLockPath, 'utf8'));
 const sectionHeadingOffset = readme.indexOf('\n## 桌面发布');
 const sectionStart = readme.startsWith('## 桌面发布')
   ? 0
@@ -191,6 +195,18 @@ test('pins release tags to the checked-out desktop application version', () => {
     windows,
     /releaseCommitish: \$\{\{ needs\.prepare-release\.outputs\.release_tag \}\}/,
   );
+});
+
+test('pins the macOS Metal bridge to the SDK-compatible apple-metal version', () => {
+  assert.match(
+    cargoManifest,
+    /\[target\.'cfg\(target_os = "macos"\)'\.dependencies\][\s\S]*apple-metal = \{ version = "=0\.6\.0", default-features = false \}/,
+  );
+
+  const appleMetalPackage = cargoLock.match(
+    /\[\[package\]\]\nname = "apple-metal"\nversion = "([^"]+)"/,
+  );
+  assert.equal(appleMetalPackage?.[1], '0.6.0');
 });
 
 test('builds and publishes signed Windows updater artifacts', () => {
