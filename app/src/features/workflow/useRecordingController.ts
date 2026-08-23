@@ -204,6 +204,11 @@ function selectAvailableRecordingMode(
   capabilities: RecordingCapabilities,
   preferredMode: RecordingMode,
 ): RecordingMode | null {
+  if (preferredMode === "mixed") {
+    return isModeAvailableFromCapabilities(capabilities, preferredMode)
+      ? preferredMode
+      : null;
+  }
   const candidates: RecordingMode[] = [preferredMode, "mic", "system"];
   for (const candidate of candidates) {
     if (isModeAvailableFromCapabilities(capabilities, candidate)) {
@@ -658,7 +663,9 @@ export function useRecordingController({
       const requestedMode = modeRef.current;
       const actualMode = selectAvailableRecordingMode(details, requestedMode);
       if (!actualMode) {
-        const errorCode = "RECORDING_SOURCE_UNAVAILABLE" as const;
+        const errorCode = requestedMode === "mixed"
+          ? details.mixed.reasonCode ?? "RECORDING_MIX_FAILED"
+          : "RECORDING_SOURCE_UNAVAILABLE" as const;
         updateSession({ status: "error", errorCode });
         reportError(errorCode);
         return;

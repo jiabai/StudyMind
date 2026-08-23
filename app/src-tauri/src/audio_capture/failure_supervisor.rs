@@ -23,10 +23,7 @@ pub(crate) struct RecordingFailureMonitor {
     wake: Receiver<()>,
 }
 
-pub(crate) fn recording_failure_channel() -> (
-    RecordingFailureReporter,
-    RecordingFailureMonitor,
-) {
+pub(crate) fn recording_failure_channel() -> (RecordingFailureReporter, RecordingFailureMonitor) {
     let shared = Arc::new(Mutex::new(FailureShared {
         phase: FailurePhase::Starting,
         first: None,
@@ -114,12 +111,10 @@ mod tests {
         let (reporter, mut monitor) = recording_failure_channel();
         monitor.accept().expect("accept recording session");
         reporter.report(
-            RecordingError::new(RECORDING_STREAM_ERROR)
-                .for_source(RecordingSource::SystemAudio),
+            RecordingError::new(RECORDING_STREAM_ERROR).for_source(RecordingSource::SystemAudio),
         );
         reporter.report(
-            RecordingError::new(RECORDING_STREAM_ERROR)
-                .for_source(RecordingSource::Microphone),
+            RecordingError::new(RECORDING_STREAM_ERROR).for_source(RecordingSource::Microphone),
         );
 
         monitor.wait().expect("first failure wakeup");
@@ -143,8 +138,7 @@ mod tests {
     fn failure_before_acceptance_is_returned_as_startup_failure_without_runtime_wakeup() {
         let (reporter, mut monitor) = recording_failure_channel();
         reporter.report(
-            RecordingError::new(RECORDING_STREAM_ERROR)
-                .for_source(RecordingSource::Microphone),
+            RecordingError::new(RECORDING_STREAM_ERROR).for_source(RecordingSource::Microphone),
         );
 
         let error = monitor.accept().expect_err("startup failure");

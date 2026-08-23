@@ -1175,7 +1175,12 @@ fn supervise_runtime_failure(
 
     let _ = failure_sink.emit(&failure);
     let cancel_result = capture.cancel_for_cleanup();
-    let cleanup_confirmed = cancel_result.is_ok() && file_store.cleanup(&workspace).is_ok();
+    let cleanup_confirmed = if cancel_result.is_ok() {
+        let _ = file_store.cleanup(&workspace);
+        true
+    } else {
+        false
+    };
 
     if cleanup_confirmed {
         let completed = {
@@ -1885,6 +1890,65 @@ mod tests {
             RecordingStateView::Failed { ref failure }
                 if failure.session_id == started.session_id && failure.cleanup_pending
         ));
+    }
+
+    #[test]
+    fn runtime_failure_allows_recovery_when_workspace_cleanup_fails_after_capture_teardown() {
+        let backend = FakeBackend::available(CapturedRecording {
+            source_paths: Vec::new(),
+            valid_frame_count: 1,
+            silent: false,
+            duration_ms: 100,
+        });
+        let terminal_reporter = Arc::clone(&backend.terminal_reporter);
+        let file_store = TrackingFileStore::with_cleanup_error(RecordingError::new(
+            RECORDING_WRITE_FAILED,
+        ));
+        let cleaned = Arc::clone(&file_store.cleaned);
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let (notifications, notification_receiver) = mpsc::channel();
+        let controller = RecordingController::new(
+            Arc::new(backend),
+            Arc::new(FakeFinalizer),
+            Arc::new(file_store),
+            Arc::new(FakeClock::new(1_000)),
+        )
+        .with_failure_sink(Arc::new(CapturingFailureSink {
+            events: Arc::clone(&events),
+            notifications,
+        }));
+        let started = controller
+            .start(RecordingMode::Mic)
+            .expect("start recording");
+        terminal_reporter
+            .lock()
+            .expect("terminal reporter lock")
+            .as_ref()
+            .expect("terminal reporter")
+            .report(RecordingError::new(RECORDING_STREAM_ERROR));
+
+        notification_receiver
+            .recv()
+            .expect("initial failure event");
+        notification_receiver
+            .recv()
+            .expect("cleanup completion event");
+
+        assert_eq!(cleaned.lock().expect("cleaned lock").len(), 1);
+        assert!(matches!(
+            controller
+                .state()
+                .expect("read failed state")
+                .expect("failed state"),
+            RecordingStateView::Failed { ref failure }
+                if failure.session_id == started.session_id && !failure.cleanup_pending
+        ));
+        let events = events.lock().expect("failure events lock");
+        assert_eq!(events.len(), 2);
+        assert!(events[0].cleanup_pending);
+        assert!(!events[1].cleanup_pending);
+        assert_eq!(events[0].error_code, events[1].error_code);
+        assert_eq!(events[0].source, events[1].source);
     }
 
     #[test]

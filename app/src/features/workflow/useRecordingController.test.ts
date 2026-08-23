@@ -1156,6 +1156,42 @@ describe("useRecordingController", () => {
     expect(deps.recordingClient.getRecordingCapabilities).toHaveBeenCalledTimes(2);
   });
 
+  test("does not silently downgrade an explicitly selected mixed recording", async () => {
+    const getCapabilities = vi
+      .fn()
+      .mockResolvedValueOnce(CAPABILITIES)
+      .mockResolvedValueOnce(MIC_ONLY_CAPABILITIES);
+    const startRecording = vi.fn();
+    const { deps, render } = await createController({
+      recordingClient: {
+        getRecordingCapabilities: getCapabilities,
+        startRecording,
+        stopRecording: vi.fn().mockResolvedValue(RESULT),
+        cancelRecording: vi.fn(),
+      },
+      readPreferences: vi.fn().mockResolvedValue({
+        ...PREFERENCES,
+        recording: { audioSourceMode: "mixed" },
+      }),
+    });
+
+    let controller = render();
+    await settle();
+    controller = render();
+    expect(controller.mode).toBe("mixed");
+
+    await controller.start();
+    controller = render();
+
+    expect(startRecording).not.toHaveBeenCalled();
+    expect(controller.mode).toBe("mixed");
+    expect(controller.session).toEqual({
+      status: "error",
+      errorCode: "RECORDING_MIX_FAILED",
+    });
+    expect(deps.onError).toHaveBeenCalledWith("RECORDING_MIX_FAILED");
+  });
+
   test("falls back the visible mode to mic when foreground capabilities become unsupported", async () => {
     const getCapabilities = vi
       .fn()
