@@ -19,6 +19,7 @@ function createProps(
   return {
     notice: uiMessage("history.notice.loadFailed"),
     onClose: () => undefined,
+    onRetry: () => undefined,
     ...overrides,
   };
 }
@@ -54,7 +55,7 @@ describe("SidebarHistoryNotice", () => {
     );
     expect(simplified).toContain("无法读取历史任务，请稍后重试。");
     expect(simplified).toContain('class="sidebar-history-notice danger"');
-    expect(simplified).toContain('aria-label="关闭提示"');
+    expect(simplified).toContain("重试");
     expect(simplified).toContain('role="status"');
     expect(simplified).toContain('aria-live="polite"');
 
@@ -74,12 +75,28 @@ describe("SidebarHistoryNotice", () => {
     expect(english).toContain("The task was permanently deleted.");
     expect(english).toContain('class="sidebar-history-notice success"');
     expect(english).toContain('aria-label="Dismiss notice"');
+
+    const englishFailure = renderNotice(
+      createProps({ notice: uiMessage("history.notice.loadFailed") }),
+      "en-US",
+    );
+    expect(englishFailure).toContain("Retry");
+  });
+
+  test("does not render retry for non-load notices", async () => {
+    await initializeI18n("en-US");
+    const markup = renderNotice(
+      createProps({ notice: uiMessage("history.notice.deleted") }),
+      "en-US",
+    );
+
+    expect(markup).not.toContain("Retry");
   });
 
   test("invokes the dismiss callback from the close control", () => {
     const onClose = vi.fn();
     const markup = renderNotice(
-      createProps({ onClose }),
+      createProps({ notice: uiMessage("history.notice.deleted"), onClose }),
       "en-US",
     );
 

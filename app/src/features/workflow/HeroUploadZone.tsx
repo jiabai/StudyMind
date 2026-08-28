@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef, type DragEvent, type MouseEvent } from "react";
+import { useState, useCallback, useEffect, useRef, type DragEvent, type MouseEvent, type Ref } from "react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import {
@@ -27,6 +27,8 @@ type HeroUploadZoneProps = {
   canSubmit: boolean;
   statusBody: string;
   disabled?: boolean;
+  focusRef?: Ref<HTMLDivElement>;
+  resetSignal?: number;
   onLocalMediaSelected: (selection: LocalMediaSelectionView) => void;
   onRemoveLocalMedia: () => Promise<boolean>;
   onSubmit: (submission: TaskSubmission) => void;
@@ -69,6 +71,8 @@ export function HeroUploadZone({
   source,
   canSubmit,
   disabled = false,
+  focusRef,
+  resetSignal,
   onLocalMediaSelected,
   onRemoveLocalMedia,
   onSubmit,
@@ -86,6 +90,15 @@ export function HeroUploadZone({
   const { recentMedia, recordRecent, removeRecent, clearRecent } = useRecentMedia();
   const uploadGenerationRef = useRef(0);
   const disabledRef = useRef(disabled);
+
+  useEffect(() => {
+    if (resetSignal === undefined) {
+      return;
+    }
+    setErrorMessage("");
+    setTopicTitle("");
+    setState(source.kind === "local_media" ? "has-selection" : "idle");
+  }, [resetSignal]);
 
   useEffect(() => {
     if (disabledRef.current === disabled) {
@@ -323,17 +336,19 @@ export function HeroUploadZone({
       </div>
 
       <div
+        ref={focusRef}
         className={zoneClasses}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        onClick={!disabled && !selection && !picking ? () => void handleClick() : undefined}
-        role="button"
-        tabIndex={disabled ? -1 : 0}
-        aria-label={selection ? t("input.hero.ariaSelected") : t("input.hero.ariaIdle")}
+        onClick={state !== "error" && !disabled && !selection && !picking ? () => void handleClick() : undefined}
+        role={state === "error" ? undefined : "button"}
+        tabIndex={state === "error" ? -1 : disabled ? -1 : 0}
+        aria-label={state === "error" ? undefined : selection ? t("input.hero.ariaSelected") : t("input.hero.ariaIdle")}
         aria-busy={state === "loading"}
         onKeyDown={(e) => {
           if (
+            state !== "error" &&
             !disabled &&
             (e.key === "Enter" || e.key === " ") &&
             !selection &&
@@ -441,7 +456,7 @@ export function HeroUploadZone({
         )}
 
         {state === "error" && (
-          <div className="hero-upload-content error">
+          <div className="hero-upload-content error" role="alert">
             <div className="hero-upload-icon error">
               <X size={48} strokeWidth={1.5} />
             </div>
@@ -538,6 +553,7 @@ export function HeroUploadZone({
           <span>{t("input.hero.featureSummary")}</span>
         </div>
       </div>
+      <p className="hero-upload-privacy-hint">{t("input.hero.privacyHint")}</p>
     </div>
   );
 }

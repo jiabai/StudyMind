@@ -229,8 +229,44 @@ describe("useSettingsController", () => {
     controller = render();
 
     expect(controller.settingsLoading).toBe(false);
+    expect(controller.settingsLoaded).toBe(false);
+    expect(controller.settingsLoadError).toBe(true);
     expect(controller.settingsNotice).toEqual({ messageCode: "settings.notice.loadFailed" });
     expect(JSON.stringify(controller.settingsNotice)).not.toContain("config unavailable");
+  });
+
+  test("does not save the default draft before settings load succeeds", async () => {
+    const { render } = await createController();
+    const controller = render();
+
+    await controller.submitSettings(createSubmitEvent());
+
+    expect(mocks.saveLlmConfig).not.toHaveBeenCalled();
+    expect(controller.settingsLoaded).toBe(false);
+  });
+
+  test("retries settings loading and enables saving only after success", async () => {
+    const { config } = mockSettingsLoad();
+    mocks.getLlmConfig.mockReset();
+    mocks.getAudioReviewCacheUsage.mockReset();
+    mocks.getInsightPreferences.mockReset();
+    mocks.getLlmConfig
+      .mockRejectedValueOnce(new Error("config unavailable"))
+      .mockResolvedValueOnce(config);
+    mocks.getAudioReviewCacheUsage.mockResolvedValue(createAudioCacheUsage());
+    mocks.getInsightPreferences.mockResolvedValue(createInsightPreferences());
+    const { render } = await createController();
+
+    let controller = render();
+    await controller.openSettings();
+    controller = render();
+    expect(controller.settingsLoadError).toBe(true);
+
+    await controller.retrySettingsLoad();
+    controller = render();
+
+    expect(controller.settingsLoaded).toBe(true);
+    expect(controller.settingsLoadError).toBe(false);
   });
 
   test("surfaces audio cache usage load failures and resets loading state", async () => {
@@ -272,9 +308,12 @@ describe("useSettingsController", () => {
       configPath: "D:/StudyMind/app-data/new-settings.json",
     });
     mocks.saveLlmConfig.mockResolvedValueOnce(savedConfig);
+    mockSettingsLoad();
     const { render } = await createController();
 
     let controller = render();
+    await controller.openSettings();
+    controller = render();
     controller.updateSettingsDraft("outputDir", savedConfig.outputDir);
     controller.updateSettingsDraft("asrModel", savedConfig.asrModel);
     controller = render();
@@ -300,9 +339,12 @@ describe("useSettingsController", () => {
 
   test("surfaces save failures and resets saving state", async () => {
     mocks.saveLlmConfig.mockRejectedValueOnce(new Error("disk full"));
+    mockSettingsLoad();
     const { render } = await createController();
 
     let controller = render();
+    await controller.openSettings();
+    controller = render();
     const event = createSubmitEvent();
     const save = controller.submitSettings(event);
     controller = render();

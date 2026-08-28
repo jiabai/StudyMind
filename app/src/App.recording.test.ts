@@ -26,6 +26,28 @@ describe("App recording entry integration", () => {
     expect(source).toContain("<RecordingCard");
   });
 
+  test("focuses the upload entry after starting a new topic", () => {
+    expect(appSource).toContain("uploadZoneRef");
+    expect(waitingInputSource()).toContain("focusRef={uploadZoneRef}");
+    expect(waitingInputSource()).toContain("resetSignal={newTopicResetSignal}");
+    expect(appSource).toContain("uploadZoneRef.current?.focus()");
+  });
+
+  test("keeps upload first in the narrow waiting layout", () => {
+    expect(appSource).toContain("className=\"workflow-entry-grid\"");
+    expect(appSource).toContain("<RecordingCard");
+    expect(appSource).toContain("<HeroUploadZone");
+    expect(readFileSync(new URL("./App.css", import.meta.url), "utf8")).toMatch(
+      /@media \(max-width: 840px\)[\s\S]*?\.hero-upload-card[\s\S]*?order:\s*1[\s\S]*?\.recording-card[\s\S]*?order:\s*2/,
+    );
+  });
+
+  test("keeps neutral window controls on non-macOS platforms", () => {
+    expect(appSource).toContain("window-controls-standard");
+    expect(appSource).toContain("showMacWindowControls");
+    expect(appSource).toContain('aria-label={tCommon("window.minimize")}');
+  });
+
   test("hands recording output to the existing local media selection flow", () => {
     expect(appSource).toMatch(
       /useRecordingController\(\{[\s\S]*?onLocalMediaSelected:\s*setLocalMediaSelection[\s\S]*?\}\)/,

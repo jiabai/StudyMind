@@ -162,7 +162,7 @@ describe("App result workspace layout styles", () => {
     const historyMainRule = getRuleBody([".history-item-main"]);
     const localWorkspaceRule = getRuleBody([".local-transcript-workspace"]);
 
-    expect(rootRule).toContain("--text-soft: #8a857a;");
+    expect(rootRule).toContain("--text-soft: #6b665c;");
     expect(rootRule).toContain("--space-3: 12px;");
     expect(rootRule).toContain("--space-4: 16px;");
     expect(rootRule).toContain("--space-6: 24px;");
@@ -551,6 +551,20 @@ describe("App result workspace layout styles", () => {
     expect(closeRule).toContain("width: 20px;");
     expect(closeRule).toContain("padding: 0;");
     expect(closeHoverRule).toContain("background: rgba(95, 88, 72, 0.1);");
+  });
+
+  test("prioritizes file upload in the narrow waiting layout", () => {
+    expect(appCss).toMatch(
+      /@media \(max-width: 840px\)[\s\S]*?\.workflow-entry-grid[\s\S]*?\.hero-upload-card[\s\S]*?order:\s*1[\s\S]*?\.recording-card[\s\S]*?order:\s*2/,
+    );
+  });
+
+  test("uses readable supporting text and warning tokens", () => {
+    expect(appCss).toContain("--text-muted: #5f5b52;");
+    expect(appCss).toContain("--text-soft: #6b665c;");
+    expect(appCss).toContain("--warning: #7a5b28;");
+    expect(appCss).toContain("button:disabled");
+    expect(appCss).toContain("opacity: 0.65;");
   });
 
   test("shows a centered sign-in guide on the home page for guests", () => {

@@ -113,6 +113,7 @@ export type RecordingController = {
   confirmDiscard: () => Promise<void>;
   closeDiscard: () => void;
   retryHandoff: () => Promise<void>;
+  refreshCapabilities: () => Promise<void>;
   isModeAvailable: (mode: RecordingMode) => boolean;
   modeSelectionDisabled: boolean;
 };
@@ -771,6 +772,10 @@ export function useRecordingController({
     return () => timer.clearInterval(handle);
   }, [activeSessionId, clock, session.status, startedAt, timer]);
 
+  const refreshRecordingCapabilities = useCallback(async () => {
+    await refreshCapabilities();
+  }, []);
+
   return {
     capability,
     mode,
@@ -786,6 +791,7 @@ export function useRecordingController({
     confirmDiscard,
     closeDiscard,
     retryHandoff,
+    refreshCapabilities: refreshRecordingCapabilities,
     isModeAvailable,
     modeSelectionDisabled:
       capability.status !== "ready" ||

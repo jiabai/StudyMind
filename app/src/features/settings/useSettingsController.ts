@@ -35,6 +35,8 @@ export function useSettingsController() {
     useState<InsightPreferenceState | null>(null);
   const [settingsNotice, setSettingsNotice] = useState<UiMessage | null>(null);
   const [settingsLoading, setSettingsLoading] = useState(false);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [settingsLoadError, setSettingsLoadError] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
 
   const closeSettings = useCallback(() => {
@@ -43,6 +45,8 @@ export function useSettingsController() {
 
   const loadSettings = useCallback(async (successNotice?: UiMessage) => {
     setSettingsLoading(true);
+    setSettingsLoaded(false);
+    setSettingsLoadError(false);
     setSettingsNotice(uiMessage("settings.notice.reading"));
     try {
       const [config, audioCacheUsage, insightPreferences] = await Promise.all([
@@ -60,6 +64,7 @@ export function useSettingsController() {
       setSettingsConfigPath(config.configPath);
       setAudioReviewCacheUsage(audioCacheUsage);
       setSettingsInsightPreferences(insightPreferences);
+      setSettingsLoaded(true);
       setSettingsNotice(
         successNotice ??
           (insightPreferences
@@ -67,6 +72,7 @@ export function useSettingsController() {
             : uiMessage("settings.notice.loadedWithoutPreferences")),
       );
     } catch {
+      setSettingsLoadError(true);
       setSettingsNotice(uiMessage("settings.notice.loadFailed"));
     } finally {
       setSettingsLoading(false);
@@ -79,9 +85,17 @@ export function useSettingsController() {
     await loadSettings();
   }, [loadSettings]);
 
+  const retrySettingsLoad = useCallback(async () => {
+    await loadSettings();
+  }, [loadSettings]);
+
   const submitSettings = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
+      if (!settingsLoaded || settingsLoading || settingsLoadError) {
+        setSettingsNotice(uiMessage("settings.notice.loadFailed"));
+        return;
+      }
       setSettingsSaving(true);
       setSettingsNotice(null);
       try {
@@ -102,7 +116,7 @@ export function useSettingsController() {
         setSettingsSaving(false);
       }
     },
-    [settingsDraft],
+    [settingsDraft, settingsLoadError, settingsLoaded, settingsLoading],
   );
 
   const updateSettingsDraft = useCallback((field: keyof LlmConfigDraft, value: string) => {
@@ -161,10 +175,13 @@ export function useSettingsController() {
     settingsInsightPreferences,
     settingsNotice,
     settingsLoading,
+    settingsLoaded,
+    settingsLoadError,
     settingsSaving,
     closeSettings,
     openSettings,
     loadSettings,
+    retrySettingsLoad,
     submitSettings,
     setSettingsCategory,
     updateSettingsDraft,

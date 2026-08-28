@@ -2,10 +2,11 @@ export const updatesResources = {
   "zh-CN": {
     section: {
       heading: "应用更新",
-      description: "StudyMind 会升级桌面端和内置 worker；模型缓存和本机产物保持在 app-local data。",
+      description: "StudyMind 会升级桌面端和内置 worker；模型缓存和本机产物保留在应用本地数据目录。",
       defaultMessage: "启动后会自动静默检查更新，也可以在这里手动检查。",
       manualMessage: "macOS 版本通过发布页手动下载安装，暂未启用应用内自动更新。",
       installBlocked: "当前任务或模型下载完成后才能安装更新。",
+      installDisabled: "请先检查并发现可用更新，再安装更新。",
       manualStatus: "手动更新",
       stableVersion: "StudyMind stable",
       versionLabel: "StudyMind {{version}}",
@@ -37,10 +38,11 @@ export const updatesResources = {
   "zh-TW": {
     section: {
       heading: "應用程式更新",
-      description: "StudyMind 會更新桌面端與內建 worker；模型快取和本機產物會保留在 app-local data。",
+      description: "StudyMind 會更新桌面端與內建 worker；模型快取和本機產物會保留在應用程式本機資料目錄。",
       defaultMessage: "啟動後會自動在背景檢查更新，也可以在此手動檢查。",
       manualMessage: "macOS 版本需透過發佈頁手動下載安裝，目前未啟用應用程式內自動更新。",
       installBlocked: "目前工作或模型下載完成後才能安裝更新。",
+      installDisabled: "請先檢查並發現可用更新，再安裝更新。",
       manualStatus: "手動更新",
       stableVersion: "StudyMind stable",
       versionLabel: "StudyMind {{version}}",
@@ -72,10 +74,11 @@ export const updatesResources = {
   "en-US": {
     section: {
       heading: "App Updates",
-      description: "StudyMind updates the desktop app and bundled worker. Model caches and local artifacts remain in app-local data.",
+      description: "StudyMind updates the desktop app and bundled worker. Model caches and local artifacts remain in the app's local data directory.",
       defaultMessage: "StudyMind checks for updates quietly after startup. You can also check manually here.",
       manualMessage: "On macOS, download and install updates manually from the releases page. In-app updates are not enabled yet.",
       installBlocked: "Finish the current task or model download before installing the update.",
+      installDisabled: "Check for an available update before installing.",
       manualStatus: "Manual update",
       stableVersion: "StudyMind stable",
       versionLabel: "StudyMind {{version}}",

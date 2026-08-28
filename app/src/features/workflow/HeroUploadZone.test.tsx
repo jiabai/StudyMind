@@ -59,6 +59,7 @@ describe("HeroUploadZone", () => {
     expect(markup).toContain("Replace file");
     expect(markup).toContain("Start processing");
     expect(markup).toContain("Topic title (optional)");
+    expect(markup).toContain("Transcript excerpts are sent to the cloud LLM only after you confirm AI generation.");
     expect(markup).not.toContain(selection.selectionToken);
   });
 
@@ -97,5 +98,23 @@ describe("HeroUploadZone", () => {
     const source = readFileSync(new URL("./HeroUploadZone.tsx", import.meta.url), "utf8");
 
     expect(source.match(/isUploadRequestCurrent\(/g)?.length).toBeGreaterThanOrEqual(4);
+  });
+
+  test("keeps the upload error state free of nested interactive controls", () => {
+    const source = readFileSync(new URL("./HeroUploadZone.tsx", import.meta.url), "utf8");
+
+    expect(source).toContain('state === "error" ?');
+    expect(source).toMatch(/state === "error"[\s\S]*?className="hero-upload-retry"/);
+    expect(source).not.toMatch(
+      /role="button"[\s\S]*?state === "error"[\s\S]*?className="hero-upload-retry"/,
+    );
+  });
+
+  test("supports an explicit reset signal for starting a new topic", () => {
+    const source = readFileSync(new URL("./HeroUploadZone.tsx", import.meta.url), "utf8");
+
+    expect(source).toContain("resetSignal?");
+    expect(source).toContain("setState(\"idle\")");
+    expect(source).toContain("setErrorMessage(\"\")");
   });
 });

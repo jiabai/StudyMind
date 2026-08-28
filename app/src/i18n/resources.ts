@@ -46,6 +46,7 @@ export const resources = {
         title: "界面与 AI 结果语言",
         description: "选择 StudyMind 界面及后续 AI 生成结果使用的语言。",
         label: "语言",
+        immediate: "语言偏好会立即生效。",
         options: {
           system: "跟随系统",
           zhCN: "简体中文",
@@ -141,6 +142,7 @@ export const resources = {
         title: "介面與 AI 結果語言",
         description: "選擇 StudyMind 介面及後續 AI 產生結果所使用的語言。",
         label: "語言",
+        immediate: "語言偏好會立即生效。",
         options: {
           system: "跟隨系統",
           zhCN: "簡體中文",
@@ -236,6 +238,7 @@ export const resources = {
         title: "Interface & AI result language",
         description: "Choose the language for StudyMind and future AI-generated results.",
         label: "Language",
+        immediate: "Language changes take effect immediately.",
         options: {
           system: "Use system language",
           zhCN: "简体中文",

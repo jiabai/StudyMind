@@ -2,6 +2,7 @@ import { describe, expect, test, vi } from "vitest";
 import {
   calculateDraggedWindowPosition,
   createWindowChromeActions,
+  isMacOsPlatform,
   type WindowChromeCommandRunner,
 } from "./windowChrome";
 
@@ -10,6 +11,13 @@ function createFakeRunner() {
 }
 
 describe("window chrome actions", () => {
+  test("detects macOS before rendering traffic-light controls", () => {
+    expect(isMacOsPlatform("Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5)"))
+      .toBe(true);
+    expect(isMacOsPlatform("Mozilla/5.0 (Windows NT 10.0; Win64; x64)"))
+      .toBe(false);
+  });
+
   test("maps toolbar drag to the Rust window command", async () => {
     const runner = createFakeRunner();
     const chrome = createWindowChromeActions(runner);

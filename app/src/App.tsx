@@ -5,6 +5,8 @@ import {
   Download,
   ListChecks,
   LoaderCircle,
+  Maximize2,
+  Minus,
   ShieldCheck,
   X,
 } from "lucide-react";
@@ -52,6 +54,7 @@ import { useTaskProcessingController } from "./features/workflow/useTaskProcessi
 import { useLocale } from "./i18n/LocaleProvider";
 import { countTextUnits, formatWordCount } from "./i18n/formatters";
 import { uiMessage, type UiMessage } from "./i18n/uiMessage";
+import { isMacOsPlatform } from "./windowChrome";
 
 const asrModelLabels: Record<string, string> = {
   "Qwen/Qwen3-ASR-0.6B": "Qwen3-ASR 0.6B",
@@ -115,6 +118,9 @@ function App() {
   const prevStageRef = useRef<string>("waiting_input");
   const [loginTransition, setLoginTransition] = useState<"guide-to-hero" | null>(null);
   const prevLoginGuideVisibleRef = useRef(false);
+  const uploadZoneRef = useRef<HTMLDivElement>(null);
+  const [newTopicResetSignal, setNewTopicResetSignal] = useState(0);
+  const showMacWindowControls = isMacOsPlatform();
 
   const settingsController = useSettingsController();
   const { settingsOpen, closeSettings, openSettings } = settingsController;
@@ -403,7 +409,9 @@ function App() {
     if (recordingActiveRef.current) {
       return;
     }
+    setNewTopicResetSignal((current) => current + 1);
     startNewTaskFromToolbar();
+    window.requestAnimationFrame(() => uploadZoneRef.current?.focus());
   }, [startNewTaskFromToolbar]);
   const handleSignOut = useCallback(() => {
     if (recordingActiveRef.current) {
@@ -618,26 +626,55 @@ function App() {
           />
         ) : null}
         <header className="app-toolbar topbar" data-tauri-drag-region="" onMouseDown={handleToolbarMouseDown}>
-          <div className="traffic-lights" role="group" aria-label={tCommon("window.controls")}>
-            <button
-              className="traffic-light close"
-              type="button"
-              aria-label={tCommon("window.close")}
-              onClick={closeWindow}
-            />
-            <button
-              className="traffic-light minimize"
-              type="button"
-              aria-label={tCommon("window.minimize")}
-              onClick={minimizeWindow}
-            />
-            <button
-              className="traffic-light zoom"
-              type="button"
-              aria-label={tCommon("window.maximize")}
-              onClick={toggleMaximizeWindow}
-            />
-          </div>
+          {showMacWindowControls ? (
+            <div className="traffic-lights" role="group" aria-label={tCommon("window.controls")}>
+              <button
+                className="traffic-light close"
+                type="button"
+                aria-label={tCommon("window.close")}
+                onClick={closeWindow}
+              />
+              <button
+                className="traffic-light minimize"
+                type="button"
+                aria-label={tCommon("window.minimize")}
+                onClick={minimizeWindow}
+              />
+              <button
+                className="traffic-light zoom"
+                type="button"
+                aria-label={tCommon("window.maximize")}
+                onClick={toggleMaximizeWindow}
+              />
+            </div>
+          ) : (
+            <div className="window-controls-standard" role="group" aria-label={tCommon("window.controls")}>
+              <button
+                className="window-control"
+                type="button"
+                aria-label={tCommon("window.minimize")}
+                onClick={minimizeWindow}
+              >
+                <Minus size={14} aria-hidden="true" />
+              </button>
+              <button
+                className="window-control"
+                type="button"
+                aria-label={tCommon("window.maximize")}
+                onClick={toggleMaximizeWindow}
+              >
+                <Maximize2 size={13} aria-hidden="true" />
+              </button>
+              <button
+                className="window-control close"
+                type="button"
+                aria-label={tCommon("window.close")}
+                onClick={closeWindow}
+              >
+                <X size={14} aria-hidden="true" />
+              </button>
+            </div>
+          )}
 
           <div className="toolbar-title" data-tauri-drag-region="">
             <span className="app-mark" data-tauri-drag-region="">{tCommon("appMark")}</span>
@@ -684,6 +721,8 @@ function App() {
                   startDisabled={accountLoading}
                 />
                 <HeroUploadZone
+                  focusRef={uploadZoneRef}
+                  resetSignal={newTopicResetSignal}
                   source={workflow.composerSource}
                   canSubmit={canSubmit}
                   statusBody={activeStageBody}

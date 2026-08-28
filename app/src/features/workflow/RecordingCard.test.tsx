@@ -34,6 +34,7 @@ function createController(
     confirmDiscard: vi.fn(async () => undefined),
     closeDiscard: vi.fn(),
     retryHandoff: vi.fn(async () => undefined),
+    refreshCapabilities: vi.fn(async () => undefined),
     isModeAvailable: vi.fn(() => true),
     modeSelectionDisabled: false,
     ...overrides,
@@ -88,6 +89,19 @@ describe("RecordingCard", () => {
     expect(markup).toContain("Microphone access is unavailable");
     expect(markup).not.toContain("RECORDING_MIC_ACCESS_DENIED");
     expect(markup).not.toContain("C:\\");
+  });
+
+  test("offers a recovery action when recording sources are unavailable", () => {
+    const markup = renderCard({
+      ...createController({
+        capability: {
+          status: "unavailable",
+          errorCode: "RECORDING_SOURCE_UNAVAILABLE",
+        },
+      }),
+    });
+
+    expect(markup).toContain("Recheck recording sources");
   });
 
   test("renders an accessible discard confirmation and retryable handoff action", () => {

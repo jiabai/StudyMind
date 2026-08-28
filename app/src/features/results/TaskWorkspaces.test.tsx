@@ -577,7 +577,7 @@ describe("task domain workspaces", () => {
     );
 
     expect(markup).toContain("学习整理");
-    expect(markup).toContain("确认后仅发送文字稿片段，视频和音频不会上传");
+    expect(markup).toContain("音视频和转写在本机处理；确认后，才会把文字稿片段发送到云端 LLM");
     expect(markup).toContain('data-ai-target="summary"');
     expect(markup).toContain("知识结构");
     expect(markup).toContain("提炼核心概念并生成 Mermaid 知识图谱");

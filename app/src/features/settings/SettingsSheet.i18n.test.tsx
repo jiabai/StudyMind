@@ -30,6 +30,8 @@ function controller(
     settingsInsightPreferences: null,
     settingsNotice: null,
     settingsLoading: false,
+    settingsLoaded: true,
+    settingsLoadError: false,
     settingsSaving: false,
     closeSettings: vi.fn(),
     submitSettings: vi.fn(),
@@ -38,6 +40,7 @@ function controller(
     clearAudioReviewCacheFromSettings: vi.fn(),
     clearProfileFromSettings: vi.fn(),
     locateSettingsConfigFile: vi.fn(),
+    retrySettingsLoad: vi.fn(),
     ...overrides,
   } as unknown as SettingsController;
 }
@@ -134,5 +137,30 @@ describe("settings localization", () => {
 
     expect(markup).toContain('class="action-notice inline-notice" role="status"');
     expect(markup).toContain('aria-live="polite"');
+  });
+
+  test("offers retry and prevents saving when settings failed to load", async () => {
+    await initializeI18n("en-US");
+
+    const markup = renderSettings("en-US", "basic", {
+      controller: {
+        settingsLoaded: false,
+        settingsLoadError: true,
+        settingsNotice: uiMessage("settings.notice.loadFailed"),
+      },
+    });
+
+    expect(markup).toContain('class="settings-load-error"');
+    expect(markup).toContain("Retry settings load");
+    expect(markup).toMatch(/class="primary-button"[^>]*disabled=""/);
+  });
+
+  test("explains why install is disabled before an update is available", async () => {
+    await initializeI18n("en-US");
+
+    const markup = renderSettings("en-US", "updates");
+
+    expect(markup).toContain('class="update-action-hint"');
+    expect(markup).toContain("Check for an available update before installing.");
   });
 });

@@ -45,6 +45,7 @@ export function LanguagePreferenceField() {
           ))}
         </select>
       </label>
+      <p className="settings-immediate-note">{t("language.immediate")}</p>
     </section>
   );
 }

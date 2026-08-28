@@ -192,8 +192,30 @@ describe("useHistoryController", () => {
     expect(controller.historyOpen).toBe(true);
     expect(controller.historyLoading).toBe(false);
     expect(controller.historyItems).toEqual([]);
+    expect(controller.historyLoadError).toBe(true);
     expect(controller.historyNotice).toEqual({ messageCode: "history.notice.loadFailed" });
     expect(JSON.stringify(controller.historyNotice)).not.toContain("private-token");
+  });
+
+  test("retries a failed history load and clears the failure state", async () => {
+    const item = createHistoryItem();
+    getHistoryMock
+      .mockRejectedValueOnce(new Error("disk unavailable"))
+      .mockResolvedValueOnce([item]);
+    const { render } = await createController();
+
+    let controller = render();
+    await controller.openHistory();
+    controller = render();
+    expect(controller.historyLoadError).toBe(true);
+
+    await controller.retryHistoryLoad();
+    controller = render();
+
+    expect(getHistoryMock).toHaveBeenCalledTimes(2);
+    expect(controller.historyLoadError).toBe(false);
+    expect(controller.historyItems).toEqual([item]);
+    expect(controller.historyNotice).toBeNull();
   });
 
   test("ignores a closed list request after the history sheet is reopened", async () => {

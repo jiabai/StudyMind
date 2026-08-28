@@ -97,6 +97,14 @@ describe("SidebarUserMenuItems", () => {
     expect(markup).toContain("Sign out");
   });
 
+  test("renders credits as status information and keeps account as the action", () => {
+    const markup = renderItems();
+
+    expect(markup).toMatch(/class="sidebar-user-menu-status"[\s\S]*Credits/);
+    expect(markup).toMatch(/role="menuitem"[\s\S]*Account/);
+    expect(markup).not.toMatch(/<button[^>]*sidebar-user-menu-status/);
+  });
+
   test("disables sign out for guests", () => {
     const markup = renderItems({
       signedIn: false,

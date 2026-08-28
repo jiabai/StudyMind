@@ -29,6 +29,7 @@ export const workflowResources = {
         subtitle: "上传音视频文件，AI 将自动生成带时间戳的文字稿和知识点摘要",
         dropHint: "拖放文件到此处，或点击选择",
         subHint: "支持 MP3 / WAV / MP4 / MOV · 本地处理 · 隐私安全",
+        privacyHint: "音视频和转写在本机处理；生成 AI 摘要前，确认后才会发送文字稿片段。",
         dragOverHint: "松开即可上传",
         dragReplaceHint: "松开即可替换当前文件",
         openingPicker: "打开文件选择器...",
@@ -107,6 +108,7 @@ export const workflowResources = {
           stream: "录音流发生错误，请重试。",
           alreadyActive: "已有录音正在进行。",
           openPrivacySettings: "打开 Windows 麦克风设置",
+          retryCapabilities: "重新检查录音来源",
         },
       },
       attachment: {
@@ -167,6 +169,7 @@ export const workflowResources = {
         subtitle: "上傳音訊或影片檔案，AI 將自動產生帶時間戳的逐字稿與知識點摘要",
         dropHint: "拖放檔案到此處，或點擊選擇",
         subHint: "支援 MP3 / WAV / MP4 / MOV · 本機處理 · 隱私安全",
+        privacyHint: "音訊、影片與逐字稿都在本機處理；產生 AI 摘要前，確認後才會傳送逐字稿片段。",
         dragOverHint: "鬆開以上傳",
         dragReplaceHint: "放開即可取代目前檔案",
         openingPicker: "開啟檔案選擇器...",
@@ -245,6 +248,7 @@ export const workflowResources = {
           stream: "錄音串流發生錯誤，請再試一次。",
           alreadyActive: "已有錄音正在進行。",
           openPrivacySettings: "開啟 Windows 麥克風設定",
+          retryCapabilities: "重新檢查錄音來源",
         },
       },
       attachment: {
@@ -305,6 +309,7 @@ export const workflowResources = {
         subtitle: "Upload audio/video files and AI will generate timestamped transcripts and knowledge summaries",
         dropHint: "Drop files here or click to select",
         subHint: "Supports MP3 / WAV / MP4 / MOV · Local processing · Privacy first",
+        privacyHint: "Audio, video, and transcription stay on this device. Transcript excerpts are sent to the cloud LLM only after you confirm AI generation.",
         dragOverHint: "Release to upload",
         dragReplaceHint: "Release to replace the current file",
         openingPicker: "Opening file picker...",
@@ -383,6 +388,7 @@ export const workflowResources = {
           stream: "The recording stream encountered an error. Try again.",
           alreadyActive: "A recording is already in progress.",
           openPrivacySettings: "Open Windows microphone settings",
+          retryCapabilities: "Recheck recording sources",
         },
       },
       attachment: {

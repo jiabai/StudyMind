@@ -193,6 +193,8 @@ export function SettingsSheet({
     settingsInsightPreferences,
     settingsNotice,
     settingsLoading,
+    settingsLoaded,
+    settingsLoadError,
     settingsSaving,
     closeSettings,
     submitSettings,
@@ -201,11 +203,18 @@ export function SettingsSheet({
     clearAudioReviewCacheFromSettings,
     clearProfileFromSettings,
     locateSettingsConfigFile,
+    retrySettingsLoad,
   } = controller;
   const settingsModalRef = useModalFocus<HTMLElement>(settingsOpen);
   const renderedSettingsNotice = renderUiMessage(locale, settingsNotice);
   const renderedUpdateMessage = renderUiMessage(locale, updateState.message);
   const updateProgress = Math.max(0, Math.min(100, updateState.progress));
+  const settingsControlsDisabled =
+    settingsLoading || settingsSaving || !settingsLoaded || settingsLoadError;
+  const updateInstallDisabled =
+    updateBusy ||
+    updateInstallBlocked ||
+    !["available", "postponed"].includes(updateState.status);
 
   if (!settingsOpen) {
     return null;
@@ -254,6 +263,19 @@ export function SettingsSheet({
             </nav>
 
             <div className="settings-sections">
+              {settingsLoadError ? (
+                <div className="settings-load-error" role="alert">
+                  <span>{tSettings("notice.loadFailed")}</span>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => void retrySettingsLoad()}
+                    disabled={settingsLoading}
+                  >
+                    {tSettings("notice.retry")}
+                  </button>
+                </div>
+              ) : null}
               {settingsCategory === "basic" ? (
                 <>
                   <LanguagePreferenceField />
@@ -275,7 +297,7 @@ export function SettingsSheet({
                           updateSettingsDraft("asrModel", model);
                           onAsrModelSelection?.(model);
                         }}
-                        disabled={settingsLoading || settingsSaving || modelDownloadActive}
+                        disabled={settingsControlsDisabled || modelDownloadActive}
                       >
                         {settingsSupportedAsrModels.map((model) => (
                           <option value={model} key={model}>
@@ -302,7 +324,7 @@ export function SettingsSheet({
                         value={settingsDraft.outputDir}
                         onChange={(event) => updateSettingsDraft("outputDir", event.currentTarget.value)}
                         placeholder={tSettings("basic.outputPlaceholder")}
-                        disabled={settingsLoading || settingsSaving}
+                        disabled={settingsControlsDisabled}
                       />
                     </label>
                   </section>
@@ -340,7 +362,7 @@ export function SettingsSheet({
                         type="button"
                         className="secondary-button profile-edit-button"
                         onClick={() => void onOpenProfileEditorFromSettings()}
-                        disabled={settingsLoading || settingsSaving}
+                        disabled={settingsControlsDisabled}
                       >
                         <UserRound size={15} />
                         <span>{preferenceCopy.editProfile}</span>
@@ -349,7 +371,7 @@ export function SettingsSheet({
                         type="button"
                         className="secondary-button profile-clear-button"
                         onClick={() => void clearProfileFromSettings()}
-                        disabled={settingsLoading || settingsSaving}
+                        disabled={settingsControlsDisabled}
                       >
                         <X size={15} />
                         <span>{preferenceCopy.clearProfile}</span>
@@ -387,7 +409,7 @@ export function SettingsSheet({
                       type="button"
                       className="secondary-button"
                       onClick={() => void clearAudioReviewCacheFromSettings()}
-                      disabled={settingsLoading || settingsSaving || !audioReviewCacheUsage}
+                      disabled={settingsControlsDisabled || !audioReviewCacheUsage}
                     >
                       <Trash2 size={15} />
                       <span>{tSettings("storage.clear")}</span>
@@ -471,11 +493,7 @@ export function SettingsSheet({
                             type="button"
                             className="primary-button"
                             onClick={() => void onInstallUpdate()}
-                            disabled={
-                              updateBusy ||
-                              updateInstallBlocked ||
-                              !["available", "postponed"].includes(updateState.status)
-                            }
+                            disabled={updateInstallDisabled}
                           >
                             <Download size={15} />
                             <span>{tUpdates("action.install")}</span>
@@ -499,6 +517,13 @@ export function SettingsSheet({
                       </button>
                     )}
                   </div>
+                  {inAppUpdates && updateState.status !== "ready_to_restart" && updateInstallDisabled ? (
+                    <small id="update-install-hint" className="update-action-hint">
+                      {updateInstallBlocked
+                        ? tUpdates("section.installBlocked")
+                        : tUpdates("section.installDisabled")}
+                    </small>
+                  ) : null}
                 </section>
               ) : null}
 
@@ -516,7 +541,7 @@ export function SettingsSheet({
                       type="button"
                       className="secondary-button"
                       onClick={() => void locateSettingsConfigFile()}
-                      disabled={settingsLoading || !settingsConfigPath}
+                      disabled={settingsControlsDisabled || !settingsConfigPath}
                     >
                       <FolderOpen size={15} />
                       <span>{tSettings("advanced.locate")}</span>
@@ -525,7 +550,7 @@ export function SettingsSheet({
                 </section>
               ) : null}
 
-              {renderedSettingsNotice ? (
+              {renderedSettingsNotice && !settingsLoadError ? (
                 <p
                   className="action-notice inline-notice"
                   role="status"
@@ -541,16 +566,18 @@ export function SettingsSheet({
           <button type="button" className="secondary-button" onClick={closeSettings}>
             <span>{tSettings("footer.close")}</span>
           </button>
-          <button
-            className="primary-button"
-            type="submit"
-            form="settings-form"
-            disabled={settingsLoading || settingsSaving}
-          >
-            <span>
-              {settingsSaving ? tSettings("footer.saving") : tSettings("footer.save")}
-            </span>
-          </button>
+          {settingsCategory === "basic" ? (
+            <button
+              className="primary-button"
+              type="submit"
+              form="settings-form"
+              disabled={settingsControlsDisabled}
+            >
+              <span>
+                {settingsSaving ? tSettings("footer.saving") : tSettings("footer.save")}
+              </span>
+            </button>
+          ) : null}
         </div>
       </section>
     </div>

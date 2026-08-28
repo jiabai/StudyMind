@@ -27,6 +27,12 @@ export type WindowChromeCommandRunner = <T = void>(
 
 const defaultWindowChromeRunner: WindowChromeCommandRunner = (command, args) => invoke(command, args);
 
+export function isMacOsPlatform(userAgent?: string): boolean {
+  const resolvedUserAgent =
+    userAgent ?? (typeof navigator !== "undefined" ? navigator.userAgent : "");
+  return /Macintosh|Mac OS X/i.test(resolvedUserAgent);
+}
+
 export function createWindowChromeActions(runner: WindowChromeCommandRunner = defaultWindowChromeRunner) {
   return {
     startDrag: () => runner("start_window_drag"),

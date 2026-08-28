@@ -24,6 +24,7 @@ export function useHistoryController({
   const [historyItems, setHistoryItems] = useState<HistoryListItem[]>([]);
   const [historyNotice, setHistoryNotice] = useState<UiMessage | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyLoadError, setHistoryLoadError] = useState(false);
   const [historyDeleteCandidate, setHistoryDeleteCandidate] = useState<HistoryListItem | null>(null);
   const [historyDeleting, setHistoryDeleting] = useState(false);
   const listRequestIdRef = useRef(0);
@@ -51,6 +52,7 @@ export function useHistoryController({
     const requestId = listRequestIdRef.current + 1;
     listRequestIdRef.current = requestId;
     setHistoryLoading(true);
+    setHistoryLoadError(false);
     try {
       const items = await getHistory();
       if (listRequestIdRef.current !== requestId) {
@@ -58,8 +60,10 @@ export function useHistoryController({
       }
       setHistoryItems(items);
       setHistoryNotice(items.length > 0 ? null : uiMessage("history.notice.empty"));
+      setHistoryLoadError(false);
     } catch {
       if (listRequestIdRef.current === requestId) {
+        setHistoryLoadError(true);
         setHistoryNotice(uiMessage("history.notice.loadFailed"));
       }
     } finally {
@@ -178,6 +182,7 @@ export function useHistoryController({
     historyItems,
     historyNotice,
     historyLoading,
+    historyLoadError,
     historyDeleteCandidate,
     historyDeleting,
     closeHistory,
@@ -188,6 +193,7 @@ export function useHistoryController({
     cancelHistoryItemDeletion,
     confirmHistoryItemDeletion,
     clearHistoryNotice,
+    retryHistoryLoad: loadHistory,
   };
 }
 

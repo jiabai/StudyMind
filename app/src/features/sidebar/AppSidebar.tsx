@@ -60,6 +60,7 @@ export function AppSidebar({
   const {
     historyItems,
     historyLoading,
+    historyLoadError,
     historyNotice,
     historyDeleteCandidate,
     historyDeleting,
@@ -69,6 +70,7 @@ export function AppSidebar({
     confirmHistoryItemDeletion,
     loadHistory,
     clearHistoryNotice,
+    retryHistoryLoad,
   } = controller;
 
   const [renameCandidateId, setRenameCandidateId] = useState<string | null>(null);
@@ -283,13 +285,14 @@ export function AppSidebar({
         <SidebarHistoryNotice
           notice={historyNotice}
           onClose={clearHistoryNotice}
+          onRetry={historyLoadError ? () => void retryHistoryLoad() : undefined}
         />
         {historyLoading && historyItems.length === 0 ? (
           <div className="sidebar-loading">
             <LoaderCircle size={14} className="spin" />
             <span>{tSidebar("loading")}</span>
           </div>
-        ) : historyItems.length === 0 ? (
+        ) : historyLoadError ? null : historyItems.length === 0 ? (
           <div className="sidebar-empty">
             <FileText size={16} />
             <span>{tSidebar("empty")}</span>

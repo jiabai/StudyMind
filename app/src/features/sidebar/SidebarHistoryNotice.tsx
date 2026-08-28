@@ -8,6 +8,7 @@ import { renderUiMessage, type UiMessage } from "../../i18n/uiMessage";
 type SidebarHistoryNoticeProps = {
   notice: UiMessage | null;
   onClose: () => void;
+  onRetry?: () => void;
 };
 
 export const NOTICE_AUTO_DISMISS_MS = 3000;
@@ -31,6 +32,7 @@ export function shouldAutoDismissNotice(messageCode: string): boolean {
 export function SidebarHistoryNotice({
   notice,
   onClose,
+  onRetry,
 }: SidebarHistoryNoticeProps) {
   const { t } = useTranslation("sidebar");
   const { resolvedLocale } = useLocale();
@@ -56,14 +58,25 @@ export function SidebarHistoryNotice({
       <span className="sidebar-history-notice-text">
         {renderUiMessage(resolvedLocale, notice)}
       </span>
-      <button
-        type="button"
-        className="sidebar-history-notice-close"
-        onClick={onClose}
-        aria-label={t("noticeCloseAria")}
-      >
-        <X size={13} />
-      </button>
+      {onRetry && notice.messageCode === "history.notice.loadFailed" ? (
+        <button
+          type="button"
+          className="sidebar-history-notice-retry"
+          onClick={onRetry}
+        >
+          {t("noticeRetry")}
+        </button>
+      ) : null}
+      {notice.messageCode !== "history.notice.loadFailed" ? (
+        <button
+          type="button"
+          className="sidebar-history-notice-close"
+          onClick={onClose}
+          aria-label={t("noticeCloseAria")}
+        >
+          <X size={13} />
+        </button>
+      ) : null}
     </div>
   );
 }

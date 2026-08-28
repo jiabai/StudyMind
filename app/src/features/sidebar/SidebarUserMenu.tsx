@@ -57,15 +57,19 @@ export function SidebarUserMenuItems({
           <small>{signedIn ? t("userMenu.signedIn") : t("userMenu.guest")}</small>
         </div>
       </div>
+      <div className="sidebar-user-menu-status" role="status">
+        <Sparkles size={15} />
+        <span>{t("userMenu.credits")}</span>
+        <span className="sidebar-user-menu-value">{quotaRemaining}</span>
+      </div>
       <button
         role="menuitem"
         type="button"
         className="sidebar-user-menu-item"
         onClick={onOpenAccount}
       >
-        <Sparkles size={15} />
-        <span>{t("userMenu.credits")}</span>
-        <span className="sidebar-user-menu-value">{quotaRemaining}</span>
+        <UserRound size={15} />
+        <span>{t("userMenu.account")}</span>
       </button>
       <button
         role="menuitem"

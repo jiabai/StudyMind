@@ -66,4 +66,12 @@ describe("AI Synthesis workspace localization", () => {
       expect(markup).toContain("Mermaid");
     },
   );
+
+  test("states the local-to-cloud privacy boundary before AI generation", async () => {
+    await initializeI18n("en-US");
+
+    expect(renderWorkspace()).toContain(
+      "Audio, video, and transcription stay on this device. After you confirm, only transcript excerpts are sent to the cloud LLM.",
+    );
+  });
 });

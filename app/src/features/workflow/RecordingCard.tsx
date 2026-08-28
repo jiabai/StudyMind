@@ -179,6 +179,11 @@ export function RecordingCard({ controller, startDisabled = false }: RecordingCa
     controller.isModeAvailable(controller.mode) &&
     !sessionBusy &&
     !recording;
+  const canRetryCapabilities =
+    showError &&
+    errorCode !== "RECORDING_MIC_ACCESS_DENIED" &&
+    errorCode !== "RECORDING_PLATFORM_UNSUPPORTED" &&
+    controller.handoff.status !== "retryable";
 
   useEffect(() => {
     const previousStatus = previousStatusRef.current;
@@ -294,6 +299,17 @@ export function RecordingCard({ controller, startDisabled = false }: RecordingCa
           >
             <Settings size={15} aria-hidden="true" />
             <span>{t("input.recording.error.openPrivacySettings")}</span>
+          </button>
+        ) : null}
+
+        {canRetryCapabilities ? (
+          <button
+            className="recording-retry-button"
+            type="button"
+            onClick={() => void controller.refreshCapabilities()}
+          >
+            <RefreshCw size={15} aria-hidden="true" />
+            <span>{t("input.recording.error.retryCapabilities")}</span>
           </button>
         ) : null}
 
