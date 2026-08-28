@@ -26,5 +26,5 @@
 - [x] 为历史、设置、上传错误态和 New topic 关键状态补充失败测试，再实现最小修复。
 - [x] `npm --prefix app test`（75 个测试文件，797 个测试通过）
 - [x] `npm --prefix app run build`
-- [ ] `cargo check --manifest-path app/src-tauri/Cargo.toml`（阻塞：现有 `resources/python/**/*` glob 没有匹配文件）
+- [x] `cargo check --manifest-path app/src-tauri/Cargo.toml`（Windows：Python 与 Worker 资源就位后通过）
 - [x] 通过静态渲染、源码约束测试和构建复查窄窗口、历史失败、设置失败、上传错误和中英文文案。
