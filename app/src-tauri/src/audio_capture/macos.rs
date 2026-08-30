@@ -520,12 +520,14 @@ mod platform {
     use screencapturekit::prelude::*;
 
     use super::*;
-    use super::mixed::{CaptureCommand, CaptureSignal, SourceReady};
+    use crate::audio_capture::mixed::{self, CaptureCommand, CaptureSignal, SourceReady};
     use crate::audio_capture::CaptureWorkspace;
     use crate::audio_capture::system_audio_recovery::{
         AudioSampleTiming, SystemAudioRecovery, WriteAction,
     };
-    use crate::audio_capture::{ActiveCapture, RecordingBackend, RecordingWarningReporter};
+    use crate::audio_capture::{
+        ActiveCapture, CaptureCancelHandle, RecordingBackend, RecordingWarningReporter,
+    };
 
     const AUDIO_QUEUE_CAPACITY: usize = 32;
     const CONTROL_POLL_INTERVAL: Duration = Duration::from_millis(20);
@@ -1280,7 +1282,7 @@ mod platform {
         ) -> Result<Box<dyn ActiveCapture>, RecordingError> {
             let gate = CaptureGate::default();
             let failures = FirstSourceFailure::default();
-            let (ready_tx, ready_rx) = super::mixed::ready_channel();
+            let (ready_tx, ready_rx) = mixed::ready_channel();
             match mode {
                 RecordingMode::Mic => {
                     authorize_microphone_for_mode(
@@ -1431,9 +1433,9 @@ mod platform {
             }
         }
 
-        fn cancel_handle(&self) -> Option<super::CaptureCancelHandle> {
+        fn cancel_handle(&self) -> Option<CaptureCancelHandle> {
             let signal = self.source.signal.clone();
-            Some(super::CaptureCancelHandle::new(move || {
+            Some(CaptureCancelHandle::new(move || {
                 signal.request(CaptureCommand::Cancel);
             }))
         }

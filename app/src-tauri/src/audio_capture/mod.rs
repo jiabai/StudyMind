@@ -666,7 +666,6 @@ impl RecordingController {
         self
     }
 
-    #[cfg(any(windows, test))]
     pub(crate) fn with_failure_sink(mut self, failure_sink: Arc<dyn RecordingFailureSink>) -> Self {
         self.failure_sink = failure_sink;
         self
