@@ -472,6 +472,28 @@ impl RecordingDiskSpace for WindowsDiskSpaceProbe {
     }
 }
 
+#[cfg(target_os = "macos")]
+struct UnixDiskSpaceProbe {
+    path: std::path::PathBuf,
+}
+
+#[cfg(target_os = "macos")]
+impl RecordingDiskSpace for UnixDiskSpaceProbe {
+    fn free_bytes(&self) -> Option<u64> {
+        use std::ffi::CString;
+        use std::os::unix::ffi::OsStrExt;
+
+        let c_path = CString::new(self.path.as_os_str().as_bytes()).ok()?;
+        let mut vfs: libc::statvfs = unsafe { std::mem::zeroed() };
+        let rc = unsafe { libc::statvfs(c_path.as_ptr(), &mut vfs) };
+        if rc == 0 {
+            Some((vfs.f_bavail as u64).saturating_mul(vfs.f_frsize as u64))
+        } else {
+            None
+        }
+    }
+}
+
 pub(crate) trait RecordingFileStore: Send + Sync {
     fn prepare(&self, session_id: &str) -> Result<CaptureWorkspace, RecordingError>;
     fn cleanup(&self, workspace: &CaptureWorkspace) -> Result<(), RecordingError>;
@@ -617,9 +639,10 @@ impl RecordingController {
                     paths.resource_dir.clone(),
                     recordings_dir.clone(),
                 )),
-                Arc::new(LocalRecordingFileStore::new(recordings_dir)),
+                Arc::new(LocalRecordingFileStore::new(recordings_dir.clone())),
                 Arc::new(SystemRecordingClock::new()),
             )
+            .with_disk_space(Arc::new(UnixDiskSpaceProbe { path: recordings_dir }))
             .with_warning_sink(Arc::new(TauriRecordingWarningSink::new(app.clone())))
             .with_failure_sink(Arc::new(TauriRecordingFailureSink::new(app)));
         }
@@ -652,7 +675,7 @@ impl RecordingController {
         }
     }
 
-    #[cfg(any(windows, test))]
+    #[cfg(any(windows, target_os = "macos", test))]
     pub(crate) fn with_disk_space(mut self, disk_space: Arc<dyn RecordingDiskSpace>) -> Self {
         self.disk_space = disk_space;
         self
@@ -2432,6 +2455,25 @@ mod tests {
             .expect("start recording");
 
         assert!(started.warnings.is_empty());
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn unix_disk_space_probe_reports_free_bytes_for_existing_path() {
+        let probe = UnixDiskSpaceProbe {
+            path: std::env::temp_dir(),
+        };
+        let free = probe.free_bytes().expect("temp dir must be probeable");
+        assert!(free > 0, "temp dir should report positive free bytes");
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn unix_disk_space_probe_returns_none_for_missing_path() {
+        let probe = UnixDiskSpaceProbe {
+            path: std::path::PathBuf::from("/definitely/not/a/real/recording/path"),
+        };
+        assert!(probe.free_bytes().is_none());
     }
 
     #[test]
