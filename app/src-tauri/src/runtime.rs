@@ -189,7 +189,7 @@ mod tests {
     use super::{
         bundled_python_path, cleanup_stale_recording_temp_dirs, ensure_runtime_dirs,
         normalize_resource_dir, RuntimePaths, LEGACY_TEMP_DIR_NAME, RECORDINGS_DIR_NAME,
-        RECORDING_TEMP_DIR_NAME,
+        RECORDING_SESSION_MARKER_NAME, RECORDING_TEMP_DIR_NAME,
     };
     use std::fs;
     use std::path::PathBuf;

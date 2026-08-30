@@ -2987,7 +2987,7 @@ mod tests {
     }
 
     #[test]
-    fn finalizer_error_wins_when_cleanup_also_fails() {
+    fn finalization_failure_skips_cleanup_and_returns_the_finalizer_error() {
         let file_store =
             TrackingFileStore::with_cleanup_error(RecordingError::new(RECORDING_WRITE_FAILED));
         let cleaned = file_store.cleaned.clone();
@@ -3008,10 +3008,13 @@ mod tests {
 
         let error = controller
             .stop(&started.session_id)
-            .expect_err("finalization and cleanup must fail");
+            .expect_err("finalization must fail");
 
         assert_eq!(error.code, RECORDING_FINALIZE_FAILED);
-        assert_eq!(cleaned.lock().expect("cleaned lock").len(), 1);
+        assert!(
+            cleaned.lock().expect("cleaned lock").is_empty(),
+            "finalization failure skips cleanup and retains the workspace"
+        );
     }
 
     #[test]
