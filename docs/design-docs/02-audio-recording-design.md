@@ -543,8 +543,10 @@ async function handleStop() {
 - macOS 最终 app bundle 的 `Info.plist` 必须声明 `NSMicrophoneUsageDescription` 和 `NSScreenCaptureUsageDescription`；系统设置中的“屏幕与系统音频录制”只用于取得系统音频，不保存屏幕视频
 - 如果用户拒绝 → Rust 返回对应稳定错误码 → 前端在面板内展示对应权限错误消息 + 按钮「前往系统设置」；`mixed` 只获得一类权限时整体失败，不退回单路；授权后回到应用和应用重启后都重新探测，必要时提示重启应用
 - 系统声音不可用时，下拉箭头中「仅系统声音」和「混合」选项灰显并附带 tooltip 说明原因
-- `RECORDING_SYSTEM_AUDIO_RECOVERED` 不打断录音、不弹模态框；录音面板持续显示非阻塞 warning，
-  停止后再提示一次录音中存在已补齐的短暂静音
+- `RECORDING_SYSTEM_AUDIO_RECOVERED` 不打断录音、不弹模态框。由于 ScreenCaptureKit 流启动时普遍
+  出现可在 2 秒窗口内恢复的微小缺口，该提示几乎每次必弹且对用户不可操作，v1 产品决定不在录音面板
+  或停止后展示此 warning（见 commit `784bea8` 与验收计划 §3.6 的 runbook 决定）；`recording-warning`
+  事件、`get_recording_state` 与 `stop_recording` 返回的 warning 聚合数据照常保留，作为诊断与验收依据
 
 ### 6.5 i18n
 
