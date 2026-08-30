@@ -15,6 +15,7 @@ pub(crate) const LEGACY_TEMP_DIR_NAME: &str = "work";
 pub(crate) const DESKTOP_LOG_DIR_NAME: &str = "logs";
 pub(crate) const RECORDINGS_DIR_NAME: &str = "recordings";
 pub(crate) const RECORDING_TEMP_DIR_NAME: &str = ".tmp";
+pub(crate) const RECORDING_SESSION_MARKER_NAME: &str = ".studymind-recording-session";
 
 #[derive(Debug, Clone)]
 pub(crate) struct RuntimePaths {
@@ -91,8 +92,10 @@ pub(crate) fn cleanup_stale_recording_temp_dirs(paths: &RuntimePaths) -> Result<
         let entry = entry.map_err(|error| error.to_string())?;
         let path = entry.path();
         let metadata = fs::symlink_metadata(&path).map_err(|error| error.to_string())?;
-        if metadata.file_type().is_symlink() {
-            return Err("Refusing to clean symlink in recording temp directory".into());
+        if is_link_or_reparse_point(&metadata) {
+            return Err(
+                "Refusing to clean symlink or reparse point in recording temp directory".into(),
+            );
         }
         if !metadata.is_dir() {
             continue;
@@ -105,10 +108,35 @@ pub(crate) fn cleanup_stale_recording_temp_dirs(paths: &RuntimePaths) -> Result<
             return Err("Refusing to clean recording temp path outside protected directory".into());
         }
 
+        // Only remove directories that carry the recording-session marker written by
+        // LocalRecordingFileStore::prepare; anything else is left untouched.
+        if !has_recording_marker(&path) {
+            continue;
+        }
+
         fs::remove_dir_all(&path).map_err(|error| error.to_string())?;
     }
 
     Ok(())
+}
+
+fn has_recording_marker(dir: &Path) -> bool {
+    match fs::symlink_metadata(dir.join(RECORDING_SESSION_MARKER_NAME)) {
+        Ok(metadata) => metadata.is_file() && !is_link_or_reparse_point(&metadata),
+        Err(_) => false,
+    }
+}
+
+fn is_link_or_reparse_point(metadata: &fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
+        if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return true;
+        }
+    }
+    metadata.file_type().is_symlink()
 }
 
 fn remove_legacy_app_local_temp_dir(paths: &RuntimePaths) -> Result<(), String> {
@@ -204,6 +232,11 @@ mod tests {
             .join(RECORDING_TEMP_DIR_NAME)
             .join("old-session");
         fs::create_dir_all(&stale_dir).expect("create stale recording session");
+        fs::write(
+            stale_dir.join(RECORDING_SESSION_MARKER_NAME),
+            b"studymind-recording-session\n",
+        )
+        .expect("write recording marker");
         fs::write(stale_dir.join("mic.wav"), b"temporary").expect("write stale capture");
 
         ensure_runtime_dirs(&paths).expect("ensure runtime dirs");
@@ -216,6 +249,38 @@ mod tests {
             .join(RECORDINGS_DIR_NAME)
             .join(RECORDING_TEMP_DIR_NAME)
             .is_dir());
+    }
+
+    #[test]
+    fn startup_cleanup_skips_temp_dirs_without_the_recording_marker() {
+        let root = temp_dir("startup_cleanup_skips_temp_dirs_without_the_recording_marker");
+        let paths = RuntimePaths {
+            resource_dir: root.join("resources"),
+            user_data_dir: root.join("user-data"),
+        };
+        let temp_root = paths
+            .user_data_dir
+            .join(RECORDINGS_DIR_NAME)
+            .join(RECORDING_TEMP_DIR_NAME);
+
+        let unmarked_dir = temp_root.join("foreign-dir");
+        fs::create_dir_all(&unmarked_dir).expect("create unmarked dir");
+        fs::write(unmarked_dir.join("data.bin"), b"keep").expect("write unmarked file");
+
+        let marked_dir = temp_root.join("marked-session");
+        fs::create_dir_all(&marked_dir).expect("create marked dir");
+        fs::write(
+            marked_dir.join(RECORDING_SESSION_MARKER_NAME),
+            b"studymind-recording-session\n",
+        )
+        .expect("write recording marker");
+
+        ensure_runtime_dirs(&paths).expect("ensure runtime dirs");
+        cleanup_stale_recording_temp_dirs(&paths).expect("cleanup stale recording sessions");
+
+        assert!(unmarked_dir.is_dir(), "unmarked dir must be left untouched");
+        assert!(unmarked_dir.join("data.bin").is_file());
+        assert!(!marked_dir.exists(), "marked stale session must be removed");
     }
 
     #[test]

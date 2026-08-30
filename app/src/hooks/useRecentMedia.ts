@@ -92,3 +92,5 @@ export function useRecentMedia() {
 
   return { recentMedia: entries, recordRecent, removeRecent, clearRecent };
 }
+
+export type RecentMediaController = ReturnType<typeof useRecentMedia>;

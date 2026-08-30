@@ -102,6 +102,7 @@ export type UseRecordingControllerOptions = {
     path: string,
   ) => Promise<LocalMediaSelectionView>;
   onLocalMediaSelected?: (selection: LocalMediaSelectionView) => void;
+  recordRecent?: (path: string, selection: LocalMediaSelectionView) => void;
   clock?: () => number;
   timer?: RecordingTimer;
   onError?: (errorCode: RecordingControllerErrorCode) => void;
@@ -272,6 +273,7 @@ export function useRecordingController({
   saveAudioSourceMode = defaultSaveAudioSourceMode,
   selectLocalMediaByPath = defaultSelectLocalMediaByPath,
   onLocalMediaSelected = () => undefined,
+  recordRecent = () => undefined,
   clock = Date.now,
   timer = DEFAULT_TIMER,
   onError,
@@ -313,6 +315,7 @@ export function useRecordingController({
   const saveAudioSourceModeRef = useRef(saveAudioSourceMode);
   const selectLocalMediaByPathRef = useRef(selectLocalMediaByPath);
   const onLocalMediaSelectedRef = useRef(onLocalMediaSelected);
+  const recordRecentRef = useRef(recordRecent);
   const onErrorRef = useRef(onError);
   const clockRef = useRef(clock);
 
@@ -327,6 +330,7 @@ export function useRecordingController({
   saveAudioSourceModeRef.current = saveAudioSourceMode;
   selectLocalMediaByPathRef.current = selectLocalMediaByPath;
   onLocalMediaSelectedRef.current = onLocalMediaSelected;
+  recordRecentRef.current = recordRecent;
   onErrorRef.current = onError;
   clockRef.current = clock;
 
@@ -730,6 +734,7 @@ export function useRecordingController({
     try {
       const selection = await selectLocalMediaByPathRef.current(result.path);
       if (!mountedRef.current) return false;
+      recordRecentRef.current(result.path, selection);
       onLocalMediaSelectedRef.current(selection);
       handoffResultRef.current = null;
       setHandoff({ status: "idle" });

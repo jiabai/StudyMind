@@ -15,7 +15,11 @@ import {
 
 import { formatBytes } from "../../i18n/formatters";
 import { useLocale } from "../../i18n/LocaleProvider";
-import { useRecentMedia, type RecentMediaEntry } from "../../hooks/useRecentMedia";
+import {
+  useRecentMedia,
+  type RecentMediaController,
+  type RecentMediaEntry,
+} from "../../hooks/useRecentMedia";
 import { selectLocalMedia, selectLocalMediaByPath } from "../../localMediaClient";
 import type { LocalMediaSelectionView } from "../../localMediaContract";
 import type { TaskComposerSource, TaskSubmission } from "../../workflowState";
@@ -32,6 +36,7 @@ type HeroUploadZoneProps = {
   onLocalMediaSelected: (selection: LocalMediaSelectionView) => void;
   onRemoveLocalMedia: () => Promise<boolean>;
   onSubmit: (submission: TaskSubmission) => void;
+  recentMediaController?: RecentMediaController;
 };
 
 const AUDIO_EXTS = new Set(["mp3", "wav", "m4a", "aac", "flac", "ogg", "opus", "wma"]);
@@ -76,6 +81,7 @@ export function HeroUploadZone({
   onLocalMediaSelected,
   onRemoveLocalMedia,
   onSubmit,
+  recentMediaController,
 }: HeroUploadZoneProps) {
   const { t } = useTranslation("workflow");
   const { resolvedLocale } = useLocale();
@@ -87,7 +93,9 @@ export function HeroUploadZone({
   const [removing, setRemoving] = useState(false);
   const [topicTitle, setTopicTitle] = useState<string>("");
   const titleInputRef = useRef<HTMLInputElement>(null);
-  const { recentMedia, recordRecent, removeRecent, clearRecent } = useRecentMedia();
+  const ownRecentMedia = useRecentMedia();
+  const { recentMedia, recordRecent, removeRecent, clearRecent } =
+    recentMediaController ?? ownRecentMedia;
   const uploadGenerationRef = useRef(0);
   const disabledRef = useRef(disabled);
 

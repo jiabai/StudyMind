@@ -842,7 +842,7 @@ impl RecordingController {
             ..
         } = active;
 
-        let operation_result = capture.stop().and_then(|captured| {
+        let pre_finalize_result = capture.stop().and_then(|captured| {
             if let Some(error) = failure_reporter.snapshot() {
                 return Err(error);
             }
@@ -856,9 +856,26 @@ impl RecordingController {
             }
 
             self.mark_finalizing(&active_session_id)?;
-            self.finalizer.finalize(&workspace, captured, mode)
+            Ok(captured)
         });
-        let cleanup_result = self.file_store.cleanup(&workspace);
+        let mut finalize_failed = false;
+        let operation_result = match pre_finalize_result {
+            Ok(captured) => {
+                let finalized = self.finalizer.finalize(&workspace, captured, mode);
+                finalize_failed = finalized.is_err();
+                finalized
+            }
+            Err(error) => Err(error),
+        };
+        // A finalization failure must retain the temporary capture data so the audio
+        // is not lost and the window can surface an actionable error; the leftover
+        // directory is collected by startup stale-dir cleanup. All other outcomes keep
+        // the existing immediate cleanup.
+        let cleanup_result = if finalize_failed {
+            Ok(())
+        } else {
+            self.file_store.cleanup(&workspace)
+        };
         let warning_snapshot = warnings.snapshot();
         if self.cancel_was_requested(&active_session_id)? {
             let cleanup_error = cleanup_result.err();
@@ -1388,6 +1405,11 @@ impl RecordingFileStore for LocalRecordingFileStore {
             .join(session_id);
         std::fs::create_dir_all(&temp_dir)
             .map_err(|_| RecordingError::new(RECORDING_WRITE_FAILED))?;
+        std::fs::write(
+            temp_dir.join(crate::RECORDING_SESSION_MARKER_NAME),
+            b"studymind-recording-session\n",
+        )
+        .map_err(|_| RecordingError::new(RECORDING_WRITE_FAILED))?;
         Ok(CaptureWorkspace {
             session_id: session_id.to_string(),
             temp_dir,
@@ -2803,7 +2825,7 @@ mod tests {
     }
 
     #[test]
-    fn finalization_failure_cleans_the_workspace_and_returns_a_stable_error() {
+    fn finalization_failure_retains_the_workspace_and_returns_a_stable_error() {
         let file_store = TrackingFileStore::new();
         let cleaned = file_store.cleaned.clone();
         let controller = RecordingController::new(
@@ -2826,7 +2848,10 @@ mod tests {
             .expect_err("finalization must fail");
 
         assert_eq!(error.code, RECORDING_FINALIZE_FAILED);
-        assert_eq!(cleaned.lock().expect("cleaned lock").len(), 1);
+        assert!(
+            cleaned.lock().expect("cleaned lock").is_empty(),
+            "finalization failure must retain the temporary capture workspace"
+        );
         assert!(matches!(
             *controller.state.lock().expect("state lock"),
             ControllerState::Failed(_)

@@ -109,6 +109,7 @@ type ControllerDependencies = {
   saveAudioSourceMode: (mode: RecordingMode) => Promise<UiPreferencesView>;
   selectLocalMediaByPath: (path: string) => Promise<LocalMediaSelectionView>;
   onLocalMediaSelected: (selection: LocalMediaSelectionView) => void;
+  recordRecent: (path: string, selection: LocalMediaSelectionView) => void;
   onError: (errorCode: string) => void;
   clock: () => number;
   timer: TimerHarness["timer"];
@@ -349,6 +350,7 @@ async function createController(
       .fn<(path: string) => Promise<LocalMediaSelectionView>>()
       .mockResolvedValue(SELECTION),
     onLocalMediaSelected: vi.fn<(selection: LocalMediaSelectionView) => void>(),
+    recordRecent: vi.fn<(path: string, selection: LocalMediaSelectionView) => void>(),
     onError: vi.fn<(errorCode: string) => void>(),
     clock: () => 1_000,
     timer: timer.timer,
@@ -390,6 +392,7 @@ async function createController(
       saveAudioSourceMode: deps.saveAudioSourceMode,
       selectLocalMediaByPath: deps.selectLocalMediaByPath,
       onLocalMediaSelected: deps.onLocalMediaSelected,
+      recordRecent: deps.recordRecent,
       onError: deps.onError,
       clock: deps.clock,
       timer: deps.timer,
@@ -955,6 +958,7 @@ describe("useRecordingController", () => {
     expect(stopRecording).toHaveBeenCalledOnce();
     expect(stopRecording).toHaveBeenCalledWith("macos-mic-session");
     expect(deps.selectLocalMediaByPath).toHaveBeenCalledWith(RESULT.path);
+    expect(deps.recordRecent).toHaveBeenCalledWith(RESULT.path, SELECTION);
     expect(deps.onLocalMediaSelected).toHaveBeenCalledWith(SELECTION);
     expect(controller.session).toEqual({ status: "idle" });
     expect(recordingBlocksUploadAndNavigation(controller)).toBe(false);

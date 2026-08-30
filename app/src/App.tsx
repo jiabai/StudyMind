@@ -51,6 +51,7 @@ import { HeroUploadZone } from "./features/workflow/HeroUploadZone";
 import { RecordingCard } from "./features/workflow/RecordingCard";
 import { useRecordingController } from "./features/workflow/useRecordingController";
 import { useTaskProcessingController } from "./features/workflow/useTaskProcessingController";
+import { useRecentMedia } from "./hooks/useRecentMedia";
 import { useLocale } from "./i18n/LocaleProvider";
 import { countTextUnits, formatWordCount } from "./i18n/formatters";
 import { uiMessage, type UiMessage } from "./i18n/uiMessage";
@@ -185,8 +186,10 @@ function App() {
     processBlockerMessage: accountProcessBlockerMessage,
     aiBlockerMessage: accountAiBlockerMessage,
   });
+  const recentMediaController = useRecentMedia();
   const recordingController = useRecordingController({
     onLocalMediaSelected: setLocalMediaSelection,
+    recordRecent: recentMediaController.recordRecent,
   });
   const recordingActive = ["starting", "recording", "stopping"].includes(
     recordingController.session.status,
@@ -729,6 +732,7 @@ function App() {
                   disabled={recordingActive}
                   onLocalMediaSelected={setLocalMediaSelection}
                   onRemoveLocalMedia={removeLocalMediaSelection}
+                  recentMediaController={recentMediaController}
                   onSubmit={(submission) => {
                     void submitTask(submission, account, openAccountPanel);
                   }}
