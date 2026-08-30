@@ -2,11 +2,17 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::thread;
 use std::time::Instant;
 use tauri::{Emitter, State};
 use uuid::Uuid;
 
 mod mixer;
+mod mixed;
+mod failure_supervisor;
+use failure_supervisor::{
+    recording_failure_channel, RecordingFailureMonitor, RecordingFailureReporter,
+};
 mod system_audio_recovery;
 #[cfg(target_os = "macos")]
 mod macos;
@@ -36,6 +42,8 @@ pub(crate) const RECORDING_SESSION_INVALID: RecordingErrorCode = RecordingErrorC
 pub(crate) const RECORDING_FINALIZE_FAILED: RecordingErrorCode = RecordingErrorCode::FinalizeFailed;
 pub(crate) const RECORDING_STATE_UNAVAILABLE: RecordingErrorCode =
     RecordingErrorCode::StateUnavailable;
+pub(crate) const RECORDING_CLEANUP_IN_PROGRESS: RecordingErrorCode =
+    RecordingErrorCode::CleanupInProgress;
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -72,6 +80,8 @@ pub(crate) enum RecordingErrorCode {
     FinalizeFailed,
     #[serde(rename = "RECORDING_STATE_UNAVAILABLE")]
     StateUnavailable,
+    #[serde(rename = "RECORDING_CLEANUP_IN_PROGRESS")]
+    CleanupInProgress,
 }
 
 impl RecordingErrorCode {
@@ -93,14 +103,24 @@ impl RecordingErrorCode {
             Self::SessionInvalid => "The recording session is no longer valid.",
             Self::FinalizeFailed => "The recording could not be finalized.",
             Self::StateUnavailable => "The recording state is temporarily unavailable.",
+            Self::CleanupInProgress => "The recording is still being cleaned up.",
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum RecordingSource {
+    Microphone,
+    SystemAudio,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub(crate) struct RecordingError {
     pub(crate) code: RecordingErrorCode,
     pub(crate) message: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) source: Option<RecordingSource>,
 }
 
 impl RecordingError {
@@ -108,7 +128,15 @@ impl RecordingError {
         Self {
             code,
             message: code.message(),
+            source: None,
         }
+    }
+
+    pub(crate) fn for_source(mut self, source: RecordingSource) -> Self {
+        if self.source.is_none() {
+            self.source = Some(source);
+        }
+        self
     }
 }
 
@@ -266,6 +294,7 @@ impl RecordingWarningReporter {
     }
 
     #[cfg(test)]
+    #[allow(dead_code)]
     pub(crate) fn no_op() -> Self {
         Self {
             session_id: String::new(),
@@ -337,11 +366,30 @@ pub(crate) struct StartRecordingResponse {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct RecordingStateView {
+pub(crate) struct RecordingFailureView {
     pub(crate) session_id: String,
     pub(crate) mode: RecordingMode,
     pub(crate) elapsed_ms: u64,
+    pub(crate) error_code: RecordingErrorCode,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) source: Option<RecordingSource>,
+    pub(crate) cleanup_pending: bool,
     pub(crate) warnings: Vec<RecordingWarningView>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "status", rename_all = "camelCase")]
+pub(crate) enum RecordingStateView {
+    Recording {
+        session_id: String,
+        mode: RecordingMode,
+        elapsed_ms: u64,
+        warnings: Vec<RecordingWarningView>,
+    },
+    Failed {
+        #[serde(flatten)]
+        failure: RecordingFailureView,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -429,9 +477,58 @@ pub(crate) trait RecordingFileStore: Send + Sync {
     fn cleanup(&self, workspace: &CaptureWorkspace) -> Result<(), RecordingError>;
 }
 
+#[derive(Clone)]
+pub(crate) struct CaptureCancelHandle(Arc<dyn Fn() + Send + Sync>);
+
+impl CaptureCancelHandle {
+    pub(crate) fn new(request: impl Fn() + Send + Sync + 'static) -> Self {
+        Self(Arc::new(request))
+    }
+
+    pub(crate) fn request(&self) {
+        (self.0)();
+    }
+}
+
+pub(crate) trait RecordingFailureSink: Send + Sync {
+    fn emit(&self, failure: &RecordingFailureView) -> Result<(), RecordingError>;
+}
+
+struct NoopRecordingFailureSink;
+
+impl RecordingFailureSink for NoopRecordingFailureSink {
+    fn emit(&self, _failure: &RecordingFailureView) -> Result<(), RecordingError> {
+        Ok(())
+    }
+}
+
+struct TauriRecordingFailureSink {
+    app: tauri::AppHandle,
+}
+
+impl TauriRecordingFailureSink {
+    fn new(app: tauri::AppHandle) -> Self {
+        Self { app }
+    }
+}
+
+impl RecordingFailureSink for TauriRecordingFailureSink {
+    fn emit(&self, failure: &RecordingFailureView) -> Result<(), RecordingError> {
+        self.app
+            .emit("recording-failed", failure)
+            .map_err(|_| RecordingError::new(RECORDING_STREAM_ERROR))
+    }
+}
+
 pub(crate) trait ActiveCapture: Send {
     fn stop(self: Box<Self>) -> Result<CapturedRecording, RecordingError>;
     fn cancel(self: Box<Self>) -> Result<(), RecordingError>;
+    fn cancel_for_cleanup(self: Box<Self>) -> Result<(), RecordingError> {
+        self.cancel()
+    }
+    fn cancel_handle(&self) -> Option<CaptureCancelHandle> {
+        None
+    }
 }
 
 pub(crate) trait RecordingBackend: Send + Sync {
@@ -441,6 +538,7 @@ pub(crate) trait RecordingBackend: Send + Sync {
         mode: RecordingMode,
         workspace: &CaptureWorkspace,
         reporter: RecordingWarningReporter,
+        failure_reporter: RecordingFailureReporter,
     ) -> Result<Box<dyn ActiveCapture>, RecordingError>;
 }
 
@@ -460,14 +558,20 @@ struct RecordingSession {
     workspace: CaptureWorkspace,
     capture: Box<dyn ActiveCapture>,
     warnings: WarningAccumulator,
+    failure_reporter: RecordingFailureReporter,
 }
 
 enum ControllerState {
     Idle,
     Starting,
     Recording(RecordingSession),
+    Stopping {
+        session_id: String,
+        cancel: Option<CaptureCancelHandle>,
+        cancel_requested: bool,
+    },
     Finalizing,
-    Error,
+    Failed(RecordingFailureView),
 }
 
 pub(crate) struct RecordingController {
@@ -477,7 +581,9 @@ pub(crate) struct RecordingController {
     clock: Arc<dyn RecordingClock>,
     disk_space: Arc<dyn RecordingDiskSpace>,
     warning_sink: Arc<dyn RecordingWarningSink>,
-    state: Mutex<ControllerState>,
+    failure_sink: Arc<dyn RecordingFailureSink>,
+    state: Arc<Mutex<ControllerState>>,
+    acknowledged_failure: Mutex<Option<String>>,
 }
 
 impl RecordingController {
@@ -498,7 +604,8 @@ impl RecordingController {
                 Arc::new(SystemRecordingClock::new()),
             )
             .with_disk_space(Arc::new(WindowsDiskSpaceProbe { path: recordings_dir }))
-            .with_warning_sink(Arc::new(TauriRecordingWarningSink::new(app)));
+            .with_warning_sink(Arc::new(TauriRecordingWarningSink::new(app.clone())))
+            .with_failure_sink(Arc::new(TauriRecordingFailureSink::new(app)));
         }
 
         #[cfg(target_os = "macos")]
@@ -513,13 +620,16 @@ impl RecordingController {
                 Arc::new(LocalRecordingFileStore::new(recordings_dir)),
                 Arc::new(SystemRecordingClock::new()),
             )
-            .with_warning_sink(Arc::new(TauriRecordingWarningSink::new(app)));
+            .with_warning_sink(Arc::new(TauriRecordingWarningSink::new(app.clone())))
+            .with_failure_sink(Arc::new(TauriRecordingFailureSink::new(app)));
         }
 
         #[cfg(not(any(windows, target_os = "macos")))]
         {
             let _ = paths;
-            Self::default().with_warning_sink(Arc::new(TauriRecordingWarningSink::new(app)))
+            Self::default()
+                .with_warning_sink(Arc::new(TauriRecordingWarningSink::new(app.clone())))
+                .with_failure_sink(Arc::new(TauriRecordingFailureSink::new(app)))
         }
     }
 
@@ -536,7 +646,9 @@ impl RecordingController {
             clock,
             disk_space: Arc::new(NoDiskSpaceProbe),
             warning_sink: Arc::new(NoopRecordingWarningSink),
-            state: Mutex::new(ControllerState::Idle),
+            failure_sink: Arc::new(NoopRecordingFailureSink),
+            state: Arc::new(Mutex::new(ControllerState::Idle)),
+            acknowledged_failure: Mutex::new(None),
         }
     }
 
@@ -554,6 +666,12 @@ impl RecordingController {
         self
     }
 
+    #[cfg(any(windows, test))]
+    pub(crate) fn with_failure_sink(mut self, failure_sink: Arc<dyn RecordingFailureSink>) -> Self {
+        self.failure_sink = failure_sink;
+        self
+    }
+
     pub(crate) fn capabilities(&self) -> Result<RecordingCapabilities, RecordingError> {
         self.backend.capabilities()
     }
@@ -565,7 +683,19 @@ impl RecordingController {
         let mut state = self.lock_state()?;
         if matches!(
             &*state,
-            ControllerState::Starting | ControllerState::Recording(_) | ControllerState::Finalizing
+            ControllerState::Starting
+                | ControllerState::Recording(_)
+                | ControllerState::Stopping { .. }
+                | ControllerState::Finalizing
+        ) {
+            return Err(RecordingError::new(RECORDING_ALREADY_ACTIVE));
+        }
+        if matches!(
+            &*state,
+            ControllerState::Failed(RecordingFailureView {
+                cleanup_pending: true,
+                ..
+            })
         ) {
             return Err(RecordingError::new(RECORDING_ALREADY_ACTIVE));
         }
@@ -575,13 +705,13 @@ impl RecordingController {
         let capabilities = match self.backend.capabilities() {
             Ok(capabilities) => capabilities,
             Err(error) => {
-                *state = ControllerState::Error;
+                *state = ControllerState::Idle;
                 return Err(error);
             }
         };
 
         if let Err(error) = validate_mode(mode, &capabilities) {
-            *state = ControllerState::Error;
+            *state = ControllerState::Idle;
             return Err(error);
         }
 
@@ -589,7 +719,7 @@ impl RecordingController {
         let workspace = match self.file_store.prepare(&session_id) {
             Ok(workspace) => workspace,
             Err(error) => {
-                *state = ControllerState::Error;
+                *state = ControllerState::Idle;
                 return Err(error);
             }
         };
@@ -600,23 +730,44 @@ impl RecordingController {
             warnings.clone(),
             self.warning_sink.clone(),
         );
-        let capture = match self.backend.start(mode, &workspace, reporter) {
+        let (failure_reporter, mut failure_monitor) = recording_failure_channel();
+        let session_failure_reporter = failure_reporter.clone();
+        let capture = match self
+            .backend
+            .start(mode, &workspace, reporter, failure_reporter)
+        {
             Ok(capture) => capture,
             Err(error) => {
                 let _ = self.file_store.cleanup(&workspace);
-                *state = ControllerState::Error;
+                *state = ControllerState::Idle;
                 return Err(error);
             }
         };
 
+        if let Err(error) = failure_monitor.accept() {
+            let _ = capture.cancel();
+            let _ = self.file_store.cleanup(&workspace);
+            *state = ControllerState::Idle;
+            return Err(error);
+        }
+
+        let started_at_ms = self.clock.now_ms();
+        self.acknowledged_failure
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take();
+
         *state = ControllerState::Recording(RecordingSession {
             session_id: session_id.clone(),
             mode,
-            started_at_ms: self.clock.now_ms(),
+            started_at_ms,
             workspace,
             capture,
             warnings,
+            failure_reporter: session_failure_reporter,
         });
+        drop(state);
+        self.spawn_failure_monitor(failure_monitor);
 
         let mut warnings = Vec::new();
         if let Some(free_bytes) = self.disk_space.free_bytes() {
@@ -634,44 +785,105 @@ impl RecordingController {
     pub(crate) fn state(&self) -> Result<Option<RecordingStateView>, RecordingError> {
         let state = self.lock_state()?;
         Ok(match &*state {
-            ControllerState::Recording(session) => Some(RecordingStateView {
+            ControllerState::Recording(session) => Some(RecordingStateView::Recording {
                 session_id: session.session_id.clone(),
                 mode: session.mode,
                 elapsed_ms: self.clock.now_ms().saturating_sub(session.started_at_ms),
                 warnings: session.warnings.snapshot(),
             }),
+            ControllerState::Failed(failure) => {
+                Some(RecordingStateView::Failed {
+                    failure: failure.clone(),
+                })
+            }
             ControllerState::Idle
             | ControllerState::Starting
+            | ControllerState::Stopping { .. }
             | ControllerState::Finalizing
-            | ControllerState::Error => None,
+            => None,
         })
     }
 
     pub(crate) fn stop(&self, session_id: &str) -> Result<RecordingResult, RecordingError> {
-        let active = self.take_active_session(session_id)?;
+        if let Some(error) = self.failed_session_error(session_id)? {
+            return Err(error);
+        }
+
+        let active = self.take_active_session_for_stop(session_id)?;
         let RecordingSession {
+            session_id: active_session_id,
             mode,
             workspace,
             capture,
             warnings,
+            failure_reporter,
             ..
         } = active;
 
         let operation_result = capture.stop().and_then(|captured| {
+            if let Some(error) = failure_reporter.snapshot() {
+                return Err(error);
+            }
             if captured.valid_frame_count == 0 {
-                return Err(RecordingError::new(RECORDING_EMPTY));
+                let error = RecordingError::new(RECORDING_EMPTY);
+                return Err(match mode {
+                    RecordingMode::Mic => error.for_source(RecordingSource::Microphone),
+                    RecordingMode::System => error.for_source(RecordingSource::SystemAudio),
+                    RecordingMode::Mixed => error,
+                });
             }
 
+            self.mark_finalizing(&active_session_id)?;
             self.finalizer.finalize(&workspace, captured, mode)
         });
         let cleanup_result = self.file_store.cleanup(&workspace);
         let warning_snapshot = warnings.snapshot();
+        if self.cancel_was_requested(&active_session_id)? {
+            let cleanup_error = cleanup_result.err();
+            if let Some(error) = cleanup_error {
+                let failure = self.failure_view(
+                    &active_session_id,
+                    mode,
+                    self.clock.now_ms(),
+                    error.clone(),
+                    false,
+                    warning_snapshot,
+                );
+                self.store_failure(failure);
+                return Err(error);
+            }
+            *self.lock_state()? = ControllerState::Idle;
+            return Err(RecordingError::new(RECORDING_SESSION_INVALID));
+        }
+
         let result = match operation_result {
-            Err(error) => Err(error),
+            Err(error) => {
+                let failure = self.failure_view(
+                    &active_session_id,
+                    mode,
+                    self.clock.now_ms(),
+                    error.clone(),
+                    false,
+                    warning_snapshot,
+                );
+                self.store_failure(failure);
+                Err(error)
+            }
             Ok(finalized) => cleanup_result.map(|()| {
                 let mut result: RecordingResult = finalized.into();
                 result.warnings = warning_snapshot;
                 result
+            }).map_err(|error| {
+                let failure = self.failure_view(
+                    &active_session_id,
+                    mode,
+                    self.clock.now_ms(),
+                    error.clone(),
+                    false,
+                    Vec::new(),
+                );
+                self.store_failure(failure);
+                error
             }),
         };
 
@@ -680,10 +892,7 @@ impl RecordingController {
                 *self.lock_state()? = ControllerState::Idle;
                 Ok(finalized)
             }
-            Err(error) => {
-                self.set_error(error.clone())?;
-                Err(error)
-            }
+            Err(error) => Err(error),
         }
     }
 
@@ -692,10 +901,12 @@ impl RecordingController {
             let state = self.lock_state()?;
             match &*state {
                 ControllerState::Recording(active) => Some(active.session_id.clone()),
-                ControllerState::Starting | ControllerState::Finalizing => {
+                ControllerState::Starting
+                | ControllerState::Stopping { .. }
+                | ControllerState::Finalizing => {
                     return Err(RecordingError::new(RECORDING_STATE_UNAVAILABLE));
                 }
-                ControllerState::Idle | ControllerState::Error => None,
+                ControllerState::Idle | ControllerState::Failed(_) => None,
             }
         };
 
@@ -706,14 +917,64 @@ impl RecordingController {
     }
 
     pub(crate) fn cancel(&self, session_id: &str) -> Result<(), RecordingError> {
-        let active = self.take_active_session(session_id)?;
+        let (active, cancel_handle) = {
+            let mut state = self.lock_state()?;
+            match &mut *state {
+                ControllerState::Failed(failure) if failure.session_id == session_id => return Ok(()),
+                ControllerState::Failed(_) => {
+                    return Err(RecordingError::new(RECORDING_SESSION_INVALID))
+                }
+                ControllerState::Stopping {
+                    session_id: active_session_id,
+                    cancel,
+                    cancel_requested,
+                } if active_session_id == session_id => {
+                    *cancel_requested = true;
+                    return if let Some(cancel) = cancel.clone() {
+                        cancel.request();
+                        Ok(())
+                    } else {
+                        Ok(())
+                    };
+                }
+                ControllerState::Finalizing => {
+                    return Err(RecordingError::new(RECORDING_SESSION_INVALID))
+                }
+                ControllerState::Recording(active) if active.session_id == session_id => {
+                    let active = match std::mem::replace(&mut *state, ControllerState::Idle) {
+                        ControllerState::Recording(active) => active,
+                        _ => unreachable!("recording state changed while locked"),
+                    };
+                    let cancel_handle = active.capture.cancel_handle();
+                    *state = ControllerState::Stopping {
+                        session_id: session_id.to_string(),
+                        cancel: cancel_handle.clone(),
+                        cancel_requested: true,
+                    };
+                    (active, cancel_handle)
+                }
+                _ => return Err(RecordingError::new(RECORDING_SESSION_INVALID)),
+            }
+        };
+
+        if let Some(cancel) = cancel_handle {
+            cancel.request();
+        }
         let RecordingSession {
-            workspace, capture, ..
+            session_id: active_session_id,
+            mode,
+            workspace,
+            capture,
+            failure_reporter,
+            ..
         } = active;
 
         let cancel_result = capture.cancel();
         let cleanup_result = self.file_store.cleanup(&workspace);
-        let result = cancel_result.and(cleanup_result);
+        let result = match failure_reporter.snapshot() {
+            Some(error) => Err(error),
+            None => cancel_result.and(cleanup_result),
+        };
 
         match result {
             Ok(()) => {
@@ -721,18 +982,60 @@ impl RecordingController {
                 Ok(())
             }
             Err(error) => {
-                self.set_error(error.clone())?;
+                let failure = self.failure_view(
+                    &active_session_id,
+                    mode,
+                    self.clock.now_ms(),
+                    error.clone(),
+                    false,
+                    Vec::new(),
+                );
+                self.store_failure(failure);
                 Err(error)
             }
         }
     }
 
-    fn take_active_session(&self, session_id: &str) -> Result<RecordingSession, RecordingError> {
+    pub(crate) fn acknowledge_failure(&self, session_id: &str) -> Result<(), RecordingError> {
         let mut state = self.lock_state()?;
-        let previous = std::mem::replace(&mut *state, ControllerState::Finalizing);
+        match &*state {
+            ControllerState::Failed(failure) if failure.session_id == session_id => {
+                if failure.cleanup_pending {
+                    return Err(RecordingError::new(RECORDING_CLEANUP_IN_PROGRESS));
+                }
+                *state = ControllerState::Idle;
+                *self
+                    .acknowledged_failure
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(session_id.to_string());
+                Ok(())
+            }
+            ControllerState::Failed(_) => Err(RecordingError::new(RECORDING_SESSION_INVALID)),
+            ControllerState::Idle
+                if self
+                    .acknowledged_failure
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .as_deref()
+                    == Some(session_id) => Ok(()),
+            _ => Err(RecordingError::new(RECORDING_SESSION_INVALID)),
+        }
+    }
+
+    fn take_active_session_for_stop(&self, session_id: &str) -> Result<RecordingSession, RecordingError> {
+        let mut state = self.lock_state()?;
+        let previous = std::mem::replace(&mut *state, ControllerState::Idle);
 
         match previous {
-            ControllerState::Recording(active) if active.session_id == session_id => Ok(active),
+            ControllerState::Recording(active) if active.session_id == session_id => {
+                let cancel = active.capture.cancel_handle();
+                *state = ControllerState::Stopping {
+                    session_id: session_id.to_string(),
+                    cancel,
+                    cancel_requested: false,
+                };
+                Ok(active)
+            }
             previous => {
                 *state = previous;
                 Err(RecordingError::new(RECORDING_SESSION_INVALID))
@@ -740,15 +1043,161 @@ impl RecordingController {
         }
     }
 
-    fn set_error(&self, _error: RecordingError) -> Result<(), RecordingError> {
-        *self.lock_state()? = ControllerState::Error;
-        Ok(())
+    fn failed_session_error(&self, session_id: &str) -> Result<Option<RecordingError>, RecordingError> {
+        let state = self.lock_state()?;
+        Ok(match &*state {
+            ControllerState::Failed(failure) if failure.session_id == session_id => {
+                Some(RecordingError {
+                    code: failure.error_code,
+                    message: failure.error_code.message(),
+                    source: failure.source,
+                })
+            }
+            ControllerState::Failed(_) => Some(RecordingError::new(RECORDING_SESSION_INVALID)),
+            _ => None,
+        })
+    }
+
+    fn mark_finalizing(&self, session_id: &str) -> Result<(), RecordingError> {
+        let mut state = self.lock_state()?;
+        match &*state {
+            ControllerState::Stopping {
+                session_id: active_session_id,
+                cancel_requested: false,
+                ..
+            } if active_session_id == session_id => {
+                *state = ControllerState::Finalizing;
+                Ok(())
+            }
+            _ => Err(RecordingError::new(RECORDING_SESSION_INVALID)),
+        }
+    }
+
+    fn cancel_was_requested(&self, session_id: &str) -> Result<bool, RecordingError> {
+        let state = self.lock_state()?;
+        Ok(matches!(
+            &*state,
+            ControllerState::Stopping {
+                session_id: active_session_id,
+                cancel_requested: true,
+                ..
+            } if active_session_id == session_id
+        ))
+    }
+
+    fn failure_view(
+        &self,
+        session_id: &str,
+        mode: RecordingMode,
+        elapsed_ms: u64,
+        error: RecordingError,
+        cleanup_pending: bool,
+        warnings: Vec<RecordingWarningView>,
+    ) -> RecordingFailureView {
+        RecordingFailureView {
+            session_id: session_id.to_string(),
+            mode,
+            elapsed_ms,
+            error_code: error.code,
+            source: error.source,
+            cleanup_pending,
+            warnings,
+        }
+    }
+
+    fn store_failure(&self, failure: RecordingFailureView) {
+        if let Ok(mut state) = self.state.lock() {
+            *state = ControllerState::Failed(failure.clone());
+        }
+        let _ = self.failure_sink.emit(&failure);
+    }
+
+    fn spawn_failure_monitor(&self, monitor: RecordingFailureMonitor) {
+        let state = Arc::clone(&self.state);
+        let clock = Arc::clone(&self.clock);
+        let file_store = Arc::clone(&self.file_store);
+        let failure_sink = Arc::clone(&self.failure_sink);
+        let _ = thread::Builder::new()
+            .name("recording-failure-supervisor".to_string())
+            .spawn(move || supervise_runtime_failure(monitor, state, clock, file_store, failure_sink));
     }
 
     fn lock_state(&self) -> Result<MutexGuard<'_, ControllerState>, RecordingError> {
         self.state
             .lock()
             .map_err(|_| RecordingError::new(RECORDING_STATE_UNAVAILABLE))
+    }
+}
+
+fn supervise_runtime_failure(
+    monitor: RecordingFailureMonitor,
+    state: Arc<Mutex<ControllerState>>,
+    clock: Arc<dyn RecordingClock>,
+    file_store: Arc<dyn RecordingFileStore>,
+    failure_sink: Arc<dyn RecordingFailureSink>,
+) {
+    if monitor.wait().is_err() {
+        return;
+    }
+    let Some(error) = monitor.snapshot() else {
+        return;
+    };
+
+    let (session_id, capture, workspace, failure) = {
+        let mut state = match state.lock() {
+            Ok(state) => state,
+            Err(_) => return,
+        };
+        let previous = std::mem::replace(&mut *state, ControllerState::Idle);
+        match previous {
+            ControllerState::Recording(active) => {
+                let failure = RecordingFailureView {
+                    session_id: active.session_id.clone(),
+                    mode: active.mode,
+                    elapsed_ms: clock.now_ms().saturating_sub(active.started_at_ms),
+                    error_code: error.code,
+                    source: error.source,
+                    cleanup_pending: true,
+                    warnings: active.warnings.snapshot(),
+                };
+                let session_id = active.session_id.clone();
+                let capture = active.capture;
+                let workspace = active.workspace;
+                *state = ControllerState::Failed(failure.clone());
+                (session_id, capture, workspace, failure)
+            }
+            previous => {
+                *state = previous;
+                return;
+            }
+        }
+    };
+
+    let _ = failure_sink.emit(&failure);
+    let cancel_result = capture.cancel_for_cleanup();
+    let cleanup_confirmed = if cancel_result.is_ok() {
+        let _ = file_store.cleanup(&workspace);
+        true
+    } else {
+        false
+    };
+
+    if cleanup_confirmed {
+        let completed = {
+            let mut state = match state.lock() {
+                Ok(state) => state,
+                Err(_) => return,
+            };
+            let ControllerState::Failed(current) = &mut *state else {
+                return;
+            };
+            if current.session_id != session_id {
+                return;
+            }
+            current.cleanup_pending = false;
+            current.clone()
+        };
+        let _ = failure_sink.emit(&completed);
     }
 }
 
@@ -772,21 +1221,27 @@ fn validate_mode(
     }
 
     if mode.needs_microphone() && !capabilities.microphone.available {
-        return Err(RecordingError::new(
-            capabilities
-                .microphone
-                .reason_code
-                .unwrap_or(RECORDING_MIC_INIT_FAILED),
-        ));
+        return Err(
+            RecordingError::new(
+                capabilities
+                    .microphone
+                    .reason_code
+                    .unwrap_or(RECORDING_MIC_INIT_FAILED),
+            )
+            .for_source(RecordingSource::Microphone),
+        );
     }
 
     if mode.needs_system_audio() && !capabilities.system_audio.available {
-        return Err(RecordingError::new(
-            capabilities
-                .system_audio
-                .reason_code
-                .unwrap_or(RECORDING_SYSTEM_AUDIO_UNAVAILABLE),
-        ));
+        return Err(
+            RecordingError::new(
+                capabilities
+                    .system_audio
+                    .reason_code
+                    .unwrap_or(RECORDING_SYSTEM_AUDIO_UNAVAILABLE),
+            )
+            .for_source(RecordingSource::SystemAudio),
+        );
     }
 
     if mode == RecordingMode::Mixed && !capabilities.mixed.available {
@@ -862,6 +1317,7 @@ impl RecordingBackend for UnavailableRecordingBackend {
         _mode: RecordingMode,
         _workspace: &CaptureWorkspace,
         _reporter: RecordingWarningReporter,
+        _failure_reporter: RecordingFailureReporter,
     ) -> Result<Box<dyn ActiveCapture>, RecordingError> {
         Err(RecordingError::new(RECORDING_PLATFORM_UNSUPPORTED))
     }
@@ -976,10 +1432,21 @@ pub(crate) fn get_recording_state(
     state.state()
 }
 
+#[tauri::command]
+pub(crate) fn acknowledge_recording_failure(
+    state: State<'_, RecordingController>,
+    session_id: String,
+) -> Result<(), RecordingError> {
+    state.acknowledge_failure(&session_id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::mpsc::{self, Receiver, Sender};
+    use std::sync::Condvar;
+    use std::time::Duration;
 
     struct FakeClock {
         now_ms: AtomicU64,
@@ -1017,6 +1484,8 @@ mod tests {
     struct FakeCapture {
         stop_result: Result<CapturedRecording, RecordingError>,
         cancel_result: Result<(), RecordingError>,
+        cancel_started: Option<Sender<()>>,
+        cancel_release: Option<Arc<(Mutex<bool>, Condvar)>>,
     }
 
     impl ActiveCapture for FakeCapture {
@@ -1025,6 +1494,18 @@ mod tests {
         }
 
         fn cancel(self: Box<Self>) -> Result<(), RecordingError> {
+            if let Some(started) = self.cancel_started {
+                let _ = started.send(());
+            }
+            if let Some(release) = self.cancel_release {
+                let (released, condition) = &*release;
+                let mut released = released.lock().expect("cancel release lock");
+                while !*released {
+                    released = condition
+                        .wait(released)
+                        .expect("cancel release wait");
+                }
+            }
             self.cancel_result
         }
     }
@@ -1036,6 +1517,10 @@ mod tests {
         cancel_error: Option<RecordingError>,
         captured: CapturedRecording,
         warning_gaps_ms: Vec<u64>,
+        terminal_reporter: Arc<Mutex<Option<RecordingFailureReporter>>>,
+        start_reporter_error: Option<RecordingError>,
+        cancel_started: Arc<Mutex<Option<Sender<()>>>>,
+        cancel_release: Option<Arc<(Mutex<bool>, Condvar)>>,
     }
 
     impl FakeBackend {
@@ -1061,6 +1546,10 @@ mod tests {
                 cancel_error: None,
                 captured,
                 warning_gaps_ms: Vec::new(),
+                terminal_reporter: Arc::new(Mutex::new(None)),
+                start_reporter_error: None,
+                cancel_started: Arc::new(Mutex::new(None)),
+                cancel_release: None,
             }
         }
     }
@@ -1075,10 +1564,20 @@ mod tests {
             _mode: RecordingMode,
             _workspace: &CaptureWorkspace,
             reporter: RecordingWarningReporter,
+            terminal_reporter: RecordingFailureReporter,
         ) -> Result<Box<dyn ActiveCapture>, RecordingError> {
             if let Some(error) = &self.start_error {
                 return Err(error.clone());
             }
+
+            if let Some(error) = &self.start_reporter_error {
+                terminal_reporter.report(error.clone());
+            }
+
+            *self
+                .terminal_reporter
+                .lock()
+                .expect("terminal reporter lock") = Some(terminal_reporter);
 
             for gap_ms in &self.warning_gaps_ms {
                 reporter.record_recovery(*gap_ms);
@@ -1090,6 +1589,12 @@ mod tests {
                     .clone()
                     .map_or_else(|| Ok(self.captured.clone()), Err),
                 cancel_result: self.cancel_error.clone().map_or(Ok(()), Err),
+                cancel_started: self
+                    .cancel_started
+                    .lock()
+                    .expect("cancel started lock")
+                    .take(),
+                cancel_release: self.cancel_release.clone(),
             }))
         }
     }
@@ -1167,6 +1672,511 @@ mod tests {
                 .push(RecordingWarningEvent::from_warning(session_id, warning));
             Ok(())
         }
+    }
+
+    struct CapturingFailureSink {
+        events: Arc<Mutex<Vec<RecordingFailureView>>>,
+        notifications: Sender<()>,
+    }
+
+    impl RecordingFailureSink for CapturingFailureSink {
+        fn emit(&self, failure: &RecordingFailureView) -> Result<(), RecordingError> {
+            self.events
+                .lock()
+                .expect("failure event lock")
+                .push(failure.clone());
+            self.notifications
+                .send(())
+                .expect("failure notification receiver");
+            Ok(())
+        }
+    }
+
+    fn release_cancel(release: &Arc<(Mutex<bool>, Condvar)>) {
+        let (released, condition) = &**release;
+        *released.lock().expect("cancel release lock") = true;
+        condition.notify_all();
+    }
+
+    fn runtime_failure_controller(
+        release: Option<Arc<(Mutex<bool>, Condvar)>>,
+    ) -> (
+        RecordingController,
+        Arc<Mutex<Option<RecordingFailureReporter>>>,
+        Arc<Mutex<Vec<PathBuf>>>,
+        Receiver<()>,
+        Receiver<()>,
+    ) {
+        let mut backend = FakeBackend::available(CapturedRecording {
+            source_paths: Vec::new(),
+            valid_frame_count: 1,
+            silent: false,
+            duration_ms: 100,
+        });
+        let terminal_reporter = Arc::clone(&backend.terminal_reporter);
+        let (cancel_started, cancel_started_receiver) = mpsc::channel();
+        *backend
+            .cancel_started
+            .lock()
+            .expect("cancel started lock") = Some(cancel_started);
+        backend.cancel_release = release;
+        let file_store = TrackingFileStore::new();
+        let cleaned = Arc::clone(&file_store.cleaned);
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let (notifications, notification_receiver) = mpsc::channel();
+        let controller = RecordingController::new(
+            Arc::new(backend),
+            Arc::new(FakeFinalizer),
+            Arc::new(file_store),
+            Arc::new(FakeClock::new(1_000)),
+        )
+        .with_failure_sink(Arc::new(CapturingFailureSink {
+            events,
+            notifications,
+        }));
+        (
+            controller,
+            terminal_reporter,
+            cleaned,
+            cancel_started_receiver,
+            notification_receiver,
+        )
+    }
+
+    #[test]
+    fn accepted_runtime_failure_emits_before_blocked_capture_cleanup_finishes() {
+        let release = Arc::new((Mutex::new(false), Condvar::new()));
+        let (controller, reporter, cleaned, cancel_started, notifications) =
+            runtime_failure_controller(Some(Arc::clone(&release)));
+        let started = controller
+            .start(RecordingMode::Mixed)
+            .expect("start recording");
+        reporter
+            .lock()
+            .expect("terminal reporter lock")
+            .as_ref()
+            .expect("terminal reporter")
+            .report(
+                RecordingError::new(RECORDING_STREAM_ERROR)
+                    .for_source(RecordingSource::SystemAudio),
+            );
+
+        notifications
+            .recv()
+            .expect("failure event before cleanup");
+        cancel_started.recv().expect("capture cancellation started");
+        let state = controller
+            .state()
+            .expect("read failed state")
+            .expect("failed state");
+        assert!(matches!(state, RecordingStateView::Failed { ref failure } if
+            failure.session_id == started.session_id && failure.cleanup_pending));
+        assert!(cleaned.lock().expect("cleaned lock").is_empty());
+
+        release_cancel(&release);
+        notifications
+            .recv()
+            .expect("failure event after cleanup");
+        assert_eq!(cleaned.lock().expect("cleaned lock").len(), 1);
+    }
+
+    #[test]
+    fn runtime_failure_state_hydrates_with_same_failure_view() {
+        let (controller, reporter, _cleaned, _cancel_started, notifications) =
+            runtime_failure_controller(None);
+        controller
+            .start(RecordingMode::System)
+            .expect("start recording");
+        reporter
+            .lock()
+            .expect("terminal reporter lock")
+            .as_ref()
+            .expect("terminal reporter")
+            .report(RecordingError::new(RECORDING_STREAM_ERROR));
+
+        notifications
+            .recv()
+            .expect("initial failure event");
+        let state = controller
+            .state()
+            .expect("read failed state")
+            .expect("failed state");
+        let payload = serde_json::to_value(&state).expect("serialize state");
+        notifications
+            .recv()
+            .expect("completed failure event");
+        let completed = controller
+            .state()
+            .expect("read completed failed state")
+            .expect("completed failed state");
+        assert_eq!(payload["status"], "failed");
+        assert_eq!(payload["sessionId"], serde_json::to_value(completed).unwrap()["sessionId"]);
+    }
+
+    #[test]
+    fn runtime_failure_cancels_capture_and_cleans_workspace_in_background() {
+        let (controller, reporter, cleaned, cancel_started, notifications) =
+            runtime_failure_controller(None);
+        let started = controller
+            .start(RecordingMode::Mic)
+            .expect("start recording");
+        reporter
+            .lock()
+            .expect("terminal reporter lock")
+            .as_ref()
+            .expect("terminal reporter")
+            .report(RecordingError::new(RECORDING_STREAM_ERROR));
+
+        notifications.recv().expect("failure event");
+        cancel_started.recv().expect("capture cancellation");
+        notifications.recv().expect("cleanup completion event");
+        assert_eq!(cleaned.lock().expect("cleaned lock").len(), 1);
+        assert!(matches!(
+            controller
+                .state()
+                .expect("read failed state")
+                .expect("failed state"),
+            RecordingStateView::Failed { ref failure }
+                if failure.session_id == started.session_id && !failure.cleanup_pending
+        ));
+    }
+
+    #[test]
+    fn runtime_failure_keeps_workspace_when_capture_cleanup_fails() {
+        let mut backend = FakeBackend::available(CapturedRecording {
+            source_paths: Vec::new(),
+            valid_frame_count: 1,
+            silent: false,
+            duration_ms: 100,
+        });
+        backend.cancel_error = Some(RecordingError::new(RECORDING_STREAM_ERROR));
+        let terminal_reporter = Arc::clone(&backend.terminal_reporter);
+        let file_store = TrackingFileStore::new();
+        let cleaned = Arc::clone(&file_store.cleaned);
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let (notifications, notification_receiver) = mpsc::channel();
+        let controller = RecordingController::new(
+            Arc::new(backend),
+            Arc::new(FakeFinalizer),
+            Arc::new(file_store),
+            Arc::new(FakeClock::new(1_000)),
+        )
+        .with_failure_sink(Arc::new(CapturingFailureSink {
+            events,
+            notifications,
+        }));
+        let started = controller
+            .start(RecordingMode::Mic)
+            .expect("start recording");
+        terminal_reporter
+            .lock()
+            .expect("terminal reporter lock")
+            .as_ref()
+            .expect("terminal reporter")
+            .report(RecordingError::new(RECORDING_STREAM_ERROR));
+
+        notification_receiver
+            .recv()
+            .expect("initial failure event");
+        assert!(notification_receiver
+            .recv_timeout(Duration::from_millis(100))
+            .is_err());
+        assert!(cleaned.lock().expect("cleaned lock").is_empty());
+        assert!(matches!(
+            controller
+                .state()
+                .expect("read failed state")
+                .expect("failed state"),
+            RecordingStateView::Failed { ref failure }
+                if failure.session_id == started.session_id && failure.cleanup_pending
+        ));
+    }
+
+    #[test]
+    fn runtime_failure_allows_recovery_when_workspace_cleanup_fails_after_capture_teardown() {
+        let backend = FakeBackend::available(CapturedRecording {
+            source_paths: Vec::new(),
+            valid_frame_count: 1,
+            silent: false,
+            duration_ms: 100,
+        });
+        let terminal_reporter = Arc::clone(&backend.terminal_reporter);
+        let file_store = TrackingFileStore::with_cleanup_error(RecordingError::new(
+            RECORDING_WRITE_FAILED,
+        ));
+        let cleaned = Arc::clone(&file_store.cleaned);
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let (notifications, notification_receiver) = mpsc::channel();
+        let controller = RecordingController::new(
+            Arc::new(backend),
+            Arc::new(FakeFinalizer),
+            Arc::new(file_store),
+            Arc::new(FakeClock::new(1_000)),
+        )
+        .with_failure_sink(Arc::new(CapturingFailureSink {
+            events: Arc::clone(&events),
+            notifications,
+        }));
+        let started = controller
+            .start(RecordingMode::Mic)
+            .expect("start recording");
+        terminal_reporter
+            .lock()
+            .expect("terminal reporter lock")
+            .as_ref()
+            .expect("terminal reporter")
+            .report(RecordingError::new(RECORDING_STREAM_ERROR));
+
+        notification_receiver
+            .recv()
+            .expect("initial failure event");
+        notification_receiver
+            .recv()
+            .expect("cleanup completion event");
+
+        assert_eq!(cleaned.lock().expect("cleaned lock").len(), 1);
+        assert!(matches!(
+            controller
+                .state()
+                .expect("read failed state")
+                .expect("failed state"),
+            RecordingStateView::Failed { ref failure }
+                if failure.session_id == started.session_id && !failure.cleanup_pending
+        ));
+        let events = events.lock().expect("failure events lock");
+        assert_eq!(events.len(), 2);
+        assert!(events[0].cleanup_pending);
+        assert!(!events[1].cleanup_pending);
+        assert_eq!(events[0].error_code, events[1].error_code);
+        assert_eq!(events[0].source, events[1].source);
+    }
+
+    #[test]
+    fn duplicate_runtime_failure_does_not_replace_identity_or_emit_a_second_user_failure() {
+        let (controller, reporter, _cleaned, _cancel_started, notifications) =
+            runtime_failure_controller(None);
+        controller
+            .start(RecordingMode::Mic)
+            .expect("start recording");
+        let reporter = reporter
+            .lock()
+            .expect("terminal reporter lock")
+            .as_ref()
+            .expect("terminal reporter")
+            .clone();
+        reporter.report(
+            RecordingError::new(RECORDING_STREAM_ERROR).for_source(RecordingSource::SystemAudio),
+        );
+        reporter.report(
+            RecordingError::new(RECORDING_WRITE_FAILED).for_source(RecordingSource::Microphone),
+        );
+
+        notifications.recv().expect("first failure event");
+        notifications.recv().expect("cleanup completion event");
+        assert!(notifications.try_recv().is_err());
+        let state = controller
+            .state()
+            .expect("read failed state")
+            .expect("failed state");
+        assert!(matches!(state, RecordingStateView::Failed { ref failure }
+            if failure.error_code == RECORDING_STREAM_ERROR
+                && failure.source == Some(RecordingSource::SystemAudio)));
+    }
+
+    #[test]
+    fn pre_acceptance_failure_is_returned_as_startup_error_without_runtime_event() {
+        let mut backend = FakeBackend::available(CapturedRecording {
+            source_paths: Vec::new(),
+            valid_frame_count: 1,
+            silent: false,
+            duration_ms: 100,
+        });
+        backend.start_reporter_error = Some(
+            RecordingError::new(RECORDING_STREAM_ERROR)
+                .for_source(RecordingSource::Microphone),
+        );
+        let file_store = TrackingFileStore::new();
+        let cleaned = Arc::clone(&file_store.cleaned);
+        let (notifications, notification_receiver) = mpsc::channel();
+        let controller = RecordingController::new(
+            Arc::new(backend),
+            Arc::new(FakeFinalizer),
+            Arc::new(file_store),
+            Arc::new(FakeClock::new(1_000)),
+        )
+        .with_failure_sink(Arc::new(CapturingFailureSink {
+            events: Arc::new(Mutex::new(Vec::new())),
+            notifications,
+        }));
+
+        let error = controller
+            .start(RecordingMode::Mic)
+            .expect_err("pre-acceptance failure must fail start");
+
+        assert_eq!(error.code, RECORDING_STREAM_ERROR);
+        assert_eq!(error.source, Some(RecordingSource::Microphone));
+        assert_eq!(cleaned.lock().expect("cleaned lock").len(), 1);
+        assert!(controller.state().expect("read state").is_none());
+        assert!(notification_receiver.try_recv().is_err());
+    }
+
+    #[test]
+    fn stop_after_runtime_failure_returns_the_latched_error() {
+        let (controller, reporter, _cleaned, _cancel_started, notifications) =
+            runtime_failure_controller(None);
+        let started = controller
+            .start(RecordingMode::Mic)
+            .expect("start recording");
+        reporter
+            .lock()
+            .expect("terminal reporter lock")
+            .as_ref()
+            .expect("terminal reporter")
+            .report(
+                RecordingError::new(RECORDING_STREAM_ERROR)
+                    .for_source(RecordingSource::SystemAudio),
+            );
+        notifications.recv().expect("failure event");
+        notifications.recv().expect("cleanup completion event");
+
+        let error = controller
+            .stop(&started.session_id)
+            .expect_err("failed session must retain the latched error");
+        assert_eq!(error.code, RECORDING_STREAM_ERROR);
+        assert_eq!(error.source, Some(RecordingSource::SystemAudio));
+    }
+
+    #[test]
+    fn cancel_after_runtime_failure_is_idempotent_and_preserves_snapshot() {
+        let (controller, reporter, _cleaned, _cancel_started, notifications) =
+            runtime_failure_controller(None);
+        let started = controller
+            .start(RecordingMode::Mic)
+            .expect("start recording");
+        reporter
+            .lock()
+            .expect("terminal reporter lock")
+            .as_ref()
+            .expect("terminal reporter")
+            .report(RecordingError::new(RECORDING_STREAM_ERROR));
+        notifications.recv().expect("failure event");
+        notifications.recv().expect("cleanup completion event");
+        let before = controller.state().expect("read state");
+
+        controller
+            .cancel(&started.session_id)
+            .expect("cancel after failed cleanup is idempotent");
+
+        assert_eq!(controller.state().expect("read state"), before);
+    }
+
+    #[test]
+    fn cleanup_pending_rejects_acknowledgement_and_new_start() {
+        let release = Arc::new((Mutex::new(false), Condvar::new()));
+        let (controller, reporter, _cleaned, cancel_started, notifications) =
+            runtime_failure_controller(Some(Arc::clone(&release)));
+        let started = controller
+            .start(RecordingMode::Mic)
+            .expect("start recording");
+        reporter
+            .lock()
+            .expect("terminal reporter lock")
+            .as_ref()
+            .expect("terminal reporter")
+            .report(RecordingError::new(RECORDING_STREAM_ERROR));
+        notifications.recv().expect("failure event");
+        cancel_started.recv().expect("capture cancellation started");
+
+        assert_eq!(
+            controller
+                .acknowledge_failure(&started.session_id)
+                .expect_err("pending cleanup must not be acknowledged")
+                .code,
+            RECORDING_CLEANUP_IN_PROGRESS
+        );
+        assert_eq!(
+            controller
+                .start(RecordingMode::Mic)
+                .expect_err("pending failed session owns the controller")
+                .code,
+            RECORDING_ALREADY_ACTIVE
+        );
+
+        release_cancel(&release);
+        notifications.recv().expect("cleanup completion event");
+        controller
+            .acknowledge_failure(&started.session_id)
+            .expect("completed failure can be acknowledged");
+        controller
+            .acknowledge_failure(&started.session_id)
+            .expect("duplicate acknowledgement is idempotent");
+        assert!(controller.state().expect("read state").is_none());
+    }
+
+    #[test]
+    fn completed_failure_can_be_replaced_by_a_new_session_without_acknowledgement() {
+        let (controller, reporter, _cleaned, _cancel_started, notifications) =
+            runtime_failure_controller(None);
+        let first = controller
+            .start(RecordingMode::Mic)
+            .expect("start first recording");
+        reporter
+            .lock()
+            .expect("terminal reporter lock")
+            .as_ref()
+            .expect("terminal reporter")
+            .report(RecordingError::new(RECORDING_STREAM_ERROR));
+        notifications.recv().expect("failure event");
+        notifications.recv().expect("cleanup completion event");
+
+        let second = controller
+            .start(RecordingMode::System)
+            .expect("completed failure can be replaced atomically");
+        assert_ne!(first.session_id, second.session_id);
+        assert!(matches!(
+            controller.state().expect("read active state"),
+            Some(RecordingStateView::Recording { ref session_id, mode, .. })
+                if session_id == &second.session_id && mode == RecordingMode::System
+        ));
+        assert_eq!(
+            controller
+                .acknowledge_failure(&first.session_id)
+                .expect_err("old failed session is no longer owned")
+                .code,
+            RECORDING_SESSION_INVALID
+        );
+    }
+
+    #[test]
+    fn new_session_ownership_atomically_clears_the_old_failure_acknowledgement() {
+        let (controller, reporter, _cleaned, _cancel_started, notifications) =
+            runtime_failure_controller(None);
+        let first = controller
+            .start(RecordingMode::Mic)
+            .expect("start first recording");
+        reporter
+            .lock()
+            .expect("terminal reporter lock")
+            .as_ref()
+            .expect("terminal reporter")
+            .report(RecordingError::new(RECORDING_STREAM_ERROR));
+        notifications.recv().expect("failure event");
+        notifications.recv().expect("cleanup completion event");
+        controller
+            .acknowledge_failure(&first.session_id)
+            .expect("acknowledge first failure");
+
+        let second = controller
+            .start(RecordingMode::Mic)
+            .expect("start second recording");
+        assert_ne!(first.session_id, second.session_id);
+        assert_eq!(
+            controller
+                .acknowledge_failure(&first.session_id)
+                .expect_err("old acknowledgement must not clear new session")
+                .code,
+            RECORDING_SESSION_INVALID
+        );
     }
 
     fn warning_controller(
@@ -1263,12 +2273,16 @@ mod tests {
             .state()
             .expect("read recording state")
             .expect("active recording state");
-        assert_eq!(state.warnings.len(), 1);
-        assert_eq!(state.warnings[0].count, 1);
-        assert_eq!(state.warnings[0].total_gap_ms, 400);
+        let state_warnings = match &state {
+            RecordingStateView::Recording { warnings, .. } => warnings.clone(),
+            _ => panic!("expected recording state"),
+        };
+        assert_eq!(state_warnings.len(), 1);
+        assert_eq!(state_warnings[0].count, 1);
+        assert_eq!(state_warnings[0].total_gap_ms, 400);
 
         let result = controller.stop(&started.session_id).expect("stop recording");
-        assert_eq!(result.warnings, state.warnings);
+        assert_eq!(result.warnings, state_warnings);
     }
 
     #[test]
@@ -1284,7 +2298,11 @@ mod tests {
             .expect("active recording state");
         let result = controller.stop(&started.session_id).expect("stop recording");
 
-        assert_eq!(state.warnings, result.warnings);
+        let state_warnings = match state {
+            RecordingStateView::Recording { warnings, .. } => warnings,
+            _ => panic!("expected recording state"),
+        };
+        assert_eq!(state_warnings, result.warnings);
         assert_eq!(result.warnings[0].warning_code, RECORDING_SYSTEM_AUDIO_RECOVERED);
         assert_eq!(result.warnings[0].source, Some(RecordingWarningSource::SystemAudio));
         assert_eq!(result.warnings[0].count, 2);
@@ -1348,9 +2366,19 @@ mod tests {
             .expect("read recording state")
             .expect("active recording state");
 
-        assert_eq!(state.session_id, started.session_id);
-        assert_eq!(state.mode, RecordingMode::Mic);
-        assert_eq!(state.elapsed_ms, 0);
+        match state {
+            RecordingStateView::Recording {
+                session_id,
+                mode,
+                elapsed_ms,
+                ..
+            } => {
+                assert_eq!(session_id, started.session_id);
+                assert_eq!(mode, RecordingMode::Mic);
+                assert_eq!(elapsed_ms, 0);
+            }
+            _ => panic!("expected recording state"),
+        }
     }
 
     struct FakeDiskSpace {
@@ -1374,12 +2402,11 @@ mod tests {
             .expect("start must succeed with a low-disk warning");
 
         assert_eq!(started.warnings, vec![RecordingErrorCode::DiskSpaceLow]);
-        assert!(controller
+        let state = controller
             .state()
             .expect("read state")
-            .expect("active state after warned start")
-            .session_id
-            .len() > 0);
+            .expect("active state after warned start");
+        assert!(matches!(state, RecordingStateView::Recording { session_id, .. } if !session_id.is_empty()));
     }
 
     #[test]
@@ -1420,14 +2447,13 @@ mod tests {
             .expect_err("second recording must be rejected");
 
         assert_eq!(error.code, RECORDING_ALREADY_ACTIVE);
-        assert_eq!(
+        assert!(matches!(
             controller
                 .state()
                 .expect("read state")
-                .expect("active state")
-                .mode,
-            RecordingMode::Mic
-        );
+                .expect("active state"),
+            RecordingStateView::Recording { mode: RecordingMode::Mic, .. }
+        ));
     }
 
     #[test]
@@ -1698,7 +2724,7 @@ mod tests {
         assert_eq!(cleaned.lock().expect("cleaned lock").len(), 1);
         assert!(matches!(
             *controller.state.lock().expect("state lock"),
-            ControllerState::Error
+            ControllerState::Failed(_)
         ));
     }
 
@@ -1731,7 +2757,7 @@ mod tests {
         assert_eq!(cleaned.lock().expect("cleaned lock").len(), 1);
         assert!(matches!(
             *controller.state.lock().expect("state lock"),
-            ControllerState::Error
+            ControllerState::Failed(_)
         ));
     }
 
@@ -1762,7 +2788,7 @@ mod tests {
         assert_eq!(cleaned.lock().expect("cleaned lock").len(), 1);
         assert!(matches!(
             *controller.state.lock().expect("state lock"),
-            ControllerState::Error
+            ControllerState::Failed(_)
         ));
     }
 
@@ -1794,7 +2820,7 @@ mod tests {
         assert_eq!(cleaned.lock().expect("cleaned lock").len(), 1);
         assert!(matches!(
             *controller.state.lock().expect("state lock"),
-            ControllerState::Error
+            ControllerState::Failed(_)
         ));
     }
 
@@ -1826,7 +2852,7 @@ mod tests {
         assert_eq!(cleaned.lock().expect("cleaned lock").len(), 1);
         assert!(matches!(
             *controller.state.lock().expect("state lock"),
-            ControllerState::Error
+            ControllerState::Failed(_)
         ));
     }
 
@@ -1860,7 +2886,7 @@ mod tests {
         assert_eq!(cleaned.lock().expect("cleaned lock").len(), 1);
         assert!(matches!(
             *controller.state.lock().expect("state lock"),
-            ControllerState::Error
+            ControllerState::Failed(_)
         ));
     }
 
@@ -1936,6 +2962,57 @@ mod tests {
         assert!(serialized.contains("RECORDING_MIC_INIT_FAILED"));
         assert_eq!(error.message, "The microphone could not be initialized.");
         assert!(!serialized.contains("C:\\\\Users"));
+    }
+
+    #[test]
+    fn recording_error_serializes_system_audio_source_with_stable_payload() {
+        let error =
+            RecordingError::new(RECORDING_STREAM_ERROR).for_source(RecordingSource::SystemAudio);
+
+        assert_eq!(
+            serde_json::to_string(&error).expect("serialize recording error"),
+            r#"{"code":"RECORDING_STREAM_ERROR","message":"The recording stream was interrupted.","source":"systemAudio"}"#
+        );
+    }
+
+    #[test]
+    fn recording_error_without_source_omits_source_key() {
+        let error = RecordingError::new(RECORDING_MIX_FAILED);
+        let payload = serde_json::to_value(error).expect("serialize recording error");
+
+        assert_eq!(
+            payload,
+            serde_json::json!({
+                "code": "RECORDING_MIX_FAILED",
+                "message": "The recording sources could not be mixed."
+            })
+        );
+    }
+
+    #[test]
+    fn recording_error_preserves_first_source() {
+        let error = RecordingError::new(RECORDING_STREAM_ERROR)
+            .for_source(RecordingSource::Microphone)
+            .for_source(RecordingSource::SystemAudio);
+
+        assert_eq!(error.source, Some(RecordingSource::Microphone));
+    }
+
+    #[test]
+    fn recording_error_source_payload_contains_only_stable_fields() {
+        let error =
+            RecordingError::new(RECORDING_STREAM_ERROR).for_source(RecordingSource::SystemAudio);
+        let payload = serde_json::to_value(error).expect("serialize recording error");
+
+        let object = payload.as_object().expect("recording error object");
+        assert_eq!(object.len(), 3);
+        assert!(object.contains_key("code"));
+        assert!(object.contains_key("message"));
+        assert!(object.contains_key("source"));
+        assert_eq!(payload["code"], "RECORDING_STREAM_ERROR");
+        assert_eq!(payload["message"], "The recording stream was interrupted.");
+        assert_eq!(payload["source"], "systemAudio");
+        assert!(!serde_json::to_string(&payload).unwrap().contains("native"));
     }
 
     #[test]

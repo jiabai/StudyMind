@@ -1,8 +1,5 @@
 use std::ptr;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, SyncSender};
-use std::sync::Arc;
-use std::thread::{self, JoinHandle};
+use std::thread;
 use std::time::Duration;
 
 use windows::Win32::Foundation::{CloseHandle, E_FAIL, RPC_E_CHANGED_MODE, WAIT_OBJECT_0, WAIT_TIMEOUT};
@@ -20,12 +17,17 @@ use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
 
 use super::wav_writer::{WavCaptureSummary, WaveFormat, WaveWriter};
 use super::{
-    ActiveCapture, CaptureWorkspace, CapturedRecording, RecordingBackend, RecordingCapabilities,
-    RecordingError, RecordingMode, RecordingPlatform, RecordingSourceCapability,
-    RecordingWarningReporter,
+    mixed, ActiveCapture, CaptureCancelHandle, CaptureWorkspace, CapturedRecording,
+    RecordingBackend, RecordingCapabilities, RecordingError, RecordingMode, RecordingPlatform,
+    RecordingSource, RecordingSourceCapability, RecordingWarningReporter,
     RECORDING_MIC_ACCESS_DENIED, RECORDING_MIC_INIT_FAILED, RECORDING_MIX_FAILED,
     RECORDING_STREAM_ERROR, RECORDING_SYSTEM_AUDIO_UNAVAILABLE,
     RECORDING_SYSTEM_LOOPBACK_INIT_FAILED,
+};
+use super::failure_supervisor::RecordingFailureReporter;
+use super::mixed::{
+    CaptureCommand, CaptureGate, CaptureSignal, FirstSourceFailure, PreparedSource, ReadySender,
+    SourceReady,
 };
 
 #[derive(Default)]
@@ -71,6 +73,17 @@ impl SourceKind {
             Self::Microphone => "microphone",
             Self::SystemAudio => "system-audio",
         }
+    }
+
+    fn source(self) -> RecordingSource {
+        match self {
+            Self::Microphone => RecordingSource::Microphone,
+            Self::SystemAudio => RecordingSource::SystemAudio,
+        }
+    }
+
+    fn stream_error(self) -> RecordingError {
+        RecordingError::new(RECORDING_STREAM_ERROR).for_source(self.source())
     }
 }
 
@@ -124,92 +137,127 @@ impl RecordingBackend for WasapiRecordingBackend {
         mode: RecordingMode,
         workspace: &CaptureWorkspace,
         _reporter: RecordingWarningReporter,
+        failure_reporter: RecordingFailureReporter,
     ) -> Result<Box<dyn ActiveCapture>, RecordingError> {
-        let stop = Arc::new(AtomicBool::new(false));
-        let mut workers: Vec<(
-            JoinHandle<Result<WavCaptureSummary, RecordingError>>,
-            mpsc::Receiver<Result<(), RecordingError>>,
-        )> = Vec::new();
-        let source_kinds = match mode {
-            RecordingMode::Mic => vec![SourceKind::Microphone],
-            RecordingMode::System => vec![SourceKind::SystemAudio],
-            RecordingMode::Mixed => vec![SourceKind::Microphone, SourceKind::SystemAudio],
-        };
-
-        for kind in source_kinds {
-            let path = workspace.temp_dir.join(kind.file_name());
-            let (ready_tx, ready_rx) = mpsc::sync_channel(1);
-            let worker_stop = Arc::clone(&stop);
-            let worker = match thread::Builder::new()
-                .name(format!("studymind-recording-{}", kind.file_name()))
-                .spawn(move || run_source_worker(kind, path, worker_stop, ready_tx))
-            {
-                Ok(worker) => worker,
-                Err(_) => {
-                    stop.store(true, Ordering::SeqCst);
-                    for (handle, _) in workers.drain(..) {
-                        let _ = handle.join();
+        let gate = CaptureGate::default();
+        let failures = FirstSourceFailure::default();
+        let (ready_tx, ready_rx) = mixed::ready_channel();
+        match mode {
+            RecordingMode::Mixed => {
+                let microphone = prepare_source(
+                    SourceKind::Microphone,
+                    workspace,
+                    gate.clone(),
+                    ready_tx.clone(),
+                    failures.clone(),
+                    failure_reporter.clone(),
+                )
+                .map_err(|error| error.for_source(RecordingSource::Microphone))?;
+                let system_audio = match prepare_source(
+                    SourceKind::SystemAudio,
+                    workspace,
+                    gate.clone(),
+                    ready_tx,
+                    failures.clone(),
+                    failure_reporter,
+                ) {
+                    Ok(source) => source,
+                    Err(error) => {
+                        microphone.signal.request(CaptureCommand::Cancel);
+                        let _ = microphone.worker.join();
+                        return Err(error.for_source(RecordingSource::SystemAudio));
                     }
-                    return Err(kind.init_error());
-                }
-            };
-            workers.push((worker, ready_rx));
-        }
-
-        let mut handles = Vec::with_capacity(workers.len());
-        for (worker, ready_rx) in workers {
-            match ready_rx.recv_timeout(Duration::from_secs(3)) {
-                Ok(Ok(())) => handles.push(worker),
-                Ok(Err(error)) => {
-                    stop.store(true, Ordering::SeqCst);
-                    let _ = worker.join();
-                    for handle in handles {
-                        let _ = handle.join();
+                };
+                mixed::start_mixed(
+                    [microphone, system_audio],
+                    ready_rx,
+                    gate,
+                    failures,
+                    Duration::from_secs(3),
+                )
+            }
+            RecordingMode::Mic | RecordingMode::System => {
+                let kind = if mode == RecordingMode::Mic {
+                    SourceKind::Microphone
+                } else {
+                    SourceKind::SystemAudio
+                };
+                let prepared = prepare_source(
+                    kind,
+                    workspace,
+                    gate.clone(),
+                    ready_tx,
+                    failures.clone(),
+                    failure_reporter,
+                )
+                .map_err(|error| error.for_source(kind.source()))?;
+                match ready_rx.recv_timeout(Duration::from_secs(3)) {
+                    Ok(SourceReady { result: Ok(()), .. }) => {
+                        gate.open();
+                        Ok(Box::new(WasapiActiveCapture { prepared, failures }))
                     }
-                    return Err(error);
-                }
-                Err(_) => {
-                    stop.store(true, Ordering::SeqCst);
-                    let _ = worker.join();
-                    for handle in handles {
-                        let _ = handle.join();
+                    Ok(SourceReady { result: Err(error), .. }) => {
+                        prepared.signal.request(CaptureCommand::Cancel);
+                        let _ = prepared.worker.join();
+                        Err(error.for_source(kind.source()))
                     }
-                    return Err(RecordingError::new(RECORDING_STREAM_ERROR));
+                    Err(_) => {
+                        prepared.signal.request(CaptureCommand::Cancel);
+                        let _ = prepared.worker.join();
+                        Err(kind.stream_error())
+                    }
                 }
             }
         }
-
-        Ok(Box::new(WasapiActiveCapture {
-            stop,
-            workers: handles,
-        }))
     }
 }
 
 struct WasapiActiveCapture {
-    stop: Arc<AtomicBool>,
-    workers: Vec<JoinHandle<Result<WavCaptureSummary, RecordingError>>>,
+    prepared: PreparedSource,
+    failures: FirstSourceFailure,
 }
 
 impl ActiveCapture for WasapiActiveCapture {
     fn stop(self: Box<Self>) -> Result<CapturedRecording, RecordingError> {
-        self.stop.store(true, Ordering::SeqCst);
-        let mut summaries = Vec::with_capacity(self.workers.len());
-        for worker in self.workers {
-            let summary = worker
-                .join()
-                .map_err(|_| RecordingError::new(RECORDING_STREAM_ERROR))??;
-            summaries.push(summary);
+        let WasapiActiveCapture { prepared, failures } = *self;
+        prepared.signal.request(CaptureCommand::Stop);
+        let result = prepared
+            .worker
+            .join()
+            .map_err(|_| {
+                RecordingError::new(RECORDING_STREAM_ERROR).for_source(prepared.source)
+            })??;
+        if let Some(error) = failures.snapshot() {
+            return Err(error);
         }
-        summarize_capture(summaries)
+        summarize_capture(vec![result])
     }
 
     fn cancel(self: Box<Self>) -> Result<(), RecordingError> {
-        self.stop.store(true, Ordering::SeqCst);
-        for worker in self.workers {
-            let _ = worker.join();
+        let WasapiActiveCapture { prepared, failures } = *self;
+        prepared.signal.request(CaptureCommand::Cancel);
+        let _ = prepared.worker.join();
+        failures.snapshot().map_or(Ok(()), Err)
+    }
+
+    fn cancel_for_cleanup(self: Box<Self>) -> Result<(), RecordingError> {
+        let WasapiActiveCapture { prepared, failures } = *self;
+        let failure_confirmed = failures.snapshot().is_some();
+        let source = prepared.source;
+        prepared.signal.request(CaptureCommand::Cancel);
+        match prepared.worker.join() {
+            Ok(Ok(_)) | Ok(Err(_)) if failure_confirmed => Ok(()),
+            Ok(Ok(_)) => Ok(()),
+            Ok(Err(error)) => Err(error.for_source(source)),
+            Err(_) => Err(RecordingError::new(RECORDING_STREAM_ERROR).for_source(source)),
         }
-        Ok(())
+    }
+
+    fn cancel_handle(&self) -> Option<CaptureCancelHandle> {
+        let signal = self.prepared.signal.clone();
+        Some(CaptureCancelHandle::new(move || {
+            signal.request(CaptureCommand::Cancel);
+        }))
     }
 }
 
@@ -324,17 +372,55 @@ fn probe_source(kind: SourceKind) -> Result<(), RecordingError> {
     result.map_err(|_| kind.capability_error())
 }
 
+fn prepare_source(
+    kind: SourceKind,
+    workspace: &CaptureWorkspace,
+    gate: CaptureGate,
+    ready_tx: ReadySender,
+    failures: FirstSourceFailure,
+    terminal: RecordingFailureReporter,
+) -> Result<PreparedSource, RecordingError> {
+    let signal = CaptureSignal::default();
+    let worker_signal = signal.clone();
+    let path = workspace.temp_dir.join(kind.file_name());
+    let worker = thread::Builder::new()
+        .name(format!("studymind-recording-{}", kind.file_name()))
+        .spawn(move || {
+            run_source_worker(
+                kind,
+                path,
+                gate,
+                worker_signal,
+                ready_tx,
+                failures,
+                terminal,
+            )
+        })
+        .map_err(|_| kind.init_error())?;
+    Ok(PreparedSource {
+        source: kind.source(),
+        signal,
+        worker,
+    })
+}
+
 fn run_source_worker(
     kind: SourceKind,
     path: std::path::PathBuf,
-    stop: Arc<AtomicBool>,
-    ready_tx: SyncSender<Result<(), RecordingError>>,
+    gate: CaptureGate,
+    signal: CaptureSignal,
+    ready_tx: ReadySender,
+    failures: FirstSourceFailure,
+    terminal: RecordingFailureReporter,
 ) -> Result<WavCaptureSummary, RecordingError> {
     let _com = match ComApartment::initialize() {
         Ok(com) => com,
         Err(_) => {
             let error = kind.init_error();
-            let _ = ready_tx.send(Err(error.clone()));
+            let _ = ready_tx.send(SourceReady {
+                source: kind.source(),
+                result: Err(error.clone()),
+            });
             return Err(error);
         }
     };
@@ -342,7 +428,10 @@ fn run_source_worker(
     let (client, capture, event, mut writer) = match setup {
         Ok(value) => value,
         Err(error) => {
-            let _ = ready_tx.send(Err(error.clone()));
+            let _ = ready_tx.send(SourceReady {
+                source: kind.source(),
+                result: Err(error.clone()),
+            });
             return Err(error);
         }
     };
@@ -350,25 +439,59 @@ fn run_source_worker(
     if let Err(error) = unsafe { client.Start() } {
         let stable = map_stream_error(error);
         let _ = unsafe { CloseHandle(event) };
-        let _ = ready_tx.send(Err(stable.clone()));
+        let _ = ready_tx.send(SourceReady {
+            source: kind.source(),
+            result: Err(stable.clone()),
+        });
         return Err(stable);
     }
-    if ready_tx.send(Ok(())).is_err() {
+    if ready_tx
+        .send(SourceReady {
+            source: kind.source(),
+            result: Ok(()),
+        })
+        .is_err()
+    {
         let _ = unsafe { client.Stop() };
         let _ = unsafe { CloseHandle(event) };
         return Err(RecordingError::new(RECORDING_STREAM_ERROR));
     }
 
-    let capture_result = capture_packets(&client, &capture, event, &stop, &mut writer);
+    let capture_result = capture_packets(
+        &client,
+        &capture,
+        event,
+        &gate,
+        &signal,
+        &mut writer,
+    );
     let stop_result = unsafe { client.Stop() };
     let _ = unsafe { CloseHandle(event) };
     if let Err(error) = capture_result {
+        failures.record(error.clone(), kind.source());
+        if gate.is_open() {
+            terminal.report(error.clone().for_source(kind.source()));
+        }
         return Err(error);
     }
     if let Err(error) = stop_result {
-        return Err(map_stream_error(error));
+        let stable = map_stream_error(error).for_source(kind.source());
+        failures.record(stable.clone(), kind.source());
+        if gate.is_open() {
+            terminal.report(stable.clone());
+        }
+        return Err(stable);
     }
-    writer.finish()
+    match writer.finish() {
+        Ok(summary) => Ok(summary),
+        Err(error) => {
+            failures.record(error.clone(), kind.source());
+            if gate.is_open() {
+                terminal.report(error.clone().for_source(kind.source()));
+            }
+            Err(error)
+        }
+    }
 }
 
 fn setup_capture_client(
@@ -450,10 +573,11 @@ fn capture_packets(
     _client: &IAudioClient,
     capture: &IAudioCaptureClient,
     event: windows::Win32::Foundation::HANDLE,
-    stop: &AtomicBool,
+    gate: &CaptureGate,
+    signal: &CaptureSignal,
     writer: &mut WaveWriter,
 ) -> Result<(), RecordingError> {
-    while !stop.load(Ordering::SeqCst) {
+    while signal.current().is_none() {
         let mut packet_frames = unsafe { capture.GetNextPacketSize() }
             .map_err(|_| RecordingError::new(RECORDING_STREAM_ERROR))?;
         while packet_frames > 0 {
@@ -463,7 +587,9 @@ fn capture_packets(
             unsafe { capture.GetBuffer(&mut data, &mut frames, &mut flags, None, None) }
                 .map_err(|_| RecordingError::new(RECORDING_STREAM_ERROR))?;
             let silent = (flags & AUDCLNT_BUFFERFLAGS_SILENT.0 as u32) != 0;
-            let write_result = if silent {
+            let write_result = if !gate.is_open() {
+                Ok(())
+            } else if silent {
                 writer.write_silence(u64::from(frames))
             } else {
                 if data.is_null() {
@@ -492,6 +618,9 @@ fn capture_packets(
                 .map_err(|_| RecordingError::new(RECORDING_STREAM_ERROR))?;
         }
 
+        if signal.current().is_some() {
+            break;
+        }
         let wait = unsafe { WaitForSingleObject(event, 100) };
         if wait != WAIT_OBJECT_0 && wait != WAIT_TIMEOUT {
             return Err(RecordingError::new(RECORDING_STREAM_ERROR));
@@ -579,5 +708,16 @@ mod tests {
             result.is_ok(),
             "ComApartment must tolerate an already-initialized apartment (RPC_E_CHANGED_MODE)"
         );
+    }
+
+    #[test]
+    fn runtime_stream_errors_preserve_the_source_identity() {
+        let microphone = SourceKind::Microphone.stream_error();
+        assert_eq!(microphone.code, RECORDING_STREAM_ERROR);
+        assert_eq!(microphone.source, Some(RecordingSource::Microphone));
+
+        let system_audio = SourceKind::SystemAudio.stream_error();
+        assert_eq!(system_audio.code, RECORDING_STREAM_ERROR);
+        assert_eq!(system_audio.source, Some(RecordingSource::SystemAudio));
     }
 }

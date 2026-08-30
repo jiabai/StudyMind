@@ -16,10 +16,13 @@ Execute this plan in an isolated worktree/branch such as `codex/macos-mixed-reco
 latest `master` containing the confirmed design and terminal-failure revision. Do not mark E1/E2/E3
 runtime rows Pass from Windows-host tests.
 
-Current execution progress in `codex/macos-mixed-recording`: Tasks 1–3 are complete (`306f045`,
-`8852573`, `23e1613`, `a432bdd`, `baf32e8`, `65f5725`) with host-side mixed coverage recorded.
-Task 4, the accepted-session terminal failure supervisor, is the next implementation boundary. The
-checkboxes below describe the implementation recipe and are not a request to reimplement completed Tasks 1–3.
+Current execution progress in `codex/macos-mixed-recording`: Task 1 is committed as `306f045` plus
+review fix `8852573`; Task 2 is committed as `23e1613`, `a432bdd`, and `baf32e8` with focused and
+full `audio_capture` tests green; Task 3 is committed as `65f5725` with mixed 13/13 and full
+`audio_capture` 111/111 green. Tasks 4–9 are implemented in commit `7c88660` with host-side
+Rust/frontend verification. Task 10 host-side evidence and documentation are recorded in `d952737`;
+the macOS native target, E1 mixed runtime, E2 Apple Silicon, E3 external-display/recovery, signing,
+and notarization remain human-validation gates and are intentionally not marked complete from this Windows host.
 
 ## File responsibility map
 
@@ -536,7 +539,7 @@ git commit -m "feat(recording): make mixed stop and cleanup atomic"
 
 ### Task 4: Add the accepted-session terminal failure supervisor
 
-> Status: next implementation boundary.
+> Status: host-side implementation complete in `7c88660`; macOS runtime validation remains pending.
 
 **Files:**
 - Create: `app/src-tauri/src/audio_capture/failure_supervisor.rs`
@@ -1407,8 +1410,7 @@ export type RecordingFailureView = {
 
 export type RecordingStateView =
   | ({ status: "recording" } & RecordingActiveStateView)
-  | ({ status: "failed" } & RecordingFailureView)
-  | null;
+  | ({ status: "failed" } & RecordingFailureView);
 
 export type RecordingFailureListener = (
   handler: (failure: RecordingFailureView) => void,

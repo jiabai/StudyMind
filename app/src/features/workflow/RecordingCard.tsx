@@ -44,7 +44,8 @@ type RecordingErrorCopyKey =
   | "input.recording.error.write"
   | "input.recording.error.finalize"
   | "input.recording.error.stream"
-  | "input.recording.error.alreadyActive";
+  | "input.recording.error.alreadyActive"
+  | "input.recording.error.cleanupPending";
 
 function isRecordingMode(value: string): value is RecordingMode {
   return value === "mic" || value === "system" || value === "mixed";
@@ -104,6 +105,8 @@ function errorCopyKey(
       return "input.recording.error.stream";
     case "RECORDING_ALREADY_ACTIVE":
       return "input.recording.error.alreadyActive";
+    case "RECORDING_CLEANUP_IN_PROGRESS":
+      return "input.recording.error.cleanupPending";
     case "RECORDING_UNKNOWN_ERROR":
     default:
       return "input.recording.error.generic";
@@ -178,7 +181,8 @@ export function RecordingCard({ controller, startDisabled = false }: RecordingCa
     controller.capability.status === "ready" &&
     controller.isModeAvailable(controller.mode) &&
     !sessionBusy &&
-    !recording;
+    !recording &&
+    !controller.session.cleanupPending;
   const canRetryCapabilities =
     showError &&
     errorCode !== "RECORDING_MIC_ACCESS_DENIED" &&
@@ -287,6 +291,25 @@ export function RecordingCard({ controller, startDisabled = false }: RecordingCa
             <CircleAlert size={16} aria-hidden="true" />
             <span>{t(errorCopyKey(errorCode))}</span>
           </p>
+        ) : null}
+
+        {controller.session.status === "error" && controller.session.cleanupPending ? (
+          <p className="recording-error recording-error-pending" role="status">
+            <LoaderCircle className="spin" size={16} aria-hidden="true" />
+            <span>{t("input.recording.error.cleanupPending")}</span>
+          </p>
+        ) : null}
+
+        {controller.session.status === "error" &&
+        !controller.session.cleanupPending &&
+        controller.session.errorCode ? (
+          <button
+            className="recording-retry-button"
+            type="button"
+            onClick={() => void controller.dismissFailure()}
+          >
+            <span>{t("input.recording.dismissFailure")}</span>
+          </button>
         ) : null}
 
         {showError && errorCode === "RECORDING_MIC_ACCESS_DENIED" ? (

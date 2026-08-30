@@ -12,6 +12,7 @@ import {
   cancelRecording,
   getRecordingCapabilities,
   getRecordingState,
+  acknowledgeRecordingFailure,
   RecordingClientError,
   startRecording,
   stopRecording,
@@ -42,9 +43,20 @@ const VALID_STOP = {
 } as const;
 
 const VALID_STATE = {
+  status: "recording",
   sessionId: "session-123",
   mode: "mixed",
   elapsedMs: 4_321,
+  warnings: [],
+} as const;
+
+const VALID_FAILURE = {
+  sessionId: "session-123",
+  mode: "mixed",
+  elapsedMs: 4_321,
+  errorCode: "RECORDING_STREAM_ERROR",
+  source: "systemAudio",
+  cleanupPending: true,
   warnings: [],
 } as const;
 
@@ -67,6 +79,7 @@ class StopResponse {
 }
 
 class StateResponse {
+  status = "recording";
   sessionId = "session-123";
   mode = "mixed";
   elapsedMs = 4_321;
@@ -82,6 +95,55 @@ afterEach(() => {
 });
 
 describe("recording client", () => {
+  test("preserves a valid source-tagged command error", async () => {
+    let captured: unknown;
+    try {
+      await stopRecording("session-123", async () => {
+        throw {
+          code: "RECORDING_STREAM_ERROR",
+          message: "The recording stream was interrupted.",
+          source: "systemAudio",
+        };
+      });
+    } catch (error) {
+      captured = error;
+    }
+    expect(captured).toBeInstanceOf(RecordingClientError);
+    expect(captured).toMatchObject({
+      code: "RECORDING_STREAM_ERROR",
+      source: "systemAudio",
+    });
+  });
+
+  test("parses failed hydration and acknowledges the exact session", async () => {
+    await expect(
+      getRecordingState(async () => ({ status: "failed", ...VALID_FAILURE })),
+    ).resolves.toEqual({ status: "failed", ...VALID_FAILURE });
+
+    const calls: Array<{ command: string; args: unknown }> = [];
+    await acknowledgeRecordingFailure("session-123", async (command, args) => {
+      calls.push({ command, args });
+      return null;
+    });
+    expect(calls).toEqual([
+      {
+        command: "acknowledge_recording_failure",
+        args: { sessionId: "session-123" },
+      },
+    ]);
+  });
+
+  test.each([
+    { status: "unknown", ...VALID_FAILURE },
+    { status: "failed", ...VALID_FAILURE, source: "display" },
+    { status: "failed", ...VALID_FAILURE, cleanupPending: "yes" },
+    { status: "failed", ...VALID_FAILURE, extra: true },
+  ])("rejects malformed failed state %#", async (payload) => {
+    await expect(getRecordingState(async () => payload)).rejects.toMatchObject({
+      code: "RECORDING_IPC_RESPONSE_INVALID",
+    });
+  });
+
   test("parses bounded recovery warnings in state and stop responses", async () => {
     const warning = {
       warningCode: "RECORDING_SYSTEM_AUDIO_RECOVERED",
@@ -228,6 +290,7 @@ describe("recording client", () => {
       warnings: [],
     });
     await expect(getRecordingState(runner)).resolves.toEqual({
+      status: "recording",
       sessionId: "session-123",
       mode: "mixed",
       elapsedMs: 4_321,
@@ -572,12 +635,14 @@ describe("recording client", () => {
     });
     await expect(
       getRecordingState(async () => ({
+        status: "recording",
         sessionId: maxLength,
         mode: "mic",
         elapsedMs: 0,
         warnings: [],
       })),
     ).resolves.toEqual({
+      status: "recording",
       sessionId: maxLength,
       mode: "mic",
       elapsedMs: 0,

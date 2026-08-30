@@ -1,6 +1,6 @@
 # macOS Mixed Recording Design
 
-> 状态：已获用户确认；异步终态失败契约已确认并纳入文档；Task 1-3 已完成，Task 4 为下一实现边界
+> 状态：已获用户确认；异步终态失败契约已纳入最终 spec；host-side 实现已完成，macOS native runtime 验证待补
 
 ## Goal
 

@@ -236,6 +236,15 @@ mod tests {
         )
     }
 
+    fn write_test_wave(path: &Path, channels: u16, sample_rate: u32, bytes: &[u8], frames: u64) {
+        let format = WaveFormat::pcm_s16le(channels, sample_rate).expect("test wave format");
+        let mut writer = WaveWriter::create(path.to_path_buf(), format).expect("create test wave");
+        writer
+            .write_frames(bytes, frames, false)
+            .expect("write test wave");
+        writer.finish().expect("finish test wave");
+    }
+
     #[test]
     fn single_source_finalization_uses_structured_normalization_args() {
         let root = std::env::temp_dir().join(format!("StudyMind-mixer-{}", uuid::Uuid::new_v4()));
@@ -317,7 +326,15 @@ mod tests {
         let root = std::env::temp_dir().join(format!("StudyMind-mixer-{}", uuid::Uuid::new_v4()));
         let (workspace, mic_source) = workspace(&root);
         let system_source = workspace.temp_dir.join("system.wav");
-        std::fs::write(&system_source, b"system").expect("write system source");
+        std::fs::remove_file(&mic_source).expect("remove placeholder mic source");
+        write_test_wave(&mic_source, 1, 44_100, &[1, 0, 2, 0], 2);
+        write_test_wave(
+            &system_source,
+            2,
+            48_000,
+            &[3, 0, 4, 0, 5, 0, 6, 0],
+            2,
+        );
         let runner = Arc::new(FakeRunner::new(true));
         let finalizer = FfmpegRecordingFinalizer::with_runner(
             root.join("resources"),
@@ -329,7 +346,7 @@ mod tests {
             .finalize(
                 &workspace,
                 CapturedRecording {
-                    source_paths: vec![mic_source, system_source],
+                    source_paths: vec![mic_source.clone(), system_source.clone()],
                     valid_frame_count: 4,
                     silent: false,
                     duration_ms: 200,
@@ -340,6 +357,19 @@ mod tests {
 
         let calls = runner.calls.lock().expect("calls lock");
         assert_eq!(calls.len(), 1);
+        assert_eq!(
+            calls[0].windows(2).find(|pair| pair[0] == OsString::from("-i"))
+                .map(|pair| pair[1].clone()),
+            Some(mic_source.clone().into_os_string())
+        );
+        let system_input = calls[0]
+            .iter()
+            .enumerate()
+            .filter(|(_, arg)| *arg == &OsString::from("-i"))
+            .nth(1)
+            .and_then(|(index, _)| calls[0].get(index + 1))
+            .cloned();
+        assert_eq!(system_input, Some(system_source.clone().into_os_string()));
         assert!(calls[0].windows(2).any(|pair| {
             pair == [
                 OsString::from("-filter_complex"),
