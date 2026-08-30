@@ -105,6 +105,58 @@ describe("RecordingCard", () => {
     expect(markup).toContain("Recheck recording sources");
   });
 
+  test("offers a privacy settings entry for microphone denial on both platforms", () => {
+    const windows = renderCard({
+      ...createController(),
+      session: { status: "error", errorCode: "RECORDING_MIC_ACCESS_DENIED" },
+    });
+    expect(windows).toContain("Open system settings");
+
+    const macos = renderCard({
+      ...createController({
+        capability: {
+          status: "ready",
+          details: {
+            platform: "macos",
+            microphone: { available: false, reasonCode: "RECORDING_MIC_ACCESS_DENIED" },
+            systemAudio: { available: true },
+            mixed: { available: false },
+          },
+        },
+      }),
+      session: { status: "error", errorCode: "RECORDING_MIC_ACCESS_DENIED" },
+    });
+    expect(macos).toContain("Open system settings");
+  });
+
+  test("offers a Screen Recording settings entry only on macOS for system-audio errors", () => {
+    const macos = renderCard({
+      ...createController({
+        capability: {
+          status: "ready",
+          details: {
+            platform: "macos",
+            microphone: { available: true },
+            systemAudio: {
+              available: false,
+              reasonCode: "RECORDING_SYSTEM_LOOPBACK_INIT_FAILED",
+            },
+            mixed: { available: false },
+          },
+        },
+      }),
+      session: { status: "error", errorCode: "RECORDING_SYSTEM_LOOPBACK_INIT_FAILED" },
+    });
+    expect(macos).toContain("Open system settings");
+
+    const windows = renderCard({
+      ...createController(),
+      session: { status: "error", errorCode: "RECORDING_SYSTEM_LOOPBACK_INIT_FAILED" },
+    });
+    expect(windows).toContain("Recheck recording sources");
+    expect(windows).not.toContain("Open system settings");
+  });
+
   test("renders an accessible discard confirmation and retryable handoff action", () => {
     const markup = renderCard({
       ...createController({

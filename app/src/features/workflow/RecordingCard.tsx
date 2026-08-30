@@ -113,6 +113,33 @@ function errorCopyKey(
   }
 }
 
+type PrivacySettingsKind = "microphone" | "screenRecording";
+
+const PRIVACY_SETTINGS_URLS: Record<
+  string,
+  Partial<Record<PrivacySettingsKind, string>>
+> = {
+  windows: {
+    microphone: "ms-settings:privacy-microphone",
+  },
+  macos: {
+    microphone:
+      "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Microphone",
+    screenRecording:
+      "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_ScreenCapture",
+  },
+};
+
+function privacySettingsUrl(
+  platform: string | undefined,
+  kind: PrivacySettingsKind,
+): string | null {
+  if (!platform) {
+    return null;
+  }
+  return PRIVACY_SETTINGS_URLS[platform]?.[kind] ?? null;
+}
+
 function CapabilityNotice({ controller }: RecordingCardProps) {
   const { t } = useTranslation("workflow");
   const details = controller.capability.details;
@@ -188,6 +215,17 @@ export function RecordingCard({ controller, startDisabled = false }: RecordingCa
     errorCode !== "RECORDING_MIC_ACCESS_DENIED" &&
     errorCode !== "RECORDING_PLATFORM_UNSUPPORTED" &&
     controller.handoff.status !== "retryable";
+  const platform = controller.capability.details?.platform;
+  const isSystemAudioError =
+    errorCode === "RECORDING_SYSTEM_LOOPBACK_INIT_FAILED" ||
+    errorCode === "RECORDING_SYSTEM_AUDIO_UNAVAILABLE";
+  const privacySettingsUrlForError = !showError
+    ? null
+    : errorCode === "RECORDING_MIC_ACCESS_DENIED"
+      ? privacySettingsUrl(platform, "microphone")
+      : platform === "macos" && isSystemAudioError
+        ? privacySettingsUrl(platform, "screenRecording")
+        : null;
 
   useEffect(() => {
     const previousStatus = previousStatusRef.current;
@@ -312,12 +350,12 @@ export function RecordingCard({ controller, startDisabled = false }: RecordingCa
           </button>
         ) : null}
 
-        {showError && errorCode === "RECORDING_MIC_ACCESS_DENIED" ? (
+        {privacySettingsUrlForError ? (
           <button
             className="recording-retry-button"
             type="button"
             onClick={() => {
-              void openUrl("ms-settings:privacy-microphone");
+              void openUrl(privacySettingsUrlForError);
             }}
           >
             <Settings size={15} aria-hidden="true" />
