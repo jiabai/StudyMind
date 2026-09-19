@@ -21,7 +21,8 @@ export type RecordingErrorCode =
   | "RECORDING_SESSION_INVALID"
   | "RECORDING_FINALIZE_FAILED"
   | "RECORDING_STATE_UNAVAILABLE"
-  | "RECORDING_CLEANUP_IN_PROGRESS";
+  | "RECORDING_CLEANUP_IN_PROGRESS"
+  | "RECORDING_LIBRARY_UNAVAILABLE";
 
 export type RecordingClientErrorCode =
   | RecordingErrorCode
@@ -51,6 +52,21 @@ export type RecordingWarningView = {
 
 export type RecordingWarningEvent = RecordingWarningView & {
   sessionId: string;
+};
+
+export type RecordingLibraryEntry = {
+  recordingId: string;
+  path: string;
+  displayName: string;
+  sizeBytes: number;
+  durationMs: number;
+  createdAtMs: number;
+};
+
+export type RecordingLibraryView = {
+  contractVersion: number;
+  entries: RecordingLibraryEntry[];
+  totalBytes: number;
 };
 
 export type RecordingSource = "microphone" | "systemAudio";
@@ -133,6 +149,7 @@ const RECORDING_ERROR_CODES: readonly RecordingErrorCode[] = [
   "RECORDING_FINALIZE_FAILED",
   "RECORDING_STATE_UNAVAILABLE",
   "RECORDING_CLEANUP_IN_PROGRESS",
+  "RECORDING_LIBRARY_UNAVAILABLE",
 ];
 
 const defaultRecordingRunner: RecordingCommandRunner = (command, args) =>
@@ -234,6 +251,14 @@ export async function getRecordingState(
   return parseRecordingState(response);
 }
 
+export async function listLocalRecordings(
+  runner: RecordingCommandRunner = defaultRecordingRunner,
+): Promise<RecordingLibraryView> {
+  return parseRecordingLibraryView(
+    await runRecordingCommand(runner, "list_local_recordings", {}),
+  );
+}
+
 async function runRecordingCommand(
   runner: RecordingCommandRunner,
   command: string,
@@ -244,6 +269,62 @@ async function runRecordingCommand(
   } catch (error) {
     throw mapRecordingCommandError(error);
   }
+}
+
+const RECORDING_LIBRARY_CONTRACT_VERSION = 1;
+
+const RECORDING_LIBRARY_ENTRY_KEYS: readonly string[] = [
+  "recordingId",
+  "path",
+  "displayName",
+  "sizeBytes",
+  "durationMs",
+  "createdAtMs",
+];
+
+function parseRecordingLibraryView(value: unknown): RecordingLibraryView {
+  const response = readRecordingObject(
+    value,
+    ["contractVersion", "entries", "totalBytes"],
+    [],
+  );
+  if (
+    response.contractVersion !== RECORDING_LIBRARY_CONTRACT_VERSION ||
+    !Array.isArray(response.entries) ||
+    !isSafeUnsignedInteger(response.totalBytes)
+  ) {
+    throwInvalidResponse();
+  }
+  const entries = response.entries.map((entry) =>
+    parseRecordingLibraryEntry(entry),
+  );
+  return {
+    contractVersion: RECORDING_LIBRARY_CONTRACT_VERSION,
+    entries,
+    totalBytes: response.totalBytes,
+  };
+}
+
+function parseRecordingLibraryEntry(value: unknown): RecordingLibraryEntry {
+  const entry = readRecordingObject(value, RECORDING_LIBRARY_ENTRY_KEYS, []);
+  if (
+    !isBoundedString(entry.recordingId, MAX_STRING_LENGTH) ||
+    !isBoundedString(entry.path, MAX_STRING_LENGTH) ||
+    !isBoundedString(entry.displayName, MAX_STRING_LENGTH) ||
+    !isSafeUnsignedInteger(entry.sizeBytes) ||
+    !isSafeUnsignedInteger(entry.durationMs) ||
+    !isSafeUnsignedInteger(entry.createdAtMs)
+  ) {
+    throwInvalidResponse();
+  }
+  return {
+    recordingId: entry.recordingId,
+    path: entry.path,
+    displayName: entry.displayName,
+    sizeBytes: entry.sizeBytes,
+    durationMs: entry.durationMs,
+    createdAtMs: entry.createdAtMs,
+  };
 }
 
 function parseRecordingCapabilities(value: unknown): RecordingCapabilities {

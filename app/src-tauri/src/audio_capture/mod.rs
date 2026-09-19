@@ -19,6 +19,7 @@ mod macos;
 #[cfg(all(test, not(target_os = "macos")))]
 #[path = "macos.rs"]
 mod macos_test;
+mod recording_library;
 #[cfg(windows)]
 mod wasapi;
 mod wav_writer;
@@ -44,6 +45,8 @@ pub(crate) const RECORDING_STATE_UNAVAILABLE: RecordingErrorCode =
     RecordingErrorCode::StateUnavailable;
 pub(crate) const RECORDING_CLEANUP_IN_PROGRESS: RecordingErrorCode =
     RecordingErrorCode::CleanupInProgress;
+pub(crate) const RECORDING_LIBRARY_UNAVAILABLE: RecordingErrorCode =
+    RecordingErrorCode::LibraryUnavailable;
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -82,6 +85,8 @@ pub(crate) enum RecordingErrorCode {
     StateUnavailable,
     #[serde(rename = "RECORDING_CLEANUP_IN_PROGRESS")]
     CleanupInProgress,
+    #[serde(rename = "RECORDING_LIBRARY_UNAVAILABLE")]
+    LibraryUnavailable,
 }
 
 impl RecordingErrorCode {
@@ -104,6 +109,7 @@ impl RecordingErrorCode {
             Self::FinalizeFailed => "The recording could not be finalized.",
             Self::StateUnavailable => "The recording state is temporarily unavailable.",
             Self::CleanupInProgress => "The recording is still being cleaned up.",
+            Self::LibraryUnavailable => "The saved recordings could not be listed.",
         }
     }
 }
@@ -1459,6 +1465,13 @@ pub(crate) fn stop_recording(
     session_id: String,
 ) -> Result<RecordingResult, RecordingError> {
     state.stop(&session_id)
+}
+
+#[tauri::command]
+pub(crate) fn list_local_recordings(
+    app: tauri::AppHandle,
+) -> Result<recording_library::RecordingLibraryView, RecordingError> {
+    recording_library::collect_recording_library_for_app(&app)
 }
 
 #[tauri::command]

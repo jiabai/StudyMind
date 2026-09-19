@@ -49,6 +49,8 @@ import { useWindowChromeController } from "./features/window/useWindowChromeCont
 import { useModalFocus } from "./features/modal/useModalFocus";
 import { HeroUploadZone } from "./features/workflow/HeroUploadZone";
 import { RecordingCard } from "./features/workflow/RecordingCard";
+import { RecordingLibraryPanel } from "./features/workflow/RecordingLibraryPanel";
+import { useRecordingLibrary } from "./features/workflow/useRecordingLibrary";
 import { useRecordingController } from "./features/workflow/useRecordingController";
 import { useTaskProcessingController } from "./features/workflow/useTaskProcessingController";
 import { useRecentMedia } from "./hooks/useRecentMedia";
@@ -191,6 +193,7 @@ function App() {
     onLocalMediaSelected: setLocalMediaSelection,
     recordRecent: recentMediaController.recordRecent,
   });
+  const recordingLibraryController = useRecordingLibrary();
   const recordingActive = ["starting", "recording", "stopping"].includes(
     recordingController.session.status,
   );
@@ -737,6 +740,7 @@ function App() {
                     void submitTask(submission, account, openAccountPanel);
                   }}
                 />
+                <RecordingLibraryPanel controller={recordingLibraryController} />
               </div>
             )
           ) : (

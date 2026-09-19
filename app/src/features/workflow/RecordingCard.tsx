@@ -18,6 +18,7 @@ import type {
   RecordingControllerErrorCode,
 } from "./useRecordingController";
 import type { RecordingMode } from "../../recordingClient";
+import { formatClockDuration } from "./formatClockDuration";
 import { useModalFocus } from "../modal/useModalFocus";
 
 export type RecordingCardProps = {
@@ -49,21 +50,6 @@ type RecordingErrorCopyKey =
 
 function isRecordingMode(value: string): value is RecordingMode {
   return value === "mic" || value === "system" || value === "mixed";
-}
-
-function formatElapsed(elapsedMs: number): string {
-  const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
-  const seconds = totalSeconds % 60;
-  const minutes = Math.floor(totalSeconds / 60) % 60;
-  const hours = Math.floor(totalSeconds / 3600);
-  if (hours > 0) {
-    return `${hours.toString().padStart(2, "0")}:${minutes
-      .toString()
-      .padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
-  }
-  return `${minutes.toString().padStart(2, "0")}:${seconds
-    .toString()
-    .padStart(2, "0")}`;
 }
 
 function errorCopyKey(
@@ -321,7 +307,7 @@ export function RecordingCard({ controller, startDisabled = false }: RecordingCa
 
         <div className="recording-elapsed" aria-live="polite">
           <span className="recording-elapsed-label">{t("input.recording.elapsedAria")}</span>
-          <time className="recording-elapsed-value">{formatElapsed(controller.elapsedMs)}</time>
+          <time className="recording-elapsed-value">{formatClockDuration(controller.elapsedMs)}</time>
         </div>
 
         {showError && errorCode ? (

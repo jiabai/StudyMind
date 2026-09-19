@@ -50,6 +50,18 @@ _Avoid_: mode availability, platform support
 空闲态中，已保存的 RecordingMode 因当前能力变化而不可用时，自动选择可用的 `mic` 并告知用户；用户明确点击开始后以及 RecordingSession 已开始后不静默换源。
 _Avoid_: silent downgrade, automatic source switch
 
+**Recording**:
+`RecordingSession` 停止后落盘的成品音频文件，保存在本机录音目录；在被导入前它不是 LocalMediaSource。
+_Avoid_: recording file, recording task
+
+**RecordingLibrary**:
+本机录音目录里所有 Recording 的只读列表视图，按保存时间倒序；它只含已成功落盘的成品，不含临时目录与未完成会话。
+_Avoid_: recent recordings, recording history
+
+**RecordingImport**:
+把一条 Recording 转为当前 LocalMediaSource 的动作，复用既有的按路径选择本地媒体链路，不另造一套。
+_Avoid_: handoff, auto import
+
 **SystemAudioRecording**:
 只保存可捕获的 macOS 全局系统音频，不保存或传递屏幕视频；主显示器只作为 v1 的
 `SCContentFilter` 技术入口，不是用户可见的录音范围。实现前必须验证 audio-only stream 能持续

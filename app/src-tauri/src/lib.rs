@@ -123,6 +123,7 @@ pub fn run() {
             audio_capture::cancel_recording,
             audio_capture::get_recording_state,
             audio_capture::acknowledge_recording_failure,
+            audio_capture::list_local_recordings,
             local_media::select_local_media,
             local_media::select_local_media_by_path,
             local_media::clear_local_media_selection,
