@@ -3504,6 +3504,7 @@ h3 {
   gap: 4px 12px;
   justify-content: space-between;
   padding: 10px 14px;
+  position: relative;
 }
 
 .recording-library-item-name {
@@ -3511,11 +3512,36 @@ h3 {
   font-size: 0.88rem;
   font-weight: 600;
   overflow-wrap: anywhere;
+  position: relative;
 }
 
 .recording-library-item-meta {
   color: var(--text-muted);
   font-size: 0.78rem;
+  position: relative;
+}
+
+/* 新保存的录音高亮 2 秒后淡出：只用 opacity 动画，避免布局与重排。
+   2 秒延迟 + 0.3 秒时长，与 useRecordingLibrary 的 HIGHLIGHT_DURATION_MS 对齐。 */
+.recording-library-item-highlight::before {
+  animation: recording-library-highlight 0.3s ease-out 2s forwards;
+  background: rgba(126, 155, 138, 0.18);
+  border-radius: inherit;
+  content: "";
+  inset: 0;
+  opacity: 1;
+  pointer-events: none;
+  position: absolute;
+}
+
+@keyframes recording-library-highlight {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
 }
 
 .recording-card-header {
@@ -3654,6 +3680,20 @@ h3 {
 .recording-error svg {
   flex: 0 0 auto;
   margin-top: 2px;
+}
+
+.recording-saved-notice {
+  align-items: center;
+  color: var(--success);
+  display: flex;
+  font-size: 0.82rem;
+  gap: 6px;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.recording-saved-notice svg {
+  flex: 0 0 auto;
 }
 
 .recording-card-actions {

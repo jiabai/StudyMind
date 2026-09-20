@@ -17,6 +17,12 @@ function waitingInputSource(): string {
   return start >= 0 && end >= 0 ? appSource.slice(start, end) : "";
 }
 
+function recordingControllerOptionsSource(): string {
+  const start = appSource.indexOf("useRecordingController({");
+  const end = appSource.indexOf("\n  });", start);
+  return start >= 0 && end >= 0 ? appSource.slice(start, end) : "";
+}
+
 describe("App recording entry integration", () => {
   test("renders upload and recording cards together for waiting input", () => {
     const source = waitingInputSource();
@@ -48,9 +54,14 @@ describe("App recording entry integration", () => {
     expect(appSource).toContain('aria-label={tCommon("window.minimize")}');
   });
 
-  test("hands recording output to the existing local media selection flow", () => {
-    expect(appSource).toMatch(
-      /useRecordingController\(\{[\s\S]*?onLocalMediaSelected:\s*setLocalMediaSelection[\s\S]*?\}\)/,
+  test("hands a saved recording to the recording library instead of importing it", () => {
+    const options = recordingControllerOptionsSource();
+
+    expect(options).toContain("onRecordingSaved: applySavedRecording");
+    expect(options).not.toContain("onLocalMediaSelected");
+    expect(options).not.toContain("recordRecent");
+    expect(appSource).toContain(
+      "savedNotice={recordingLibraryController.savedNotice}",
     );
   });
 

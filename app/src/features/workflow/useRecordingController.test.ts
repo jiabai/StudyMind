@@ -11,7 +11,6 @@ import type {
   RecordingWarningView,
   StartRecordingWarning,
 } from "../../recordingClient";
-import type { LocalMediaSelectionView } from "../../localMediaContract";
 import type { UiPreferencesView } from "../../settingsClient";
 
 type StateUpdater<T> = T | ((current: T) => T);
@@ -74,7 +73,6 @@ type RecordingController = {
   activeSessionId: string | null;
   elapsedMs: number;
   discardConfirmationOpen: boolean;
-  handoff: { status: "idle" | "retryable"; errorCode?: string };
   setMode: (mode: RecordingMode) => void;
   start: () => Promise<void>;
   stop: () => Promise<void>;
@@ -82,7 +80,6 @@ type RecordingController = {
   confirmDiscard: () => Promise<void>;
   dismissFailure: () => Promise<void>;
   closeDiscard: () => void;
-  retryHandoff: () => Promise<void>;
   isModeAvailable: (mode: RecordingMode) => boolean;
   modeSelectionDisabled: boolean;
 };
@@ -107,9 +104,7 @@ type ControllerDependencies = {
   };
   readPreferences: () => Promise<UiPreferencesView>;
   saveAudioSourceMode: (mode: RecordingMode) => Promise<UiPreferencesView>;
-  selectLocalMediaByPath: (path: string) => Promise<LocalMediaSelectionView>;
-  onLocalMediaSelected: (selection: LocalMediaSelectionView) => void;
-  recordRecent: (path: string, selection: LocalMediaSelectionView) => void;
+  onRecordingSaved: (result: RecordingResult) => void;
   onError: (errorCode: string) => void;
   clock: () => number;
   timer: TimerHarness["timer"];
@@ -202,14 +197,6 @@ const RESULT: RecordingResult = {
   durationMs: 3_500,
   sizeBytes: 90_000,
   warnings: [],
-};
-
-const SELECTION: LocalMediaSelectionView = {
-  selectionToken: "01234567-89ab-4def-8abc-0123456789ab",
-  displayName: "lecture.wav",
-  mediaKind: "audio",
-  extension: "wav",
-  sizeBytes: 90_000,
 };
 
 function createHookHarness(): HookHarness {
@@ -346,11 +333,7 @@ async function createController(
     saveAudioSourceMode: vi
       .fn<(mode: RecordingMode) => Promise<UiPreferencesView>>()
       .mockResolvedValue(PREFERENCES),
-    selectLocalMediaByPath: vi
-      .fn<(path: string) => Promise<LocalMediaSelectionView>>()
-      .mockResolvedValue(SELECTION),
-    onLocalMediaSelected: vi.fn<(selection: LocalMediaSelectionView) => void>(),
-    recordRecent: vi.fn<(path: string, selection: LocalMediaSelectionView) => void>(),
+    onRecordingSaved: vi.fn<(result: RecordingResult) => void>(),
     onError: vi.fn<(errorCode: string) => void>(),
     clock: () => 1_000,
     timer: timer.timer,
@@ -390,9 +373,7 @@ async function createController(
       recordingClient: deps.recordingClient,
       readPreferences: deps.readPreferences,
       saveAudioSourceMode: deps.saveAudioSourceMode,
-      selectLocalMediaByPath: deps.selectLocalMediaByPath,
-      onLocalMediaSelected: deps.onLocalMediaSelected,
-      recordRecent: deps.recordRecent,
+      onRecordingSaved: deps.onRecordingSaved,
       onError: deps.onError,
       clock: deps.clock,
       timer: deps.timer,
@@ -828,8 +809,7 @@ describe("useRecordingController", () => {
       },
       readPreferences: vi.fn().mockResolvedValue(PREFERENCES),
       saveAudioSourceMode: vi.fn(),
-      selectLocalMediaByPath: vi.fn(),
-      onLocalMediaSelected: vi.fn(),
+      onRecordingSaved: vi.fn(),
       onError: vi.fn(),
       clock: () => 1_000,
       timer: createTimerHarness().timer,
@@ -957,14 +937,12 @@ describe("useRecordingController", () => {
 
     expect(stopRecording).toHaveBeenCalledOnce();
     expect(stopRecording).toHaveBeenCalledWith("macos-mic-session");
-    expect(deps.selectLocalMediaByPath).toHaveBeenCalledWith(RESULT.path);
-    expect(deps.recordRecent).toHaveBeenCalledWith(RESULT.path, SELECTION);
-    expect(deps.onLocalMediaSelected).toHaveBeenCalledWith(SELECTION);
+    expect(deps.onRecordingSaved).toHaveBeenCalledWith(RESULT);
     expect(controller.session).toEqual({ status: "idle" });
     expect(recordingBlocksUploadAndNavigation(controller)).toBe(false);
   });
 
-  test("cancels a macOS mic-only recording without handing it off", async () => {
+  test("cancels a macOS mic-only recording without saving it", async () => {
     const { deps, render } = await createMacosMicController();
     let controller = render();
     await settle();
@@ -984,7 +962,7 @@ describe("useRecordingController", () => {
       "macos-mic-session",
     );
     expect(deps.recordingClient.stopRecording).not.toHaveBeenCalled();
-    expect(deps.selectLocalMediaByPath).not.toHaveBeenCalled();
+    expect(deps.onRecordingSaved).not.toHaveBeenCalled();
     expect(controller.session).toEqual({ status: "idle" });
     expect(controller.activeSessionId).toBeNull();
   });
@@ -1588,10 +1566,7 @@ describe("useRecordingController", () => {
     const nextSaveAudioSourceMode = vi
       .fn<(mode: RecordingMode) => Promise<UiPreferencesView>>()
       .mockResolvedValue(PREFERENCES);
-    const nextSelectLocalMediaByPath = vi
-      .fn<(path: string) => Promise<LocalMediaSelectionView>>()
-      .mockResolvedValue(SELECTION);
-    const nextOnLocalMediaSelected = vi.fn();
+    const nextOnRecordingSaved = vi.fn<(result: RecordingResult) => void>();
     const created = await createController();
 
     let controller = created.render();
@@ -1605,8 +1580,7 @@ describe("useRecordingController", () => {
       cancelRecording: vi.fn().mockResolvedValue(undefined),
     };
     created.deps.saveAudioSourceMode = nextSaveAudioSourceMode;
-    created.deps.selectLocalMediaByPath = nextSelectLocalMediaByPath;
-    created.deps.onLocalMediaSelected = nextOnLocalMediaSelected;
+    created.deps.onRecordingSaved = nextOnRecordingSaved;
     controller = created.render();
 
     await controller.start();
@@ -1616,8 +1590,7 @@ describe("useRecordingController", () => {
     expect(nextGetCapabilities).toHaveBeenCalled();
     expect(nextStartRecording).toHaveBeenCalledWith("mic");
     expect(nextSaveAudioSourceMode).toHaveBeenCalledWith("mic");
-    expect(nextSelectLocalMediaByPath).toHaveBeenCalledWith(RESULT.path);
-    expect(nextOnLocalMediaSelected).toHaveBeenCalledWith(SELECTION);
+    expect(nextOnRecordingSaved).toHaveBeenCalledWith(RESULT);
   });
 
   test("enters recording and saves only after a successful start", async () => {
@@ -1775,7 +1748,7 @@ describe("useRecordingController", () => {
     expect(controller.mode).toBe("mic");
   });
 
-  test("stops once, hands off the local media, and never submits automatically", async () => {
+  test("stops once, saves the recording, and imports nothing automatically", async () => {
     const { deps, render, harness } = await startRecordingSession();
     let controller = render();
 
@@ -1784,64 +1757,60 @@ describe("useRecordingController", () => {
 
     expect(deps.recordingClient.stopRecording).toHaveBeenCalledTimes(1);
     expect(deps.recordingClient.stopRecording).toHaveBeenCalledWith("session-1");
-    expect(deps.selectLocalMediaByPath).toHaveBeenCalledWith(RESULT.path);
-    expect(deps.onLocalMediaSelected).toHaveBeenCalledWith(SELECTION);
+    expect(deps.onRecordingSaved).toHaveBeenCalledTimes(1);
+    expect(deps.onRecordingSaved).toHaveBeenCalledWith(RESULT);
     expect(controller.session.status).toBe("idle");
-    expect(controller.handoff).toEqual({ status: "idle" });
+    expect(controller.activeSessionId).toBeNull();
     expect(harness.stateUpdateCount()).toBeGreaterThan(0);
   });
 
-  test("keeps a trusted stop result for handoff retry without repeating stop", async () => {
-    const selectLocalMediaByPath = vi
-      .fn()
-      .mockRejectedValueOnce(new Error("C:\\private\\session-token.wav"))
-      .mockResolvedValueOnce(SELECTION);
-    const { deps, render } = await startRecordingSession({ selectLocalMediaByPath });
-    let controller = render();
+  test("keeps the saved recording path out of controller state", async () => {
+    const { render, controller: started } = await startRecordingSession();
+    await started.stop();
+    const controller = render();
 
-    await controller.stop();
-    controller = render();
-    expect(controller.session).toEqual({
-      status: "error",
-      errorCode: "RECORDING_HANDOFF_FAILED",
-    });
-    expect(controller.handoff).toEqual({
-      status: "retryable",
-      errorCode: "RECORDING_HANDOFF_FAILED",
-    });
-    expect(JSON.stringify(controller)).not.toContain("session-token");
-
-    await controller.retryHandoff();
-    controller = render();
-    expect(deps.recordingClient.stopRecording).toHaveBeenCalledTimes(1);
-    expect(selectLocalMediaByPath).toHaveBeenCalledTimes(2);
-    expect(deps.onLocalMediaSelected).toHaveBeenCalledWith(SELECTION);
-    expect(controller.session.status).toBe("idle");
-    expect(controller.handoff).toEqual({ status: "idle" });
+    expect(controller.session).toEqual({ status: "idle" });
+    expect(JSON.stringify(controller)).not.toContain("recordings");
+    expect(JSON.stringify(controller)).not.toContain("lecture.wav");
   });
 
-  test("clears stale handoff state and result when a new start begins", async () => {
-    const selectLocalMediaByPath = vi
-      .fn()
-      .mockRejectedValueOnce(new Error("handoff failed"));
+  test("does not report a saved recording when the stop fails", async () => {
+    const stopRecording = vi.fn().mockRejectedValueOnce({
+      code: "RECORDING_FINALIZE_FAILED",
+    });
     const { deps, render } = await startRecordingSession({
-      selectLocalMediaByPath,
+      recordingClient: {
+        getRecordingCapabilities: vi.fn().mockResolvedValue(CAPABILITIES),
+        getRecordingState: vi.fn().mockResolvedValue(null),
+        startRecording: vi
+          .fn()
+          .mockResolvedValue({ sessionId: "session-1", warnings: [] }),
+        stopRecording,
+        cancelRecording: vi.fn(),
+      },
     });
     let controller = render();
 
     await controller.stop();
     controller = render();
-    expect(controller.handoff.status).toBe("retryable");
-    expect(selectLocalMediaByPath).toHaveBeenCalledTimes(1);
 
-    await controller.start();
-    controller = render();
-    expect(controller.session.status).toBe("recording");
-    expect(controller.handoff).toEqual({ status: "idle" });
+    expect(deps.onRecordingSaved).not.toHaveBeenCalled();
+    expect(controller.session).toMatchObject({
+      status: "error",
+      errorCode: "RECORDING_FINALIZE_FAILED",
+    });
+  });
 
-    await controller.retryHandoff();
-    expect(selectLocalMediaByPath).toHaveBeenCalledTimes(1);
-    expect(deps.recordingClient.startRecording).toHaveBeenCalledTimes(2);
+  test("does not report a saved recording when the component is gone", async () => {
+    const { deps, render, harness } = await startRecordingSession();
+    let controller = render();
+
+    const stopping = controller.stop();
+    harness.unmount();
+    await stopping;
+
+    expect(deps.recordingClient.stopRecording).toHaveBeenCalledTimes(1);
+    expect(deps.onRecordingSaved).not.toHaveBeenCalled();
   });
 
   test("clears a failed stop operation and allows a fresh start", async () => {

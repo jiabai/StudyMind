@@ -26,10 +26,6 @@ import {
   saveRecordingAudioSourceMode as defaultSaveAudioSourceMode,
   type UiPreferencesView,
 } from "../../settingsClient";
-import {
-  selectLocalMediaByPath as defaultSelectLocalMediaByPath,
-} from "../../localMediaClient";
-import type { LocalMediaSelectionView } from "../../localMediaContract";
 
 export type RecordingCapabilityStatus =
   | "loading"
@@ -47,7 +43,6 @@ export type RecordingSessionStatus =
 
 export type RecordingControllerErrorCode =
   | RecordingClientErrorCode
-  | "RECORDING_HANDOFF_FAILED"
   | "RECORDING_PREFERENCES_UNAVAILABLE"
   | "RECORDING_SOURCE_UNAVAILABLE"
   | "RECORDING_CANCEL_FAILED";
@@ -65,11 +60,6 @@ export type RecordingSessionView = {
   cleanupPending?: boolean;
   warningCode?: RecordingControllerErrorCode;
   warnings?: RecordingWarningView[];
-};
-
-export type RecordingHandoffView = {
-  status: "idle" | "retryable";
-  errorCode?: RecordingControllerErrorCode;
 };
 
 export type RecordingTimer = {
@@ -98,11 +88,7 @@ export type UseRecordingControllerOptions = {
   saveAudioSourceMode?: (
     mode: RecordingMode,
   ) => Promise<UiPreferencesView>;
-  selectLocalMediaByPath?: (
-    path: string,
-  ) => Promise<LocalMediaSelectionView>;
-  onLocalMediaSelected?: (selection: LocalMediaSelectionView) => void;
-  recordRecent?: (path: string, selection: LocalMediaSelectionView) => void;
+  onRecordingSaved?: (result: RecordingResult) => void;
   clock?: () => number;
   timer?: RecordingTimer;
   onError?: (errorCode: RecordingControllerErrorCode) => void;
@@ -115,7 +101,6 @@ export type RecordingController = {
   activeSessionId: string | null;
   elapsedMs: number;
   discardConfirmationOpen: boolean;
-  handoff: RecordingHandoffView;
   setMode: (mode: RecordingMode) => void;
   start: () => Promise<void>;
   stop: () => Promise<void>;
@@ -123,7 +108,6 @@ export type RecordingController = {
   confirmDiscard: () => Promise<void>;
   dismissFailure: () => Promise<void>;
   closeDiscard: () => void;
-  retryHandoff: () => Promise<void>;
   refreshCapabilities: () => Promise<void>;
   isModeAvailable: (mode: RecordingMode) => boolean;
   modeSelectionDisabled: boolean;
@@ -168,7 +152,6 @@ function isStableRecordingErrorCode(
   return (
     typeof value === "string" &&
     (RECORDING_CLIENT_ERROR_CODES.has(value) ||
-      value === "RECORDING_HANDOFF_FAILED" ||
       value === "RECORDING_PREFERENCES_UNAVAILABLE" ||
       value === "RECORDING_SOURCE_UNAVAILABLE" ||
       value === "RECORDING_CANCEL_FAILED")
@@ -272,9 +255,7 @@ export function useRecordingController({
   },
   readPreferences = defaultReadPreferences,
   saveAudioSourceMode = defaultSaveAudioSourceMode,
-  selectLocalMediaByPath = defaultSelectLocalMediaByPath,
-  onLocalMediaSelected = () => undefined,
-  recordRecent = () => undefined,
+  onRecordingSaved = () => undefined,
   clock = Date.now,
   timer = DEFAULT_TIMER,
   onError,
@@ -290,9 +271,6 @@ export function useRecordingController({
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [discardConfirmationOpen, setDiscardConfirmationOpen] = useState(false);
-  const [handoff, setHandoff] = useState<RecordingHandoffView>({
-    status: "idle",
-  });
 
   const mountedRef = useRef(false);
   const capabilityRef = useRef(capability);
@@ -302,7 +280,6 @@ export function useRecordingController({
   const startedAtRef = useRef(startedAt);
   const discardConfirmationRef = useRef(discardConfirmationOpen);
   const preferenceModeRef = useRef<RecordingMode>("mic");
-  const handoffResultRef = useRef<RecordingResult | null>(null);
   const pendingFailureEventsRef = useRef(new Map<string, RecordingFailureView>());
   const failureIdentityRef = useRef<RecordingFailureIdentity | null>(null);
   const failedSessionIdRef = useRef<string | null>(null);
@@ -310,13 +287,11 @@ export function useRecordingController({
   const startCapabilityRequestRef = useRef(0);
   const preferenceRequestRef = useRef(0);
   const preferenceSaveQueueRef = useRef(Promise.resolve());
-  const operationRef = useRef<"start" | "stop" | "cancel" | "handoff" | null>(null);
+  const operationRef = useRef<"start" | "stop" | "cancel" | null>(null);
   const recordingClientRef = useRef(recordingClient);
   const readPreferencesRef = useRef(readPreferences);
   const saveAudioSourceModeRef = useRef(saveAudioSourceMode);
-  const selectLocalMediaByPathRef = useRef(selectLocalMediaByPath);
-  const onLocalMediaSelectedRef = useRef(onLocalMediaSelected);
-  const recordRecentRef = useRef(recordRecent);
+  const onRecordingSavedRef = useRef(onRecordingSaved);
   const onErrorRef = useRef(onError);
   const clockRef = useRef(clock);
 
@@ -329,9 +304,7 @@ export function useRecordingController({
   recordingClientRef.current = recordingClient;
   readPreferencesRef.current = readPreferences;
   saveAudioSourceModeRef.current = saveAudioSourceMode;
-  selectLocalMediaByPathRef.current = selectLocalMediaByPath;
-  onLocalMediaSelectedRef.current = onLocalMediaSelected;
-  recordRecentRef.current = recordRecent;
+  onRecordingSavedRef.current = onRecordingSaved;
   onErrorRef.current = onError;
   clockRef.current = clock;
 
@@ -433,8 +406,6 @@ export function useRecordingController({
     setElapsedMs(0);
     discardConfirmationRef.current = false;
     setDiscardConfirmationOpen(false);
-    handoffResultRef.current = null;
-    setHandoff({ status: "idle" });
     updateSession({
       status: "error",
       errorCode: effectiveIdentity.errorCode,
@@ -645,8 +616,6 @@ export function useRecordingController({
     failureIdentityRef.current = null;
     failedSessionIdRef.current = null;
     pendingFailureEventsRef.current.clear();
-    handoffResultRef.current = null;
-    setHandoff({ status: "idle" });
     updateSession({ status: "starting" });
     setActiveSessionId(null);
     activeSessionIdRef.current = null;
@@ -731,26 +700,6 @@ export function useRecordingController({
     }
   }, []);
 
-  const completeHandoff = async (result: RecordingResult): Promise<boolean> => {
-    try {
-      const selection = await selectLocalMediaByPathRef.current(result.path);
-      if (!mountedRef.current) return false;
-      recordRecentRef.current(result.path, selection);
-      onLocalMediaSelectedRef.current(selection);
-      handoffResultRef.current = null;
-      setHandoff({ status: "idle" });
-      updateSession({ status: "idle" });
-      return true;
-    } catch {
-      if (!mountedRef.current) return false;
-      const errorCode = "RECORDING_HANDOFF_FAILED" as const;
-      setHandoff({ status: "retryable", errorCode });
-      updateSession({ status: "error", errorCode });
-      reportError(errorCode);
-      return false;
-    }
-  };
-
   const stop = useCallback(async () => {
     const sessionId = activeSessionIdRef.current;
     if (
@@ -766,16 +715,16 @@ export function useRecordingController({
     try {
       const result = await recordingClientRef.current.stopRecording(sessionId);
       if (!mountedRef.current) return;
-      handoffResultRef.current = result;
       setActiveSessionId(null);
       activeSessionIdRef.current = null;
       setStartedAt(null);
       startedAtRef.current = null;
       setElapsedMs(0);
-      await completeHandoff(result);
+      updateSession({ status: "idle" });
+      onRecordingSavedRef.current(result);
     } catch (error) {
       if (mountedRef.current) {
-    const currentSessionStatus = sessionRef.current.status as RecordingSessionStatus;
+        const currentSessionStatus = sessionRef.current.status as RecordingSessionStatus;
         if (
           currentSessionStatus === "error" &&
           failedSessionIdRef.current === sessionId
@@ -919,21 +868,6 @@ export function useRecordingController({
     }
   }, []);
 
-  const retryHandoff = useCallback(async () => {
-    const result = handoffResultRef.current;
-    if (
-      operationRef.current ||
-      handoff.status !== "retryable" ||
-      !result ||
-      !mountedRef.current
-    ) {
-      return;
-    }
-    operationRef.current = "handoff";
-    await completeHandoff(result);
-    operationRef.current = null;
-  }, [handoff.status]);
-
   useEffect(() => {
     mountedRef.current = true;
     let disposed = false;
@@ -1027,7 +961,6 @@ export function useRecordingController({
     activeSessionId,
     elapsedMs,
     discardConfirmationOpen,
-    handoff,
     setMode,
     start,
     stop,
@@ -1035,7 +968,6 @@ export function useRecordingController({
     confirmDiscard,
     dismissFailure,
     closeDiscard,
-    retryHandoff,
     refreshCapabilities: refreshRecordingCapabilities,
     isModeAvailable,
     modeSelectionDisabled:

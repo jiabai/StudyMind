@@ -189,11 +189,12 @@ function App() {
     aiBlockerMessage: accountAiBlockerMessage,
   });
   const recentMediaController = useRecentMedia();
-  const recordingController = useRecordingController({
-    onLocalMediaSelected: setLocalMediaSelection,
-    recordRecent: recentMediaController.recordRecent,
-  });
   const recordingLibraryController = useRecordingLibrary();
+  const { applySaved: applySavedRecording } = recordingLibraryController;
+  // 停止录音只负责把成品落盘：交给录音库置顶并高亮，是否导入由用户在列表里决定。
+  const recordingController = useRecordingController({
+    onRecordingSaved: applySavedRecording,
+  });
   const recordingActive = ["starting", "recording", "stopping"].includes(
     recordingController.session.status,
   );
@@ -725,6 +726,7 @@ function App() {
                 <RecordingCard
                   controller={recordingController}
                   startDisabled={accountLoading}
+                  savedNotice={recordingLibraryController.savedNotice}
                 />
                 <HeroUploadZone
                   focusRef={uploadZoneRef}

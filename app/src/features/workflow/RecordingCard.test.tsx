@@ -26,7 +26,6 @@ function createController(
     activeSessionId: null,
     elapsedMs: 0,
     discardConfirmationOpen: false,
-    handoff: { status: "idle" },
     setMode: vi.fn(),
     start: vi.fn(async () => undefined),
     stop: vi.fn(async () => undefined),
@@ -34,7 +33,6 @@ function createController(
     confirmDiscard: vi.fn(async () => undefined),
     dismissFailure: vi.fn(async () => undefined),
     closeDiscard: vi.fn(),
-    retryHandoff: vi.fn(async () => undefined),
     refreshCapabilities: vi.fn(async () => undefined),
     isModeAvailable: vi.fn(() => true),
     modeSelectionDisabled: false,
@@ -44,8 +42,12 @@ function createController(
 
 function renderCard(
   controller: RecordingController = createController(),
+  props: Partial<ComponentProps<typeof RecordingCard>> = {},
 ): string {
-  const props: ComponentProps<typeof RecordingCard> = { controller };
+  const cardProps: ComponentProps<typeof RecordingCard> = {
+    controller,
+    ...props,
+  };
   return renderToStaticMarkup(
     <LocaleProvider
       initialOutcome={{
@@ -55,7 +57,7 @@ function renderCard(
         notice: null,
       }}
     >
-      <RecordingCard {...props} />
+      <RecordingCard {...cardProps} />
     </LocaleProvider>,
   );
 }
@@ -157,17 +159,13 @@ describe("RecordingCard", () => {
     expect(windows).not.toContain("Open system settings");
   });
 
-  test("renders an accessible discard confirmation and retryable handoff action", () => {
+  test("renders an accessible discard confirmation", () => {
     const markup = renderCard({
       ...createController({
         session: { status: "recording" },
         activeSessionId: "session-1",
         elapsedMs: 65_000,
         discardConfirmationOpen: true,
-        handoff: {
-          status: "retryable",
-          errorCode: "RECORDING_HANDOFF_FAILED",
-        },
       }),
     });
 
@@ -176,9 +174,37 @@ describe("RecordingCard", () => {
     expect(markup).toContain('role="dialog"');
     expect(markup).toContain('aria-modal="true"');
     expect(markup).toContain("Discard recording");
-    expect(markup).toContain("recording-retry-button");
-    expect(markup).toContain("Retry handoff");
     expect(markup).toContain("01:05");
+  });
+
+  test("stops without promising an import", () => {
+    const markup = renderCard({
+      ...createController({
+        session: { status: "recording" },
+        activeSessionId: "session-1",
+      }),
+    });
+
+    expect(markup).toContain("Stop recording");
+    expect(markup).not.toContain("Stop and import");
+    expect(markup).not.toContain("Retry handoff");
+  });
+
+  test("shows the saved line as a light hint instead of a dialog", () => {
+    const markup = renderCard(createController(), { savedNotice: true });
+
+    expect(markup).toContain("recording-saved-notice");
+    expect(markup).toContain("Saved to your recordings");
+    expect(markup).toContain('role="status"');
+    expect(markup).not.toContain('role="dialog"');
+    expect(markup).not.toContain("Import");
+  });
+
+  test("keeps the saved line out of the card until a recording is saved", () => {
+    const markup = renderCard(createController());
+
+    expect(markup).not.toContain("recording-saved-notice");
+    expect(markup).not.toContain("Saved to your recordings");
   });
 
   test("restores focus across recording and discard state transitions", () => {

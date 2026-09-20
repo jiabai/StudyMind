@@ -1,4 +1,5 @@
 import {
+  Check,
   CircleAlert,
   Layers,
   LoaderCircle,
@@ -24,6 +25,7 @@ import { useModalFocus } from "../modal/useModalFocus";
 export type RecordingCardProps = {
   controller: RecordingController;
   startDisabled?: boolean;
+  savedNotice?: boolean;
 };
 
 const SOURCE_MODES: readonly RecordingMode[] = ["mic", "system", "mixed"];
@@ -37,7 +39,6 @@ type RecordingErrorCopyKey =
   | "input.recording.error.systemUnavailable"
   | "input.recording.error.mixedUnavailable"
   | "input.recording.error.sourceUnavailable"
-  | "input.recording.error.handoff"
   | "input.recording.error.preferences"
   | "input.recording.error.cancel"
   | "input.recording.error.empty"
@@ -73,8 +74,6 @@ function errorCopyKey(
       return "input.recording.error.mixedUnavailable";
     case "RECORDING_SOURCE_UNAVAILABLE":
       return "input.recording.error.sourceUnavailable";
-    case "RECORDING_HANDOFF_FAILED":
-      return "input.recording.error.handoff";
     case "RECORDING_PREFERENCES_UNAVAILABLE":
       return "input.recording.error.preferences";
     case "RECORDING_CANCEL_FAILED":
@@ -162,7 +161,11 @@ function CapabilityNotice({ controller }: RecordingCardProps) {
   return <p className="recording-capability-notice" role="status">{t("input.recording.capability.ready")}</p>;
 }
 
-export function RecordingCard({ controller, startDisabled = false }: RecordingCardProps) {
+export function RecordingCard({
+  controller,
+  startDisabled = false,
+  savedNotice = false,
+}: RecordingCardProps) {
   const { t } = useTranslation("workflow");
   const startButtonRef = useRef<HTMLButtonElement>(null);
   const stopButtonRef = useRef<HTMLButtonElement>(null);
@@ -179,13 +182,10 @@ export function RecordingCard({ controller, startDisabled = false }: RecordingCa
     controller.session.status === "recording" ||
     controller.session.status === "stopping";
   const errorCode =
-    controller.handoff.errorCode ??
-    controller.session.errorCode ??
-    controller.capability.errorCode;
+    controller.session.errorCode ?? controller.capability.errorCode;
   const showError = Boolean(
     errorCode &&
       (controller.session.status === "error" ||
-        controller.handoff.status === "retryable" ||
         controller.capability.status === "unsupported" ||
         controller.capability.status === "unavailable"),
   );
@@ -199,8 +199,7 @@ export function RecordingCard({ controller, startDisabled = false }: RecordingCa
   const canRetryCapabilities =
     showError &&
     errorCode !== "RECORDING_MIC_ACCESS_DENIED" &&
-    errorCode !== "RECORDING_PLATFORM_UNSUPPORTED" &&
-    controller.handoff.status !== "retryable";
+    errorCode !== "RECORDING_PLATFORM_UNSUPPORTED";
   const platform = controller.capability.details?.platform;
   const isSystemAudioError =
     errorCode === "RECORDING_SYSTEM_LOOPBACK_INIT_FAILED" ||
@@ -416,15 +415,11 @@ export function RecordingCard({ controller, startDisabled = false }: RecordingCa
           )}
         </div>
 
-        {controller.handoff.status === "retryable" ? (
-          <button
-            className="recording-retry-button"
-            type="button"
-            onClick={() => void controller.retryHandoff()}
-          >
-            <RefreshCw size={15} aria-hidden="true" />
-            <span>{t("input.recording.retryHandoff")}</span>
-          </button>
+        {savedNotice ? (
+          <p className="recording-saved-notice" role="status">
+            <Check size={15} aria-hidden="true" />
+            <span>{t("input.recording.savedNotice")}</span>
+          </p>
         ) : null}
       </div>
 

@@ -1,4 +1,5 @@
 import { ListMusic, RefreshCw } from "lucide-react";
+import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 
 import { useLocale } from "../../i18n/LocaleProvider";
@@ -16,9 +17,22 @@ export function RecordingLibraryPanel({
   const { t } = useTranslation("workflow");
   const { resolvedLocale } = useLocale();
   const scope = "input.recordingLibrary";
+  const panelRef = useRef<HTMLElement>(null);
+
+  // 新保存的录音出现时把列表滚进视野。只滚动，不自动导入，也不把焦点移到导入按钮。
+  useEffect(() => {
+    if (!controller.highlightedId) {
+      return;
+    }
+    panelRef.current?.scrollIntoView({ block: "nearest" });
+  }, [controller.highlightedId]);
 
   return (
-    <section className="recording-library-card" aria-label={t(`${scope}.title`)}>
+    <section
+      className="recording-library-card"
+      aria-label={t(`${scope}.title`)}
+      ref={panelRef}
+    >
       <header className="recording-library-header">
         <span className="recording-library-icon" aria-hidden="true">
           <ListMusic size={18} />
@@ -68,7 +82,14 @@ export function RecordingLibraryPanel({
           </p>
           <ul className="recording-library-list" aria-label={t(`${scope}.listAria`)}>
             {controller.entries.map((entry) => (
-              <li className="recording-library-item" key={entry.recordingId}>
+              <li
+                className={`recording-library-item${
+                  entry.recordingId === controller.highlightedId
+                    ? " recording-library-item-highlight"
+                    : ""
+                }`}
+                key={entry.recordingId}
+              >
                 <span className="recording-library-item-name">
                   {entry.displayName}
                 </span>

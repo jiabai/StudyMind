@@ -4,6 +4,7 @@ import {
   RecordingClientError,
   type RecordingLibraryEntry,
   type RecordingLibraryView,
+  type RecordingResult,
 } from "../../recordingClient";
 
 type StateUpdater<T> = T | ((current: T) => T);
@@ -99,6 +100,14 @@ function view(entries: RecordingLibraryEntry[]): RecordingLibraryView {
   };
 }
 
+const SAVED_RESULT: RecordingResult = {
+  path: "C:\\recordings\\recording_4000.wav",
+  displayName: "recording_4000.wav",
+  durationMs: 20_000,
+  sizeBytes: 640_000,
+  warnings: [],
+};
+
 type Deferred = {
   promise: Promise<RecordingLibraryView>;
   resolve: (value: RecordingLibraryView) => void;
@@ -123,6 +132,10 @@ function flush(): Promise<void> {
 
 async function createLibrary(
   listRecordings: () => Promise<RecordingLibraryView>,
+  options: {
+    now?: () => number;
+    scheduleTimeout?: (run: () => void, delayMs: number) => () => void;
+  } = {},
 ) {
   const harness = createHookHarness();
   vi.doMock("react", () => ({
@@ -139,7 +152,7 @@ async function createLibrary(
   return {
     render: () => {
       harness.resetRender();
-      return loadHook({ listRecordings });
+      return loadHook({ listRecordings, ...options });
     },
     runEffects: harness.runEffects,
     runCleanups: harness.runCleanups,
@@ -295,5 +308,161 @@ describe("useRecordingLibrary", () => {
 
     expect(render().status).toBe("ready");
     expect(render().errorCode).toBeUndefined();
+  });
+
+  test("inserts a saved recording at the top before the listing lands", async () => {
+    const pending = deferred();
+    const { render, runEffects } = await createLibrary(() => pending.promise, {
+      now: () => 5_000,
+    });
+
+    render();
+    runEffects();
+    render().applySaved(SAVED_RESULT);
+
+    const controller = render();
+    expect(controller.status).toBe("ready");
+    expect(controller.entries).toEqual([
+      {
+        recordingId: "recording_4000.wav",
+        path: "C:\\recordings\\recording_4000.wav",
+        displayName: "recording_4000.wav",
+        sizeBytes: 640_000,
+        durationMs: 20_000,
+        createdAtMs: 5_000,
+      },
+    ]);
+    expect(controller.totalBytes).toBe(640_000);
+    pending.resolve(view([]));
+  });
+
+  test("keeps one entry when the same recording is saved twice", async () => {
+    const { render, runEffects } = await createLibrary(async () => view([]), {
+      now: () => 5_000,
+    });
+
+    render();
+    runEffects();
+    await flush();
+    render().applySaved(SAVED_RESULT);
+    render().applySaved(SAVED_RESULT);
+
+    expect(render().entries.map((item) => item.recordingId)).toEqual([
+      "recording_4000.wav",
+    ]);
+    expect(render().totalBytes).toBe(640_000);
+  });
+
+  test("calibrates the top entry with the authoritative listing", async () => {
+    let call = 0;
+    const { render, runEffects } = await createLibrary(
+      async () => {
+        call += 1;
+        return call === 1
+          ? view([])
+          : view([entry("recording_4000.wav"), entry("recording_3000.wav")]);
+      },
+      { now: () => 5_000 },
+    );
+
+    render();
+    runEffects();
+    await flush();
+    render().applySaved(SAVED_RESULT);
+    await flush();
+
+    const controller = render();
+    expect(controller.entries.map((item) => item.recordingId)).toEqual([
+      "recording_4000.wav",
+      "recording_3000.wav",
+    ]);
+    expect(controller.entries[0].durationMs).toBe(1_000);
+    expect(controller.highlightedId).toBe("recording_4000.wav");
+  });
+
+  test("highlights the saved recording and clears both notices after their windows", async () => {
+    const scheduled: { run: () => void; delayMs: number }[] = [];
+    const { render, runEffects } = await createLibrary(async () => view([]), {
+      now: () => 5_000,
+      scheduleTimeout: (run, delayMs) => {
+        scheduled.push({ run, delayMs });
+        return () => undefined;
+      },
+    });
+
+    render();
+    runEffects();
+    await flush();
+    expect(render().highlightedId).toBeNull();
+    expect(render().savedNotice).toBe(false);
+
+    render().applySaved(SAVED_RESULT);
+    const controller = render();
+    expect(controller.highlightedId).toBe("recording_4000.wav");
+    expect(controller.savedNotice).toBe(true);
+    expect(scheduled.map((entry) => entry.delayMs)).toEqual([2_300, 4_000]);
+
+    for (const entry of scheduled) entry.run();
+    const cleared = render();
+    expect(cleared.highlightedId).toBeNull();
+    expect(cleared.savedNotice).toBe(false);
+  });
+
+  test("restarts both notice windows when a later recording is saved", async () => {
+    const cancelled: number[] = [];
+    const scheduled: { run: () => void; delayMs: number }[] = [];
+    const { render, runEffects } = await createLibrary(async () => view([]), {
+      now: () => 5_000,
+      scheduleTimeout: (run, delayMs) => {
+        const handle = scheduled.length;
+        scheduled.push({ run, delayMs });
+        return () => cancelled.push(handle);
+      },
+    });
+
+    render();
+    runEffects();
+    await flush();
+    render().applySaved(SAVED_RESULT);
+    render().applySaved(SAVED_RESULT);
+
+    expect(cancelled).toEqual([0, 1]);
+    expect(scheduled.map((entry) => entry.delayMs)).toEqual([
+      2_300,
+      4_000,
+      2_300,
+      4_000,
+    ]);
+    expect(render().savedNotice).toBe(true);
+  });
+
+  test("keeps the saved entry when the calibrating refresh fails", async () => {
+    let call = 0;
+    const { render, runEffects } = await createLibrary(async () => {
+      call += 1;
+      if (call === 1) return view([entry("recording_1000.wav")]);
+      throw new RecordingClientError("RECORDING_LIBRARY_UNAVAILABLE");
+    }, { now: () => 5_000 });
+
+    render();
+    runEffects();
+    await flush();
+    render().applySaved(SAVED_RESULT);
+    await flush();
+
+    const controller = render();
+    expect(controller.status).toBe("error");
+    expect(controller.errorCode).toBe("RECORDING_LIBRARY_UNAVAILABLE");
+    expect(controller.entries).toEqual([
+      {
+        recordingId: "recording_4000.wav",
+        path: "C:\\recordings\\recording_4000.wav",
+        displayName: "recording_4000.wav",
+        sizeBytes: 640_000,
+        durationMs: 20_000,
+        createdAtMs: 5_000,
+      },
+      entry("recording_1000.wav"),
+    ]);
   });
 });
