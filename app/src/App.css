@@ -448,7 +448,8 @@ h3 {
 }
 
 .workspace.waiting-layout {
-  align-content: center;
+  /* safe：内容高于可视区时退回顶部对齐，否则居中会把溢出的上半部分顶到滚动范围之外，滚不回去。 */
+  align-content: safe center;
   grid-template-columns: minmax(0, 760px);
   justify-content: center;
 }

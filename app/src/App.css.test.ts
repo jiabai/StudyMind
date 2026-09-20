@@ -559,6 +559,15 @@ describe("App result workspace layout styles", () => {
     );
   });
 
+  test("keeps the waiting layout scrollable from the top when content overflows", () => {
+    const waitingRule = getRuleBody([".workspace.waiting-layout"]);
+
+    // 居中必须带 safe：内容高于可视区时退回顶部对齐，否则溢出的上半部分落在滚动范围之外。
+    expect(waitingRule).toContain("align-content: safe center;");
+    expect(waitingRule).not.toContain("align-content: center;");
+    expect(getRuleBody([".workspace"])).toContain("overflow: auto;");
+  });
+
   test("uses readable supporting text and warning tokens", () => {
     expect(appCss).toContain("--text-muted: #5f5b52;");
     expect(appCss).toContain("--text-soft: #6b665c;");
