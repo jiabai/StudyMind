@@ -657,4 +657,25 @@ describe("App result workspace layout styles", () => {
     expect(linkHoverRule).toContain("text-decoration: underline;");
     expect(transitionRule).toContain("animation: hero-fade-in 350ms");
   });
+
+  test("keeps focus rings and panel foregrounds above the AA contrast floor", () => {
+    const rootRule = getRuleBody([":root"]);
+    const directoryRule = getRuleBody([".recording-library-directory"]);
+
+    // 焦点环要 3:1（WCAG 1.4.11）。透明绿只有 1.3:1，键盘焦点等于看不见。
+    expect(rootRule).toMatch(/--focus:\s*#64806f;/);
+    expect(rootRule).not.toMatch(/--focus:\s*rgba\(/);
+    // --primary 作正文只有 2.9:1，面板内的前景绿改用达标值（6.4:1）。
+    expect(rootRule).toContain("--primary-text: #45624f;");
+    // 选择器必须落在卡片自身那条规则里，不能匹配到 grid 布局那条。
+    expect(appCss).toMatch(
+      /\.recording-library-card\s*\{[^}]*--primary:\s*var\(--primary-text\);[^}]*\}/,
+    );
+
+    expect(directoryRule).toContain("color: var(--text-soft);");
+    expect(directoryRule).toContain("overflow-wrap: anywhere;");
+    // 有 outline 兜底的输入框光晕保持柔和，避免实色环叠成双环。
+    expect(rootRule).toContain("--focus-halo: rgba(126, 155, 138, 0.26);");
+    expect(appCss).toContain("box-shadow: 0 0 0 3px var(--focus-halo);");
+  });
 });

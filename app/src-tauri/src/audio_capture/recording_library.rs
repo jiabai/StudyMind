@@ -9,7 +9,7 @@ use super::{RecordingError, RECORDING_LIBRARY_UNAVAILABLE};
 
 const RECORDING_FILE_PREFIX: &str = "recording_";
 const RECORDING_FILE_SUFFIX: &str = ".wav";
-pub(crate) const RECORDING_LIBRARY_CONTRACT_VERSION: u8 = 1;
+pub(crate) const RECORDING_LIBRARY_CONTRACT_VERSION: u8 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -26,6 +26,7 @@ pub(crate) struct RecordingLibraryEntry {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RecordingLibraryView {
     pub(crate) contract_version: u8,
+    pub(crate) directory: String,
     pub(crate) entries: Vec<RecordingLibraryEntry>,
     pub(crate) total_bytes: u64,
 }
@@ -47,6 +48,7 @@ pub(crate) fn collect_recording_library(
     let total_bytes = entries.iter().map(|entry| entry.size_bytes).sum();
     Ok(RecordingLibraryView {
         contract_version: RECORDING_LIBRARY_CONTRACT_VERSION,
+        directory: recordings_dir.to_string_lossy().to_string(),
         entries,
         total_bytes,
     })
@@ -147,6 +149,23 @@ mod tests {
         let view = collect(&root);
         assert!(view.entries.is_empty());
         assert_eq!(view.total_bytes, 0);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn reports_the_directory_it_listed() {
+        let root = temp_root("directory");
+        let view = collect(&root);
+        assert_eq!(view.directory, root.to_string_lossy());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn reports_the_directory_even_when_it_is_empty() {
+        let root = temp_root("directory-empty");
+        let view = collect(&root);
+        assert_eq!(view.directory, root.to_string_lossy());
+        assert!(view.entries.is_empty());
         let _ = fs::remove_dir_all(&root);
     }
 

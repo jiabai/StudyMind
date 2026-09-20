@@ -31,6 +31,8 @@ export type RecordingEntryState = {
 
 export type RecordingLibraryController = {
   status: RecordingLibraryStatus;
+  /** 录音目录的绝对路径，由 Rust 契约给出；列表尚未加载时为空串。 */
+  directory: string;
   entries: RecordingLibraryEntry[];
   totalBytes: number;
   errorCode?: RecordingClientErrorCode;
@@ -123,6 +125,7 @@ export function useRecordingLibrary(
   const cancelSavedNoticeRef = useRef<(() => void) | null>(null);
 
   const [status, setStatus] = useState<RecordingLibraryStatus>("loading");
+  const [directory, setDirectory] = useState("");
   const [entries, setEntries] = useState<RecordingLibraryEntry[]>([]);
   const [totalBytes, setTotalBytes] = useState(0);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
@@ -159,6 +162,7 @@ export function useRecordingLibrary(
         return;
       }
       entriesRef.current = next.entries;
+      setDirectory(next.directory);
       setEntries(next.entries);
       setTotalBytes(next.totalBytes);
       setEntryStates((current) => pruneEntryStates(current, next.entries));
@@ -272,6 +276,7 @@ export function useRecordingLibrary(
 
   return {
     status,
+    directory,
     entries,
     totalBytes,
     errorCode,

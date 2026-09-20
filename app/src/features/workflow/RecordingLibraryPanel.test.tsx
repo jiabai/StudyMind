@@ -27,6 +27,7 @@ function createController(
 ): RecordingLibraryController {
   return {
     status: "ready",
+    directory: "",
     entries: [],
     totalBytes: 0,
     highlightedId: null,
@@ -167,5 +168,31 @@ describe("RecordingLibraryPanel", () => {
     );
 
     expect(markup).toMatch(/<button[^>]*class="recording-library-import"[^>]*disabled/);
+  });
+
+  test("names the directory the recordings are saved in", () => {
+    const markup = renderPanel(
+      createController({
+        directory: "C:\\Users\\demo\\AppData\\Local\\com.studymind.desktop\\recordings",
+      }),
+    );
+
+    expect(markup).toContain("recording-library-directory");
+    expect(markup).toContain("com.studymind.desktop");
+  });
+
+  test("omits the directory line until the library reports one", () => {
+    const markup = renderPanel(
+      createController({ entries: [entry("recording_2000.wav")] }),
+    );
+
+    expect(markup).not.toContain("recording-library-directory");
+  });
+
+  test("still names the directory when no recording has been saved yet", () => {
+    const markup = renderPanel(createController({ directory: "C:\\recordings" }));
+
+    expect(markup).toContain("recording-library-directory");
+    expect(markup).toContain("C:\\recordings");
   });
 });

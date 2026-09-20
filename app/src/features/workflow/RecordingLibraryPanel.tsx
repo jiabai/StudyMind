@@ -211,6 +211,13 @@ export function RecordingLibraryPanel({
           </ul>
         </>
       ) : null}
+
+      {/* 目录取自 Rust 契约而不是前端拼路径：平台差异与目录命名都归那边决定。 */}
+      {controller.directory ? (
+        <p className="recording-library-directory">
+          {t(`${scope}.directory`, { path: controller.directory })}
+        </p>
+      ) : null}
     </section>
   );
 }

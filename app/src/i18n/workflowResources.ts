@@ -138,6 +138,7 @@ export const workflowResources = {
         actionAria: "导入 {{name}}（{{time}}）",
         importErrorCode: "错误码 {{code}}",
         replaceHint: "将替换当前选中的「{{name}}」",
+        directory: "文件保存在：{{path}}",
       },
       attachment: {
         openAria: "添加本地媒体",
@@ -306,6 +307,7 @@ export const workflowResources = {
         actionAria: "匯入 {{name}}（{{time}}）",
         importErrorCode: "錯誤碼 {{code}}",
         replaceHint: "將取代目前選取的「{{name}}」",
+        directory: "檔案儲存在：{{path}}",
       },
       attachment: {
         openAria: "加入本機媒體",
@@ -474,6 +476,7 @@ export const workflowResources = {
         actionAria: "Import {{name}} ({{time}})",
         importErrorCode: "Code {{code}}",
         replaceHint: "Replaces the selected {{name}}",
+        directory: "Files are saved in {{path}}",
       },
       attachment: {
         openAria: "Add local media",

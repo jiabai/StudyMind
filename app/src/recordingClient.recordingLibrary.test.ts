@@ -15,8 +15,12 @@ const VALID_ENTRY = {
   createdAtMs: 1_789_197_320_039,
 };
 
+const LIBRARY_DIRECTORY =
+  "C:\\Users\\demo\\AppData\\Local\\com.studymind.desktop\\recordings";
+
 const VALID_LIBRARY = {
-  contractVersion: 1,
+  contractVersion: 2,
+  directory: LIBRARY_DIRECTORY,
   entries: [VALID_ENTRY],
   totalBytes: 102_400,
 };
@@ -39,7 +43,12 @@ describe("listLocalRecordings", () => {
   });
 
   test("accepts an empty library", async () => {
-    const empty = { contractVersion: 1, entries: [], totalBytes: 0 };
+    const empty = {
+      contractVersion: 2,
+      directory: LIBRARY_DIRECTORY,
+      entries: [],
+      totalBytes: 0,
+    };
 
     const view = await listLocalRecordings(runnerReturning(empty));
 
@@ -71,7 +80,34 @@ describe("listLocalRecordings", () => {
 
   test("rejects an unknown contract version", async () => {
     await expect(
-      listLocalRecordings(runnerReturning({ ...VALID_LIBRARY, contractVersion: 2 })),
+      listLocalRecordings(runnerReturning({ ...VALID_LIBRARY, contractVersion: 3 })),
+    ).rejects.toMatchObject({ code: "RECORDING_IPC_RESPONSE_INVALID" });
+  });
+
+  test("keeps the directory the backend reported", async () => {
+    const view = await listLocalRecordings(runnerReturning(VALID_LIBRARY));
+
+    expect(view.directory).toBe(LIBRARY_DIRECTORY);
+  });
+
+  test("rejects a payload missing the library directory", async () => {
+    const { directory, ...withoutDirectory } = VALID_LIBRARY;
+    expect(directory).toBe(LIBRARY_DIRECTORY);
+
+    await expect(
+      listLocalRecordings(runnerReturning(withoutDirectory)),
+    ).rejects.toMatchObject({ code: "RECORDING_IPC_RESPONSE_INVALID" });
+  });
+
+  test("rejects a library whose directory is not a string", async () => {
+    await expect(
+      listLocalRecordings(runnerReturning({ ...VALID_LIBRARY, directory: 42 })),
+    ).rejects.toMatchObject({ code: "RECORDING_IPC_RESPONSE_INVALID" });
+  });
+
+  test("rejects an empty directory string", async () => {
+    await expect(
+      listLocalRecordings(runnerReturning({ ...VALID_LIBRARY, directory: "" })),
     ).rejects.toMatchObject({ code: "RECORDING_IPC_RESPONSE_INVALID" });
   });
 

@@ -65,6 +65,8 @@ export type RecordingLibraryEntry = {
 
 export type RecordingLibraryView = {
   contractVersion: number;
+  /** 录音文件所在目录，面板底部据实展示，前端不自行拼路径。 */
+  directory: string;
   entries: RecordingLibraryEntry[];
   totalBytes: number;
 };
@@ -271,7 +273,7 @@ async function runRecordingCommand(
   }
 }
 
-const RECORDING_LIBRARY_CONTRACT_VERSION = 1;
+const RECORDING_LIBRARY_CONTRACT_VERSION = 2;
 
 const RECORDING_LIBRARY_ENTRY_KEYS: readonly string[] = [
   "recordingId",
@@ -285,11 +287,12 @@ const RECORDING_LIBRARY_ENTRY_KEYS: readonly string[] = [
 function parseRecordingLibraryView(value: unknown): RecordingLibraryView {
   const response = readRecordingObject(
     value,
-    ["contractVersion", "entries", "totalBytes"],
+    ["contractVersion", "directory", "entries", "totalBytes"],
     [],
   );
   if (
     response.contractVersion !== RECORDING_LIBRARY_CONTRACT_VERSION ||
+    !isBoundedString(response.directory, MAX_STRING_LENGTH) ||
     !Array.isArray(response.entries) ||
     !isSafeUnsignedInteger(response.totalBytes)
   ) {
@@ -300,6 +303,7 @@ function parseRecordingLibraryView(value: unknown): RecordingLibraryView {
   );
   return {
     contractVersion: RECORDING_LIBRARY_CONTRACT_VERSION,
+    directory: response.directory,
     entries,
     totalBytes: response.totalBytes,
   };

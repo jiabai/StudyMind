@@ -93,9 +93,12 @@ function entry(recordingId: string): RecordingLibraryEntry {
   };
 }
 
+const LIBRARY_DIRECTORY = "C:\\recordings";
+
 function view(entries: RecordingLibraryEntry[]): RecordingLibraryView {
   return {
-    contractVersion: 1,
+    contractVersion: 2,
+    directory: LIBRARY_DIRECTORY,
     entries,
     totalBytes: entries.reduce((sum, item) => sum + item.sizeBytes, 0),
   };
@@ -186,6 +189,7 @@ describe("useRecordingLibrary", () => {
     runEffects();
 
     expect(controller.status).toBe("loading");
+    expect(controller.directory).toBe("");
     expect(controller.entries).toEqual([]);
     pending.resolve(view([]));
   });
@@ -206,6 +210,7 @@ describe("useRecordingLibrary", () => {
       "recording_1000.wav",
     ]);
     expect(controller.totalBytes).toBe(2_048);
+    expect(controller.directory).toBe(LIBRARY_DIRECTORY);
   });
 
   test("enters the error state when the backend refuses to list", async () => {
