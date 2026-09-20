@@ -20,6 +20,7 @@ describe("worker error presentation", () => {
     ["ASR_ERROR", "asr.runtimeFailed"],
     ["ASR_RUNTIME_ERROR", "asr.runtimeFailed"],
     ["ASR_MODEL_UNSUPPORTED", "asr.modelUnsupported"],
+    ["ASR_INSUFFICIENT_MEMORY", "asr.insufficientMemory"],
     ["VIDEO_DOWNLOAD_OUTPUT_MISSING", "video.outputMissing"],
     ["MEDIA_VALIDATION_FAILED", "video.validationFailed"],
     ["AUDIO_EXTRACTION_FAILED", "audio.extractionFailed"],

@@ -11,6 +11,10 @@ These helpers reserve headroom so the OS UI stays responsive:
 - pin the PyTorch/funasr path to CPU so the discrete GPU stays free for DWM;
 - lower the worker process priority on Windows (best-effort) so the OS
   scheduler always favours the interactive UI over the background worker.
+
+It also exposes the commit-charge probe used to explain out-of-memory ASR
+failures, since the same page-file ceiling that limits the worker is what
+starves a multi-gigabyte model load.
 """
 
 from __future__ import annotations
@@ -78,3 +82,49 @@ def cap_onnx_threads() -> None:
         ort.set_default_inter_op_num_threads(1)
     except Exception:
         pass
+
+
+def available_commit_bytes() -> int | None:
+    """Commit charge this process can still claim, or ``None`` if unreadable.
+
+    On Windows the commit limit is physical memory plus page file, so this is
+    the figure that decides whether a multi-gigabyte ``torch`` / ``funasr``
+    import can succeed. Diagnostic only, and best-effort by design.
+    """
+
+    if sys.platform != "win32":
+        return None
+    try:
+        import ctypes
+
+        class _MemoryStatusEx(ctypes.Structure):
+            _fields_ = (
+                ("dwLength", ctypes.c_ulong),
+                ("dwMemoryLoad", ctypes.c_ulong),
+                ("ullTotalPhys", ctypes.c_ulonglong),
+                ("ullAvailPhys", ctypes.c_ulonglong),
+                ("ullTotalPageFile", ctypes.c_ulonglong),
+                ("ullAvailPageFile", ctypes.c_ulonglong),
+                ("ullTotalVirtual", ctypes.c_ulonglong),
+                ("ullAvailVirtual", ctypes.c_ulonglong),
+                ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+            )
+
+        status = _MemoryStatusEx()
+        status.dwLength = ctypes.sizeof(_MemoryStatusEx)
+        kernel32 = ctypes.windll.kernel32
+        if not kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+            return None
+        return int(status.ullAvailPageFile)
+    except Exception:
+        # Best-effort: diagnostics must never break the worker.
+        return None
+
+
+def describe_available_memory() -> str | None:
+    """Single-line memory snapshot for diagnostics, or ``None`` if unreadable."""
+
+    available = available_commit_bytes()
+    if available is None:
+        return None
+    return f"Commit available when it failed: {available / (1024**3):.2f} GB"

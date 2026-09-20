@@ -6,10 +6,13 @@ from typing import Any
 from studymind_worker.asr_runtime.types import (
     ASRDependencyError,
     ASREmptyTranscriptError,
+    ASRInsufficientMemoryError,
     ASRRuntimeError,
     ModelFactory,
     Transcript,
     extract_provider_text,
+    is_memory_exhaustion_error,
+    memory_exhaustion_message,
     missing_dependency_message,
 )
 
@@ -37,6 +40,10 @@ class QwenAsrTranscriber:
         try:
             results = model.transcribe(audio=audio_path.as_posix(), language=language)
         except Exception as exc:
+            if is_memory_exhaustion_error(exc):
+                raise ASRInsufficientMemoryError(
+                    memory_exhaustion_message("run Qwen ASR transcription", exc)
+                ) from exc
             raise ASRRuntimeError(str(exc)) from exc
 
         text = extract_provider_text(results)
@@ -58,6 +65,12 @@ class QwenAsrTranscriber:
                 raise ASRDependencyError(
                     missing_dependency_message(exc, runtime_name="Qwen ASR")
                 ) from exc
+            except Exception as exc:
+                if is_memory_exhaustion_error(exc):
+                    raise ASRInsufficientMemoryError(
+                        memory_exhaustion_message("load the Qwen ASR model", exc)
+                    ) from exc
+                raise ASRRuntimeError(str(exc)) from exc
         return self._model
 
     def _load_default_model(

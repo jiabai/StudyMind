@@ -8,11 +8,14 @@ from typing import Any
 from studymind_worker.asr_runtime.types import (
     ASRDependencyError,
     ASREmptyTranscriptError,
+    ASRInsufficientMemoryError,
     ASRRuntimeError,
     ModelFactory,
     Transcript,
     TranscriptSegment,
     extract_provider_text,
+    is_memory_exhaustion_error,
+    memory_exhaustion_message,
     missing_dependency_message,
 )
 
@@ -59,6 +62,10 @@ class SenseVoiceTranscriber:
                 cache={},
             )
         except Exception as exc:
+            if is_memory_exhaustion_error(exc):
+                raise ASRInsufficientMemoryError(
+                    memory_exhaustion_message("run SenseVoice transcription", exc)
+                ) from exc
             raise ASRRuntimeError(str(exc)) from exc
 
         text = _clean_sensevoice_text(extract_provider_text(results))
@@ -81,6 +88,19 @@ class SenseVoiceTranscriber:
                 raise ASRDependencyError(
                     missing_dependency_message(exc, runtime_name="SenseVoice ASR")
                 ) from exc
+            except Exception as exc:
+                # Loading the model is ASR work, so every failure here belongs
+                # to the ASR error family. Letting a raw RuntimeError escape
+                # collapsed it into WORKER_INTERNAL_ERROR, which the desktop
+                # renders as "the worker exited unexpectedly" and tells the
+                # user to retry something that cannot succeed.
+                if is_memory_exhaustion_error(exc):
+                    raise ASRInsufficientMemoryError(
+                        memory_exhaustion_message(
+                            "load the SenseVoice ASR model", exc
+                        )
+                    ) from exc
+                raise ASRRuntimeError(str(exc)) from exc
         return self._model
 
     def _load_default_model(
@@ -213,7 +233,14 @@ def _transcribe_sensevoice_vad_blocks(
             use_itn=generate_cfg["use_itn"],
             cache={},
         )
-    except Exception:
+    except Exception as exc:
+        # Any other failure falls back to the model-native path below, but an
+        # exhausted machine will not recover by trying again, and swallowing it
+        # here would hide the real cause behind a generic ASR failure.
+        if is_memory_exhaustion_error(exc):
+            raise ASRInsufficientMemoryError(
+                memory_exhaustion_message("run SenseVoice VAD segmentation", exc)
+            ) from exc
         return None
 
     segments: list[TranscriptSegment] = []

@@ -56,6 +56,7 @@ export const errorResources = {
       emptyTranscript: "本地 ASR 未识别到可用文字，请确认音频内容后重试。",
       runtimeFailed: "本地 ASR 运行失败，请稍后重试。",
       modelUnsupported: "当前 ASR 模型不受支持，请选择受支持的模型。",
+      insufficientMemory: "内存不足，无法加载语音识别模型。请关闭其他占用内存的程序，或调大系统页面文件后重试。",
     },
     source: { identityUnavailable: "无法确认来源信息，请重新处理该任务。" },
     task: {
@@ -150,6 +151,7 @@ export const errorResources = {
       emptyTranscript: "本機 ASR 未辨識到可用文字，請確認音訊內容後重試。",
       runtimeFailed: "本機 ASR 執行失敗，請稍後重試。",
       modelUnsupported: "目前不支援此 ASR 模型，請選擇受支援的模型。",
+      insufficientMemory: "記憶體不足，無法載入語音辨識模型。請關閉其他佔用記憶體的程式，或調大系統分頁檔後重試。",
     },
     source: { identityUnavailable: "無法確認來源資訊，請重新處理該工作。" },
     task: {
@@ -244,6 +246,7 @@ export const errorResources = {
       emptyTranscript: "Local ASR did not recognize usable text. Check the audio and try again.",
       runtimeFailed: "Local ASR failed. Try again later.",
       modelUnsupported: "This ASR model is unsupported. Choose a supported model.",
+      insufficientMemory: "There is not enough memory to load the speech recognition model. Close other memory-hungry apps, or increase the system page file size, and try again.",
     },
     source: { identityUnavailable: "StudyMind could not confirm the source. Reprocess the task." },
     task: {

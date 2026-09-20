@@ -23,6 +23,7 @@ export const WORKER_ERROR_MESSAGE_CODES = {
   ASR_ERROR: "asr.runtimeFailed",
   ASR_RUNTIME_ERROR: "asr.runtimeFailed",
   ASR_MODEL_UNSUPPORTED: "asr.modelUnsupported",
+  ASR_INSUFFICIENT_MEMORY: "asr.insufficientMemory",
   SOURCE_IDENTITY_UNAVAILABLE: "source.identityUnavailable",
   TASK_STORAGE_UNAVAILABLE: "task.storageUnavailable",
   TASK_MANIFEST_NOT_FOUND: "task.manifestNotFound",
