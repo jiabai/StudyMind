@@ -35,6 +35,10 @@ const appSidebarTsx = readFileSync(
   new URL("./features/sidebar/AppSidebar.tsx", import.meta.url),
   "utf-8",
 );
+const recordingLibraryPanelTsx = readFileSync(
+  new URL("./features/workflow/RecordingLibraryPanel.tsx", import.meta.url),
+  "utf-8",
+);
 
 function getRuleBody(selectors: string[]): string {
   const selectorPattern = selectors
@@ -557,6 +561,46 @@ describe("App result workspace layout styles", () => {
     expect(appCss).toMatch(
       /@media \(max-width: 840px\)[\s\S]*?\.workflow-entry-grid[\s\S]*?\.hero-upload-card[\s\S]*?order:\s*1[\s\S]*?\.recording-card[\s\S]*?order:\s*2/,
     );
+  });
+
+  test("distinguishes the four recording import states by text and colour", () => {
+    const savedRule = getRuleBody([".recording-library-item-status.is-saved"]);
+    const importingRule = getRuleBody([
+      ".recording-library-item-status.is-importing",
+    ]);
+    const importedRule = getRuleBody([
+      ".recording-library-item-status.is-imported",
+    ]);
+    const failedRule = getRuleBody([
+      ".recording-library-item-status.is-import-failed",
+    ]);
+    const busyActionRule = getRuleBody([
+      '.recording-library-import[aria-disabled="true"]',
+    ]);
+
+    expect(recordingLibraryPanelTsx).toContain("const ENTRY_STATUS_VIEWS");
+    expect(recordingLibraryPanelTsx).toContain("t(`${scope}.${view.statusKey}`)");
+    expect(savedRule).toContain("var(--text-muted);");
+    expect(importingRule).toContain("var(--primary);");
+    expect(importedRule).toContain("#4d7a5e;");
+    expect(failedRule).toContain("#9c554d;");
+    // 导入中只加 aria-disabled，原生 disabled 会让按钮立刻失焦。
+    expect(recordingLibraryPanelTsx).toContain(
+      'aria-disabled={importing ? "true" : undefined}',
+    );
+    expect(busyActionRule).toContain("cursor: progress;");
+  });
+
+  test("keeps the import row height and focus anchored across state changes", () => {
+    const itemRule = getRuleBody([".recording-library-item"]);
+    const actionRule = getRuleBody([".recording-library-item-actions"]);
+    const importRule = getRuleBody([".recording-library-import"]);
+
+    expect(itemRule).toContain("min-height: 68px;");
+    expect(itemRule).toContain("align-items: center;");
+    expect(actionRule).toContain("align-items: flex-end;");
+    expect(importRule).toContain("min-width: 84px;");
+    expect(appCss).toContain(".recording-library-replace-hint");
   });
 
   test("keeps the waiting layout scrollable from the top when content overflows", () => {

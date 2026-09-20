@@ -3497,14 +3497,23 @@ h3 {
 }
 
 .recording-library-item {
-  align-items: baseline;
+  align-items: center;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px 12px;
+  gap: 12px;
   justify-content: space-between;
+  min-height: 68px;
   padding: 10px 14px;
+  position: relative;
+}
+
+.recording-library-item-main {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
   position: relative;
 }
 
@@ -3520,6 +3529,85 @@ h3 {
   color: var(--text-muted);
   font-size: 0.78rem;
   position: relative;
+}
+
+.recording-library-item-actions {
+  align-items: flex-end;
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 4px;
+  position: relative;
+}
+
+/* 状态必须同时有文字和颜色：色值只做辅助，屏幕阅读器与色觉差异用户依赖文字。 */
+.recording-library-item-status {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  font-size: 0.78rem;
+  gap: 1px;
+  line-height: 1.3;
+  position: relative;
+  text-align: right;
+}
+
+.recording-library-item-status.is-saved {
+  color: var(--text-muted);
+}
+
+.recording-library-item-status.is-importing {
+  color: var(--primary);
+}
+
+.recording-library-item-status.is-imported {
+  color: #4d7a5e;
+}
+
+.recording-library-item-status.is-import-failed {
+  color: #9c554d;
+}
+
+.recording-library-item-status-code {
+  color: var(--text-soft);
+  font-size: 0.72rem;
+}
+
+.recording-library-import {
+  align-items: center;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--primary);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 0.82rem;
+  font-weight: 650;
+  gap: 6px;
+  justify-content: center;
+  /* 固定最小宽度：导入中 → 重试 时按钮尺寸不跳，焦点不会跟着位移。 */
+  min-width: 84px;
+  padding: 6px 12px;
+}
+
+.recording-library-import:not([aria-disabled="true"]):not(:disabled):hover,
+.recording-library-import:focus-visible {
+  background: #edf0e2;
+  border-color: #c8d6bc;
+}
+
+/* 导入中用 aria-disabled 而非原生 disabled，按钮因此保留焦点。 */
+.recording-library-import[aria-disabled="true"] {
+  cursor: progress;
+  opacity: 0.7;
+}
+
+.recording-library-replace-hint {
+  color: var(--text-soft);
+  font-size: 0.72rem;
+  line-height: 1.3;
+  margin: 0;
+  text-align: right;
 }
 
 /* 新保存的录音高亮 2 秒后淡出：只用 opacity 动画，避免布局与重排。

@@ -72,6 +72,21 @@ describe("App recording entry integration", () => {
     expect(waitingInputSource()).toContain("disabled={recordingActive}");
   });
 
+  test("imports a saved recording through the existing local media path", () => {
+    expect(appSource).toMatch(
+      /useRecordingLibrary\(\{[\s\S]*?selectLocalMediaByPath,/,
+    );
+    expect(appSource).toMatch(
+      /useRecordingLibrary\(\{[\s\S]*?onLocalMediaSelected: setLocalMediaSelection/,
+    );
+    expect(appSource).toMatch(
+      /useRecordingLibrary\(\{[\s\S]*?recordRecent: recentMediaController\.recordRecent/,
+    );
+    expect(waitingInputSource()).toContain(
+      "selectedMediaName={selectedLocalMediaName}",
+    );
+  });
+
   test("does not pass raw recording details into entry UI", () => {
     const source = waitingInputSource();
 

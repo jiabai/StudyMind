@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
+import type { LocalMediaSelectionView } from "../../localMediaContract";
 import {
   RecordingClientError,
   type RecordingLibraryEntry,
@@ -108,16 +109,24 @@ const SAVED_RESULT: RecordingResult = {
   warnings: [],
 };
 
-type Deferred = {
-  promise: Promise<RecordingLibraryView>;
-  resolve: (value: RecordingLibraryView) => void;
+const IMPORTED_SELECTION: LocalMediaSelectionView = {
+  selectionToken: "01234567-89ab-4def-8abc-0123456789ab",
+  displayName: "recording_2000.wav",
+  mediaKind: "audio",
+  extension: "wav",
+  sizeBytes: 1_024,
+};
+
+type DeferredValue<T> = {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
   reject: (error: unknown) => void;
 };
 
-function deferred(): Deferred {
-  let resolve!: (value: RecordingLibraryView) => void;
+function deferredValue<T>(): DeferredValue<T> {
+  let resolve!: (value: T) => void;
   let reject!: (error: unknown) => void;
-  const promise = new Promise<RecordingLibraryView>((res, rej) => {
+  const promise = new Promise<T>((res, rej) => {
     resolve = res;
     reject = rej;
   });
@@ -130,12 +139,17 @@ function flush(): Promise<void> {
   });
 }
 
+type LibraryOptions = {
+  now?: () => number;
+  scheduleTimeout?: (run: () => void, delayMs: number) => () => void;
+  selectLocalMediaByPath?: (path: string) => Promise<LocalMediaSelectionView>;
+  onLocalMediaSelected?: (selection: LocalMediaSelectionView) => void;
+  recordRecent?: (path: string, selection: LocalMediaSelectionView) => void;
+};
+
 async function createLibrary(
   listRecordings: () => Promise<RecordingLibraryView>,
-  options: {
-    now?: () => number;
-    scheduleTimeout?: (run: () => void, delayMs: number) => () => void;
-  } = {},
+  options: LibraryOptions = {},
 ) {
   const harness = createHookHarness();
   vi.doMock("react", () => ({
@@ -165,7 +179,7 @@ describe("useRecordingLibrary", () => {
   });
 
   test("starts in loading before the first response arrives", async () => {
-    const pending = deferred();
+    const pending = deferredValue<RecordingLibraryView>();
     const { render, runEffects } = await createLibrary(() => pending.promise);
 
     const controller = render();
@@ -248,7 +262,7 @@ describe("useRecordingLibrary", () => {
   });
 
   test("ignores a response that arrives after unmount", async () => {
-    const pending = deferred();
+    const pending = deferredValue<RecordingLibraryView>();
     const { render, runEffects, runCleanups } = await createLibrary(
       () => pending.promise,
     );
@@ -265,9 +279,9 @@ describe("useRecordingLibrary", () => {
   });
 
   test("keeps only the newest response when refreshes overlap", async () => {
-    const first = deferred();
-    const second = deferred();
-    const calls: Deferred[] = [first, second];
+    const first = deferredValue<RecordingLibraryView>();
+    const second = deferredValue<RecordingLibraryView>();
+    const calls: DeferredValue<RecordingLibraryView>[] = [first, second];
     let index = 0;
     const { render, runEffects } = await createLibrary(() => {
       const next = calls[index];
@@ -311,7 +325,7 @@ describe("useRecordingLibrary", () => {
   });
 
   test("inserts a saved recording at the top before the listing lands", async () => {
-    const pending = deferred();
+    const pending = deferredValue<RecordingLibraryView>();
     const { render, runEffects } = await createLibrary(() => pending.promise, {
       now: () => 5_000,
     });
@@ -464,5 +478,200 @@ describe("useRecordingLibrary", () => {
       },
       entry("recording_1000.wav"),
     ]);
+  });
+
+  test("starts with no per-entry import state", async () => {
+    const { render, runEffects } = await createLibrary(async () =>
+      view([entry("recording_2000.wav")]),
+    );
+
+    render();
+    runEffects();
+    await flush();
+
+    expect(render().entryStates).toEqual({});
+  });
+
+  test("marks the entry as importing and then imported", async () => {
+    const selection = deferredValue<LocalMediaSelectionView>();
+    const selected: LocalMediaSelectionView[] = [];
+    const recent: string[] = [];
+    const { render, runEffects } = await createLibrary(
+      async () => view([entry("recording_2000.wav")]),
+      {
+        selectLocalMediaByPath: () => selection.promise,
+        onLocalMediaSelected: (value) => selected.push(value),
+        recordRecent: (path) => recent.push(path),
+      },
+    );
+
+    render();
+    runEffects();
+    await flush();
+
+    const importing = render().importEntry(entry("recording_2000.wav"));
+    expect(render().entryStates).toEqual({
+      "recording_2000.wav": { status: "importing" },
+    });
+
+    selection.resolve(IMPORTED_SELECTION);
+    expect(await importing).toBe(true);
+
+    expect(render().entryStates).toEqual({
+      "recording_2000.wav": { status: "imported" },
+    });
+    expect(recent).toEqual(["C:\\recordings\\recording_2000.wav"]);
+    expect(selected).toEqual([IMPORTED_SELECTION]);
+  });
+
+  test("keeps the underlying code and stays retryable after a failed import", async () => {
+    let attempts = 0;
+    const { render, runEffects } = await createLibrary(
+      async () => view([entry("recording_2000.wav")]),
+      {
+        selectLocalMediaByPath: async () => {
+          attempts += 1;
+          if (attempts === 1) {
+            // select_local_media_by_path 在 Rust 侧以裸错误码字符串失败。
+            throw "LOCAL_MEDIA_UNAVAILABLE";
+          }
+          return IMPORTED_SELECTION;
+        },
+      },
+    );
+
+    render();
+    runEffects();
+    await flush();
+
+    expect(await render().importEntry(entry("recording_2000.wav"))).toBe(false);
+    expect(render().entryStates).toEqual({
+      "recording_2000.wav": {
+        status: "importFailed",
+        errorCode: "LOCAL_MEDIA_UNAVAILABLE",
+      },
+    });
+
+    expect(await render().importEntry(entry("recording_2000.wav"))).toBe(true);
+    expect(render().entryStates).toEqual({
+      "recording_2000.wav": { status: "imported" },
+    });
+  });
+
+  test("reads the failure code from an Error too", async () => {
+    const { render, runEffects } = await createLibrary(
+      async () => view([entry("recording_2000.wav")]),
+      {
+        selectLocalMediaByPath: async () => {
+          throw new Error("LOCAL_MEDIA_UNSUPPORTED_FORMAT");
+        },
+      },
+    );
+
+    render();
+    runEffects();
+    await flush();
+
+    expect(await render().importEntry(entry("recording_2000.wav"))).toBe(false);
+    expect(render().entryStates["recording_2000.wav"]).toEqual({
+      status: "importFailed",
+      errorCode: "LOCAL_MEDIA_UNSUPPORTED_FORMAT",
+    });
+  });
+
+  test("collapses an unrecognised import failure to the unknown code", async () => {
+    const { render, runEffects } = await createLibrary(
+      async () => view([entry("recording_2000.wav")]),
+      {
+        selectLocalMediaByPath: async () => {
+          throw new Error("boom");
+        },
+      },
+    );
+
+    render();
+    runEffects();
+    await flush();
+
+    expect(await render().importEntry(entry("recording_2000.wav"))).toBe(false);
+    expect(render().entryStates).toEqual({
+      "recording_2000.wav": {
+        status: "importFailed",
+        errorCode: "RECORDING_UNKNOWN_ERROR",
+      },
+    });
+  });
+
+  test("imports an already imported entry again", async () => {
+    let calls = 0;
+    const { render, runEffects } = await createLibrary(
+      async () => view([entry("recording_2000.wav")]),
+      {
+        selectLocalMediaByPath: async () => {
+          calls += 1;
+          return IMPORTED_SELECTION;
+        },
+      },
+    );
+
+    render();
+    runEffects();
+    await flush();
+
+    expect(await render().importEntry(entry("recording_2000.wav"))).toBe(true);
+    expect(render().entryStates["recording_2000.wav"]?.status).toBe("imported");
+
+    expect(await render().importEntry(entry("recording_2000.wav"))).toBe(true);
+    expect(calls).toBe(2);
+    expect(render().entryStates["recording_2000.wav"]?.status).toBe("imported");
+  });
+
+  test("ignores a second import while the first is still running", async () => {
+    let calls = 0;
+    const selection = deferredValue<LocalMediaSelectionView>();
+    const { render, runEffects } = await createLibrary(
+      async () => view([entry("recording_2000.wav")]),
+      {
+        selectLocalMediaByPath: () => {
+          calls += 1;
+          return selection.promise;
+        },
+      },
+    );
+
+    render();
+    runEffects();
+    await flush();
+
+    const first = render().importEntry(entry("recording_2000.wav"));
+    const second = render().importEntry(entry("recording_2000.wav"));
+
+    expect(await second).toBe(false);
+    expect(calls).toBe(1);
+
+    selection.resolve(IMPORTED_SELECTION);
+    expect(await first).toBe(true);
+    expect(render().entryStates["recording_2000.wav"]?.status).toBe("imported");
+  });
+
+  test("drops the import state of entries missing from a fresh listing", async () => {
+    let call = 0;
+    const { render, runEffects } = await createLibrary(async () => {
+      call += 1;
+      return call === 1 ? view([entry("recording_2000.wav")]) : view([]);
+    }, {
+      selectLocalMediaByPath: async () => IMPORTED_SELECTION,
+    });
+
+    render();
+    runEffects();
+    await flush();
+    await render().importEntry(entry("recording_2000.wav"));
+    expect(render().entryStates["recording_2000.wav"]?.status).toBe("imported");
+
+    await render().refresh();
+
+    expect(render().entries).toEqual([]);
+    expect(render().entryStates).toEqual({});
   });
 });

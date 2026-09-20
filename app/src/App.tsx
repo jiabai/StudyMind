@@ -57,6 +57,7 @@ import { useRecentMedia } from "./hooks/useRecentMedia";
 import { useLocale } from "./i18n/LocaleProvider";
 import { countTextUnits, formatWordCount } from "./i18n/formatters";
 import { uiMessage, type UiMessage } from "./i18n/uiMessage";
+import { selectLocalMediaByPath } from "./localMediaClient";
 import { isMacOsPlatform } from "./windowChrome";
 
 const asrModelLabels: Record<string, string> = {
@@ -189,8 +190,17 @@ function App() {
     aiBlockerMessage: accountAiBlockerMessage,
   });
   const recentMediaController = useRecentMedia();
-  const recordingLibraryController = useRecordingLibrary();
+  // 从列表导入复用既有的按路径选择本地媒体链路：选中后写入最近使用，并成为当前任务的输入。
+  const recordingLibraryController = useRecordingLibrary({
+    selectLocalMediaByPath,
+    onLocalMediaSelected: setLocalMediaSelection,
+    recordRecent: recentMediaController.recordRecent,
+  });
   const { applySaved: applySavedRecording } = recordingLibraryController;
+  const selectedLocalMediaName =
+    workflow.composerSource.kind === "local_media"
+      ? workflow.composerSource.selection.displayName
+      : null;
   // 停止录音只负责把成品落盘：交给录音库置顶并高亮，是否导入由用户在列表里决定。
   const recordingController = useRecordingController({
     onRecordingSaved: applySavedRecording,
@@ -742,7 +752,11 @@ function App() {
                     void submitTask(submission, account, openAccountPanel);
                   }}
                 />
-                <RecordingLibraryPanel controller={recordingLibraryController} />
+                <RecordingLibraryPanel
+                  controller={recordingLibraryController}
+                  disabled={recordingActive}
+                  selectedMediaName={selectedLocalMediaName}
+                />
               </div>
             )
           ) : (

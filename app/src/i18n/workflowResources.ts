@@ -124,6 +124,20 @@ export const workflowResources = {
         entryMeta: "{{time}} · {{duration}} · {{size}}",
         summary_one: "共 {{count}} 条 · 占用 {{size}}",
         summary_other: "共 {{count}} 条 · 占用 {{size}}",
+        status: {
+          saved: "未导入",
+          importing: "导入中",
+          imported: "已导入",
+          importFailed: "导入失败",
+        },
+        action: {
+          import: "导入",
+          importing: "导入中",
+          retry: "重试",
+        },
+        actionAria: "导入 {{name}}（{{time}}）",
+        importErrorCode: "错误码 {{code}}",
+        replaceHint: "将替换当前选中的「{{name}}」",
       },
       attachment: {
         openAria: "添加本地媒体",
@@ -278,6 +292,20 @@ export const workflowResources = {
         entryMeta: "{{time}} · {{duration}} · {{size}}",
         summary_one: "共 {{count}} 條 · 佔用 {{size}}",
         summary_other: "共 {{count}} 條 · 佔用 {{size}}",
+        status: {
+          saved: "未匯入",
+          importing: "匯入中",
+          imported: "已匯入",
+          importFailed: "匯入失敗",
+        },
+        action: {
+          import: "匯入",
+          importing: "匯入中",
+          retry: "重試",
+        },
+        actionAria: "匯入 {{name}}（{{time}}）",
+        importErrorCode: "錯誤碼 {{code}}",
+        replaceHint: "將取代目前選取的「{{name}}」",
       },
       attachment: {
         openAria: "加入本機媒體",
@@ -432,6 +460,20 @@ export const workflowResources = {
         entryMeta: "{{time}} · {{duration}} · {{size}}",
         summary_one: "{{count}} recording · {{size}} used",
         summary_other: "{{count}} recordings · {{size}} used",
+        status: {
+          saved: "Not imported",
+          importing: "Importing",
+          imported: "Imported",
+          importFailed: "Import failed",
+        },
+        action: {
+          import: "Import",
+          importing: "Importing",
+          retry: "Try again",
+        },
+        actionAria: "Import {{name}} ({{time}})",
+        importErrorCode: "Code {{code}}",
+        replaceHint: "Replaces the selected {{name}}",
       },
       attachment: {
         openAria: "Add local media",
