@@ -90,6 +90,7 @@ __pycache__/
 .ruff_cache/
 .tmp/
 
+.codebuddy/
 .workbuddy/
 .worktrees/
 
